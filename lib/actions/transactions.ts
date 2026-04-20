@@ -1,0 +1,58 @@
+'use server'
+
+import { revalidatePath } from 'next/cache'
+import { db } from '../db'
+import { transactions } from '../schema'
+import { nanoid } from '../utils'
+import { eq } from 'drizzle-orm'
+
+export async function addTransaction(data: {
+  date: string
+  amount: number
+  kind: 'expense' | 'income'
+  categoryId: string | null
+  merchantId?: string | null
+  note?: string | null
+  recurringId?: string | null
+  reimbursable?: number
+  cleared?: number
+}) {
+  await db.insert(transactions).values({ id: nanoid(), ...data })
+  revalidatePath('/', 'layout')
+}
+
+export async function updateTransaction(
+  id: string,
+  data: {
+    date?: string
+    amount?: number
+    kind?: 'expense' | 'income'
+    categoryId?: string | null
+    merchantId?: string | null
+    note?: string | null
+    reimbursable?: number
+  },
+) {
+  await db.update(transactions).set(data).where(eq(transactions.id, id))
+  revalidatePath('/', 'layout')
+}
+
+export async function deleteTransaction(id: string) {
+  await db.delete(transactions).where(eq(transactions.id, id))
+  revalidatePath('/', 'layout')
+}
+
+export async function clearTransaction(id: string, cleared: boolean) {
+  await db.update(transactions).set({ cleared: cleared ? 1 : 0 }).where(eq(transactions.id, id))
+  revalidatePath('/', 'layout')
+}
+
+export async function linkTransactionToRecurring(id: string, recurringId: string) {
+  await db.update(transactions).set({ recurringId }).where(eq(transactions.id, id))
+  revalidatePath('/', 'layout')
+}
+
+export async function detachTransactionFromRecurring(id: string) {
+  await db.update(transactions).set({ recurringId: null }).where(eq(transactions.id, id))
+  revalidatePath('/', 'layout')
+}

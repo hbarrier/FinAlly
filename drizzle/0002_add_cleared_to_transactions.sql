@@ -1,0 +1,1 @@
+ALTER TABLE `transactions` ADD `cleared` integer DEFAULT 0 NOT NULL;

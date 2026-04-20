@@ -1,0 +1,131 @@
+import { int, real, text, sqliteTable, unique } from 'drizzle-orm/sqlite-core'
+import { sql, relations } from 'drizzle-orm'
+
+// --- categories ---
+export const categories = sqliteTable('categories', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  icon: text('icon').notNull().default('tag'),
+  color: text('color').notNull().default('teal'),
+  kind: text('kind', { enum: ['expense', 'income'] }).notNull(),
+  isPensionAlimentaire: int('is_pension_alimentaire').notNull().default(0),
+  createdAt: text('created_at')
+    .notNull()
+    .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
+})
+
+// --- merchants ---
+export const merchants = sqliteTable('merchants', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  comment: text('comment'),
+  categoryId: text('category_id').references(() => categories.id, {
+    onDelete: 'set null',
+  }),
+  isActive: int('is_active').notNull().default(1),
+})
+
+// --- recurring ---
+export const recurring = sqliteTable('recurring', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  amount: real('amount').notNull(),
+  kind: text('kind', { enum: ['expense', 'income'] }).notNull(),
+  categoryId: text('category_id').references(() => categories.id, {
+    onDelete: 'set null',
+  }),
+  cadence: text('cadence', {
+    enum: ['weekly', 'monthly', 'yearly'],
+  }).notNull(),
+  dayOfMonth: int('day_of_month'),
+  dayOfWeek: int('day_of_week'),
+  startDate: text('start_date').notNull(),
+  endDate: text('end_date'),
+})
+
+// --- recurring amounts (time-versioned history) ---
+export const recurringAmounts = sqliteTable('recurring_amounts', {
+  id: text('id').primaryKey(),
+  recurringId: text('recurring_id')
+    .notNull()
+    .references(() => recurring.id, { onDelete: 'cascade' }),
+  amount: real('amount').notNull(),
+  startDate: text('start_date').notNull(),
+})
+
+export const recurringRelations = relations(recurring, ({ many }) => ({
+  amounts: many(recurringAmounts),
+}))
+
+export const recurringAmountsRelations = relations(recurringAmounts, ({ one }) => ({
+  recurring: one(recurring, {
+    fields: [recurringAmounts.recurringId],
+    references: [recurring.id],
+  }),
+}))
+
+// --- transactions ---
+export const transactions = sqliteTable('transactions', {
+  id: text('id').primaryKey(),
+  date: text('date').notNull(),
+  amount: real('amount').notNull(),
+  kind: text('kind', { enum: ['expense', 'income'] }).notNull(),
+  categoryId: text('category_id').references(() => categories.id, {
+    onDelete: 'set null',
+  }),
+  merchantId: text('merchant_id').references(() => merchants.id, {
+    onDelete: 'set null',
+  }),
+  note: text('note'),
+  recurringId: text('recurring_id').references(() => recurring.id, {
+    onDelete: 'set null',
+  }),
+  reimbursable: int('reimbursable').notNull().default(0),
+  reimbursementTxId: text('reimbursement_tx_id'),
+  cleared: int('cleared').notNull().default(0),
+  createdAt: text('created_at')
+    .notNull()
+    .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
+})
+
+// --- budgets ---
+export const budgets = sqliteTable(
+  'budgets',
+  {
+    id: text('id').primaryKey(),
+    categoryId: text('category_id')
+      .notNull()
+      .references(() => categories.id, { onDelete: 'cascade' }),
+    limitAmount: real('limit_amount').notNull(),
+  },
+  (t) => [unique('budgets_category_unique').on(t.categoryId)],
+)
+
+// --- goals ---
+export const goals = sqliteTable('goals', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  target: real('target').notNull(),
+  saved: real('saved').notNull().default(0),
+  icon: text('icon').notNull().default('cat-seed'),
+  color: text('color').notNull().default('sage'),
+  deadline: text('deadline'),
+  createdAt: text('created_at')
+    .notNull()
+    .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
+})
+
+// --- user settings (single row) ---
+export const userSettings = sqliteTable('user_settings', {
+  id: int('id').primaryKey().default(1),
+  name: text('name').notNull().default('You'),
+  startingBalance: real('starting_balance').notNull().default(0),
+  currency: text('currency').notNull().default('EUR'),
+})
+
+// --- reimbursement rates (global, time-versioned) ---
+export const reimbursementRates = sqliteTable('reimbursement_rates', {
+  id: text('id').primaryKey(),
+  percent: real('percent').notNull(),   // e.g. 75 for 75%
+  startDate: text('start_date').notNull(), // ISO date, rate applies from this date onward
+})

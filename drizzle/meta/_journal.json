@@ -1,0 +1,34 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1776528707453,
+      "tag": "0000_yellow_smasher",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1776607331569,
+      "tag": "0001_abnormal_omega_flight",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1776675167091,
+      "tag": "0002_add_cleared_to_transactions",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1776683220395,
+      "tag": "0003_real_sir_ram",
+      "breakpoints": true
+    }
+  ]
+}
