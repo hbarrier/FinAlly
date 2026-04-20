@@ -12,5 +12,5 @@ export default async function BudgetsPage() {
       orderBy: [desc(transactions.date)],
     }),
   ])
-  return <BudgetsClient categories={cats} budgets={budgetsList} transactions={txns as any} />
+  return <BudgetsClient categories={cats} budgets={budgetsList} transactions={txns} />
 }

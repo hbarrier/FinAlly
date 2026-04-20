@@ -1,12 +1,17 @@
 'use client'
 
 import { useState, useTransition, useMemo } from 'react'
+import dynamic from 'next/dynamic'
 import { Icon } from '@/components/fern/icon'
 import { CatSwatch } from '@/components/fern/cat-swatch'
 import { Chip } from '@/components/fern/chip'
 import { SegmentedControl } from '@/components/fern/segmented-control'
 import { TransactionSheet } from '@/components/fern/sheets/transaction-sheet'
-import { fmt, allOccurrencesInRange, type Category, type Transaction, type Recurring } from '@/lib/derive'
+import { fmt, allOccurrencesInRange, formatDate, type Category, type Transaction, type Recurring } from '@/lib/derive'
+import { PageHeader } from '@/components/fern/page-header'
+import { FernButton } from '@/components/fern/button'
+import { EmptyState } from '@/components/fern/empty-state'
+import { Fab } from '@/components/fern/fab'
 import {
   addTransaction,
   updateTransaction,
@@ -15,9 +20,12 @@ import {
   detachTransactionFromRecurring,
 } from '@/lib/actions/transactions'
 import { RecurringLinkSheet } from '@/components/fern/sheets/recurring-link-sheet'
-import { ImportWizard } from './import-wizard'
+import type { Merchant } from '@/lib/db-types'
 
-type Merchant = { id: string; name: string; categoryId: string | null }
+const ImportWizard = dynamic(
+  () => import('./import-wizard').then((m) => m.ImportWizard),
+  { ssr: false },
+)
 
 type VirtualEntry = {
   _virtual: true
@@ -103,8 +111,19 @@ export function TransactionsClient({ transactions: txns, categories, merchants, 
       }))
   }, [recurring, txns])
 
+  const categoryById = useMemo(
+    () => new Map(categories.map((c) => [c.id, c])),
+    [categories],
+  )
+
+  const merchantById = useMemo(
+    () => new Map(merchants.map((m) => [m.id, m])),
+    [merchants],
+  )
+
   const filtered = useMemo(() => {
     const all: Movement[] = [...txns, ...virtualEntries]
+    const needle = q.toLowerCase()
     return all.filter((m) => {
       if (kindFilter !== 'all' && m.kind !== kindFilter) return false
       if (catFilter !== 'all' && m.categoryId !== catFilter) return false
@@ -114,7 +133,6 @@ export function TransactionsClient({ transactions: txns, categories, merchants, 
       }
       if (clearedFilter !== 'all') {
         if (isVirtual(m)) {
-          // virtual entries are inherently uncleared — hide them only when filtering for cleared
           if (clearedFilter === 'cleared') return false
         } else {
           const isCleared = (m as Transaction).cleared === 1
@@ -123,15 +141,15 @@ export function TransactionsClient({ transactions: txns, categories, merchants, 
         }
       }
       if (q) {
-        const cat = categories.find((c) => c.id === m.categoryId)
+        const cat = m.categoryId ? categoryById.get(m.categoryId) : undefined
         const hay = isVirtual(m)
           ? `${m.name} ${cat?.name ?? ''}`.toLowerCase()
           : `${(m as Transaction).note ?? ''} ${cat?.name ?? ''}`.toLowerCase()
-        if (!hay.includes(q.toLowerCase())) return false
+        if (!hay.includes(needle)) return false
       }
       return true
     })
-  }, [txns, virtualEntries, kindFilter, catFilter, merchantFilter, clearedFilter, q, categories])
+  }, [txns, virtualEntries, kindFilter, catFilter, merchantFilter, clearedFilter, q, categoryById])
 
   // Group by year → date
   const yearGroups = useMemo(() => {
@@ -199,30 +217,24 @@ export function TransactionsClient({ transactions: txns, categories, merchants, 
 
   return (
     <div>
-      <div className="fern-page-header">
-        <div>
-          <div className="fern-page-kicker">All history</div>
-          <h1 className="fern-page-title">Your <em>movements</em></h1>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 11, fontFamily: 'var(--mono-fern)', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--ink-faint)' }}>
-            {filteredActual} of {txns.length}
-            {filteredScheduled > 0 && <> · <span style={{ color: 'var(--butter-ink)' }}>{filteredScheduled} scheduled</span></>}
-          </span>
-          <button
-            onClick={() => setImportOpen(true)}
-            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 16px', borderRadius: 12, background: 'var(--bg-elevated)', color: 'var(--ink-soft)', border: '1.5px solid var(--line)', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
-          >
-            <Icon name="upload" size={16} /> Import
-          </button>
-          <button
-            onClick={() => { setEditingTxn(null); setPrefillData(null); setSheetOpen(true) }}
-            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 16px', borderRadius: 12, background: 'var(--terracotta)', color: 'white', border: 'none', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
-          >
-            <Icon name="plus" size={16} /> Add
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        kicker="All history"
+        title={<>Your <em>movements</em></>}
+        actions={
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 11, fontFamily: 'var(--mono-fern)', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--ink-faint)' }}>
+              {filteredActual} of {txns.length}
+              {filteredScheduled > 0 && <> · <span style={{ color: 'var(--butter-ink)' }}>{filteredScheduled} scheduled</span></>}
+            </span>
+            <FernButton tone="outline" onClick={() => setImportOpen(true)}>
+              <Icon name="upload" size={16} /> Import
+            </FernButton>
+            <FernButton onClick={() => { setEditingTxn(null); setPrefillData(null); setSheetOpen(true) }}>
+              <Icon name="plus" size={16} /> Add
+            </FernButton>
+          </div>
+        }
+      />
 
       {/* Filters */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -275,17 +287,9 @@ export function TransactionsClient({ transactions: txns, categories, merchants, 
       </div>
 
       {txns.length === 0 && virtualEntries.length === 0 ? (
-        <div className="fern-empty">
-          <div className="illu">◇</div>
-          <h3 style={{ fontSize: 18, margin: '0 0 8px' }}>No transactions yet</h3>
-          <p style={{ margin: 0 }}>Log your first expense or income to see it here.</p>
-        </div>
+        <EmptyState title="No transactions yet" description="Log your first expense or income to see it here." />
       ) : filtered.length === 0 ? (
-        <div className="fern-empty">
-          <div className="illu">◌</div>
-          <h3 style={{ fontSize: 18, margin: '0 0 8px' }}>Nothing matches</h3>
-          <p style={{ margin: 0 }}>Try a different search or filter.</p>
-        </div>
+        <EmptyState illu="◌" title="Nothing matches" description="Try a different search or filter." />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
           {yearGroups.map(([year, dateGroups]) => (
@@ -294,7 +298,7 @@ export function TransactionsClient({ transactions: txns, categories, merchants, 
               <div className="fern-card" style={{ padding: '8px 16px' }}>
                 {dateGroups.map(([date, items]) => {
                   const total = items.reduce((s, m) => s + (m.kind === 'income' ? 1 : -1) * Number(m.amount ?? 0), 0)
-                  const label = new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', day: 'numeric', month: 'long' })
+                  const label = formatDate(date + 'T12:00:00', 'en-US', { weekday: 'long', day: 'numeric', month: 'long' })
                   return (
                     <div key={date}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 4px 6px', fontSize: 12, borderBottom: '1px solid var(--line-soft)' }}>
@@ -304,7 +308,7 @@ export function TransactionsClient({ transactions: txns, categories, merchants, 
                         </span>
                       </div>
                       {items.map((m) => {
-                  const cat = categories.find((c) => c.id === m.categoryId)
+                  const cat = m.categoryId ? categoryById.get(m.categoryId) : undefined
                   if (isVirtual(m)) {
                     return (
                       <div
@@ -359,7 +363,7 @@ export function TransactionsClient({ transactions: txns, categories, merchants, 
                     )
                   }
                   const t = m as Transaction
-                  const merchant = merchants.find((mer) => mer.id === t.merchantId)
+                  const merchant = t.merchantId ? merchantById.get(t.merchantId) : undefined
                   const isCleared = t.cleared === 1
                   return (
                     <div key={t.id} className="fern-txn-row" onClick={() => { setEditingTxn(t); setPrefillData(null); setSheetOpen(true) }}>
@@ -430,20 +434,16 @@ export function TransactionsClient({ transactions: txns, categories, merchants, 
         </div>
       )}
 
-      <button
-        className="fern-fab"
+      <Fab
         onClick={() => { setEditingTxn(null); setPrefillData(null); setSheetOpen(true) }}
-        aria-label="Log something"
-      >
-        <Icon name="plus" size={26} />
-      </button>
+        label="Log something"
+      />
 
       <ImportWizard
         open={importOpen}
         onClose={() => setImportOpen(false)}
         merchants={merchants}
         recurring={recurring}
-        categories={categories}
       />
 
       <TransactionSheet

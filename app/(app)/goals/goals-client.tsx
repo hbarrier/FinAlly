@@ -4,12 +4,12 @@ import { useState, useTransition } from 'react'
 import { Icon } from '@/components/fern/icon'
 import { GoalRing } from '@/components/fern/goal-ring'
 import { GoalSheet } from '@/components/fern/sheets/goal-sheet'
-import { fmt } from '@/lib/derive'
+import { PageHeader } from '@/components/fern/page-header'
+import { FernButton } from '@/components/fern/button'
+import { EmptyState } from '@/components/fern/empty-state'
+import { fmt, formatDate } from '@/lib/derive'
 import { addGoal, updateGoal, deleteGoal } from '@/lib/actions/goals'
-import type { InferSelectModel } from 'drizzle-orm'
-import type { goals } from '@/lib/schema'
-
-type Goal = InferSelectModel<typeof goals>
+import type { Goal } from '@/lib/db-types'
 
 interface GoalsClientProps {
   goals: Goal[]
@@ -44,28 +44,31 @@ export function GoalsClient({ goals: goalsList }: GoalsClientProps) {
 
   return (
     <div>
-      <div className="fern-page-header">
-        <div>
-          <div className="fern-page-kicker">Something to aim for</div>
-          <h1 className="fern-page-title">Savings <em>goals</em></h1>
-        </div>
-        <button
-          onClick={() => setEditing('new')}
-          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 16px', borderRadius: 12, background: 'var(--terracotta)', color: 'white', border: 'none', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
-        >
-          <Icon name="plus" size={16} /> New goal
-        </button>
-      </div>
+      <PageHeader
+        kicker="Something to aim for"
+        title={<>Savings <em>goals</em></>}
+        actions={
+          <FernButton onClick={() => setEditing('new')}>
+            <Icon name="plus" size={16} /> New goal
+          </FernButton>
+        }
+      />
 
       {goalsList.length === 0 ? (
-        <div className="fern-empty">
-          <div className="illu">☼</div>
-          <h3 style={{ fontSize: 18, margin: '0 0 8px' }}>No goals yet</h3>
-          <p style={{ margin: 0 }}>A trip, a new bike, an emergency fund — tell Fern what you&apos;re saving toward.</p>
-          <button onClick={() => setEditing('new')} style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, border: '1.5px solid var(--line)', background: 'transparent', cursor: 'pointer', fontSize: 13, color: 'var(--ink)' }}>
-            <Icon name="plus" size={14} /> Create first goal
-          </button>
-        </div>
+        <EmptyState
+          illu="☼"
+          title="No goals yet"
+          description={<>A trip, a new bike, an emergency fund — tell Fern what you&apos;re saving toward.</>}
+          action={
+            <FernButton
+              tone="outline"
+              onClick={() => setEditing('new')}
+              style={{ marginTop: 12, padding: '8px 14px', borderRadius: 10, fontSize: 13, background: 'transparent', color: 'var(--ink)' }}
+            >
+              <Icon name="plus" size={14} /> Create first goal
+            </FernButton>
+          }
+        />
       ) : (
         <div className="fern-goals-grid">
           {goalsList.map((g) => {
@@ -84,7 +87,7 @@ export function GoalsClient({ goals: goalsList }: GoalsClientProps) {
                 </div>
                 {g.deadline && (
                   <div style={{ fontSize: 11, color: 'var(--ink-faint)', marginBottom: 12, fontFamily: 'var(--mono-fern)' }}>
-                    Due {new Date(g.deadline + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
+                    Due {formatDate(g.deadline + 'T12:00:00', 'en-US', { month: 'short', year: 'numeric' })}
                   </div>
                 )}
                 <div style={{ width: '100%', height: 1, background: 'var(--line-soft)', margin: '0 0 12px' }} />

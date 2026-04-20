@@ -3,18 +3,17 @@
 import { useState, useTransition, useMemo } from 'react'
 import { Icon } from '@/components/fern/icon'
 import { ReimbursementSheet } from '@/components/fern/sheets/reimbursement-sheet'
-import { fmt } from '@/lib/derive'
-import type { InferSelectModel } from 'drizzle-orm'
-import type { reimbursementRates, transactions } from '@/lib/schema'
+import { fmt, formatDate } from '@/lib/derive'
+import type {
+  ReimbursementRate as Rate,
+  Transaction as PensionTx,
+} from '@/lib/db-types'
 import {
   addReimbursementRate,
   deleteReimbursementRate,
   recordReimbursement,
   deleteReimbursement,
 } from '@/lib/actions/reimbursements'
-
-type Rate = InferSelectModel<typeof reimbursementRates>
-type PensionTx = InferSelectModel<typeof transactions>
 
 interface Expense {
   id: string
@@ -30,10 +29,6 @@ interface Props {
   expenses: Expense[]
   pensionTxs: PensionTx[]
   rates: Rate[]
-}
-
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })
 }
 
 // Annual summary helpers
@@ -214,7 +209,7 @@ export function ReimbursementsClient({ expenses, pensionTxs, rates }: Props) {
 
         {expenses.length === 0 ? (
           <div style={{ background: 'var(--bg-elevated)', borderRadius: 12, padding: '24px 16px', color: 'var(--ink-soft)', fontSize: 13, textAlign: 'center' }}>
-            Aucune dépense remboursable. Cochez "Remboursable" lors de la saisie d'une dépense.
+            Aucune dépense remboursable. Cochez &laquo;&nbsp;Remboursable&nbsp;&raquo; lors de la saisie d&rsquo;une dépense.
           </div>
         ) : (
           <div style={{ background: 'var(--bg-elevated)', borderRadius: 12, overflow: 'hidden' }}>
@@ -231,7 +226,7 @@ export function ReimbursementsClient({ expenses, pensionTxs, rates }: Props) {
                   padding: '12px 16px',
                   background: 'none',
                   border: 'none',
-                  borderBottom: i < expenses.length - 1 ? '1px solid var(--line)' : undefined,
+                  borderBottom: i < pending.length - 1 ? '1px solid var(--line)' : undefined,
                   cursor: 'pointer',
                   textAlign: 'left',
                 }}
@@ -306,7 +301,7 @@ export function ReimbursementsClient({ expenses, pensionTxs, rates }: Props) {
         </h2>
         {pensionTxs.length === 0 ? (
           <div style={{ background: 'var(--bg-elevated)', borderRadius: 12, padding: '24px 16px', color: 'var(--ink-soft)', fontSize: 13, textAlign: 'center' }}>
-            Aucun versement enregistré. Ajoutez un revenu avec la catégorie "Pension alimentaire".
+            Aucun versement enregistré. Ajoutez un revenu avec la catégorie &laquo;&nbsp;Pension alimentaire&nbsp;&raquo;.
           </div>
         ) : (
           <div style={{ background: 'var(--bg-elevated)', borderRadius: 12, overflow: 'hidden' }}>

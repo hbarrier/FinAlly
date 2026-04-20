@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useId, useMemo, useState } from 'react'
 import { ChevronsUpDown, Check } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import {
@@ -40,17 +40,25 @@ export function SearchableSelect({
   nullLabel = 'None',
 }: SearchableSelectProps) {
   const [open, setOpen] = useState(false)
+  const listboxId = useId()
 
-  const selectedOption = options.find((o) => o.value === value)
+  const selectedOption = useMemo(
+    () => options.find((o) => o.value === value),
+    [options, value],
+  )
 
-  const groups = options.reduce<Record<string, SelectOption[]>>((acc, opt) => {
-    const g = opt.group ?? ''
-    if (!acc[g]) acc[g] = []
-    acc[g].push(opt)
-    return acc
-  }, {})
-
-  const hasGroups = Object.keys(groups).some((k) => k !== '')
+  const { groups, hasGroups } = useMemo(() => {
+    const grouped = options.reduce<Record<string, SelectOption[]>>((acc, opt) => {
+      const g = opt.group ?? ''
+      if (!acc[g]) acc[g] = []
+      acc[g].push(opt)
+      return acc
+    }, {})
+    return {
+      groups: grouped,
+      hasGroups: Object.keys(grouped).some((k) => k !== ''),
+    }
+  }, [options])
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -59,6 +67,7 @@ export function SearchableSelect({
           type="button"
           role="combobox"
           aria-expanded={open}
+          aria-controls={listboxId}
           className="fern-select"
           style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
         >
@@ -74,7 +83,7 @@ export function SearchableSelect({
       >
         <Command>
           <CommandInput placeholder={searchPlaceholder} />
-          <CommandList>
+          <CommandList id={listboxId}>
             <CommandEmpty>{emptyText}</CommandEmpty>
             {nullable && (
               <CommandGroup>

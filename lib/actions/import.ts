@@ -1,9 +1,10 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
+import { revalidateApp } from './_shared'
 import { db } from '../db'
 import { merchants, transactions } from '../schema'
 import { nanoid } from '../utils'
+import { inArray } from 'drizzle-orm'
 
 export type MerchantMappingPayload = {
   csvName: string
@@ -25,7 +26,20 @@ export async function importTransactions(payload: {
 }) {
   const { merchantMappings, rows } = payload
 
-  // Build csvName → { merchantId, categoryId, recurringId } map
+  const existingIdsToLookup = merchantMappings
+    .filter((m) => m.action === 'map-existing' && m.existingMerchantId)
+    .map((m) => m.existingMerchantId!)
+
+  const existingById = new Map<string, { id: string; categoryId: string | null }>()
+  if (existingIdsToLookup.length > 0) {
+    const rowsFound = await db
+      .select({ id: merchants.id, categoryId: merchants.categoryId })
+      .from(merchants)
+      .where(inArray(merchants.id, existingIdsToLookup))
+    for (const row of rowsFound) existingById.set(row.id, row)
+  }
+
+  const newMerchantInserts: { id: string; name: string }[] = []
   const resolved = new Map<
     string,
     { merchantId: string | null; categoryId: string | null; recurringId: string | null }
@@ -33,9 +47,7 @@ export async function importTransactions(payload: {
 
   for (const m of merchantMappings) {
     if (m.action === 'map-existing' && m.existingMerchantId) {
-      const existing = await db.query.merchants.findFirst({
-        where: (t, { eq }) => eq(t.id, m.existingMerchantId!),
-      })
+      const existing = existingById.get(m.existingMerchantId)
       resolved.set(m.csvName, {
         merchantId: m.existingMerchantId,
         categoryId: existing?.categoryId ?? null,
@@ -44,7 +56,7 @@ export async function importTransactions(payload: {
     } else {
       const name = m.action === 'create-custom' ? m.customName.trim() : m.csvName
       const id = nanoid()
-      await db.insert(merchants).values({ id, name })
+      newMerchantInserts.push({ id, name })
       resolved.set(m.csvName, {
         merchantId: id,
         categoryId: null,
@@ -53,23 +65,29 @@ export async function importTransactions(payload: {
     }
   }
 
-  if (rows.length > 0) {
-    await db.insert(transactions).values(
-      rows.map((row) => {
-        const res = resolved.get(row.merchantCsvName)
-        return {
-          id: nanoid(),
-          date: row.date,
-          amount: row.amount,
-          kind: 'expense' as const,
-          merchantId: res?.merchantId ?? null,
-          categoryId: res?.categoryId ?? null,
-          recurringId: res?.recurringId ?? null,
-          cleared: 1,
-        }
-      }),
-    )
-  }
+  await db.transaction(async (tx) => {
+    if (newMerchantInserts.length > 0) {
+      await tx.insert(merchants).values(newMerchantInserts)
+    }
 
-  revalidatePath('/', 'layout')
+    if (rows.length > 0) {
+      await tx.insert(transactions).values(
+        rows.map((row) => {
+          const res = resolved.get(row.merchantCsvName)
+          return {
+            id: nanoid(),
+            date: row.date,
+            amount: row.amount,
+            kind: 'expense' as const,
+            merchantId: res?.merchantId ?? null,
+            categoryId: res?.categoryId ?? null,
+            recurringId: res?.recurringId ?? null,
+            cleared: 1,
+          }
+        }),
+      )
+    }
+  })
+
+  revalidateApp()
 }

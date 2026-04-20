@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useTransition } from 'react'
+import { useEffect, useMemo, useState, useTransition } from 'react'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -10,7 +10,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
-import { Field, FieldLabel, FieldError } from '@/components/ui/field'
+import { Field, FieldError } from '@/components/ui/field'
 import { Icon } from '../icon'
 import { SegmentedControl } from '../segmented-control'
 import { SearchableSelect } from '../searchable-select'
@@ -23,6 +23,8 @@ const CADENCES = [
   { value: 'monthly', label: 'Monthly' },
   { value: 'yearly', label: 'Yearly' },
 ]
+
+const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 const createSchema = z.object({
   name: z.string().min(1, 'Name is required'),
@@ -83,22 +85,28 @@ export function RecurringLinkSheet({
       setAttachValue(null)
       setTab('create')
     }
-  }, [open])
+  }, [open, transaction, reset])
 
   const showErr = (field: keyof CreateFormValues) =>
     !!(errors[field] && (dirtyFields[field] || isSubmitted))
 
   const watchedCadence = watch('cadence')
 
-  const categoryOptions = categories
-    .filter((c) => c.kind === transaction.kind)
-    .sort((a, b) => a.name.localeCompare(b.name))
-    .map((c) => ({ value: c.id, label: c.name }))
+  const categoryOptions = useMemo(
+    () => categories
+      .filter((c) => c.kind === transaction.kind)
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((c) => ({ value: c.id, label: c.name })),
+    [categories, transaction.kind],
+  )
 
-  const recurringOptions = recurring
-    .filter((r) => r.kind === transaction.kind)
-    .sort((a, b) => a.name.localeCompare(b.name))
-    .map((r) => ({ value: r.id, label: r.name }))
+  const recurringOptions = useMemo(
+    () => recurring
+      .filter((r) => r.kind === transaction.kind)
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((r) => ({ value: r.id, label: r.name })),
+    [recurring, transaction.kind],
+  )
 
   const onCreateSubmit = (data: CreateFormValues) => {
     startTransition(async () => {
@@ -135,15 +143,14 @@ export function RecurringLinkSheet({
 
   return (
     <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
-      <SheetContent side="right" style={{ maxWidth: 460, background: 'var(--bg-elevated)', border: 'none' }}>
+      <SheetContent side="right" className="fern-sheet-content">
         <SheetHeader>
-          <SheetTitle style={{ color: 'var(--ink)' }}>
+          <SheetTitle className="fern-sheet-title">
             {isLinked ? 'Manage recurring' : 'Make recurring'}
           </SheetTitle>
         </SheetHeader>
 
-        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '0 24px 24px', display: 'flex', flexDirection: 'column', gap: 18 }}>
-          {/* Transaction summary pill */}
+        <div className="fern-sheet-body">
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderRadius: 10, background: 'var(--bg-sunken)' }}>
             <span style={{ fontFamily: 'var(--mono-fern)', fontWeight: 700, fontSize: 15, color: kindColor }}>
               {transaction.kind === 'income' ? '+' : '−'}{fmt(Math.abs(Number(transaction.amount)))}
@@ -166,7 +173,6 @@ export function RecurringLinkSheet({
             </span>
           </div>
 
-          {/* ── Linked: detach view ── */}
           {isLinked ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div style={{ padding: '12px 14px', borderRadius: 10, background: 'var(--bg-sunken)', display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -194,20 +200,8 @@ export function RecurringLinkSheet({
                 <button
                   type="button"
                   onClick={handleDetach}
-                  style={{
-                    background: 'var(--rose-bg)',
-                    color: 'var(--rose-ink)',
-                    border: 'none',
-                    borderRadius: 10,
-                    padding: '10px 14px',
-                    fontSize: 13,
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 6,
-                  }}
+                  className="fern-btn danger"
+                  style={{ padding: '10px 14px', borderRadius: 10, fontSize: 13 }}
                 >
                   <Icon name="x" size={14} /> Detach from recurring
                 </button>
@@ -215,17 +209,14 @@ export function RecurringLinkSheet({
             </div>
           ) : (
             <>
-              {/* ── Unlinked: tabs ── */}
               <SegmentedControl
                 value={tab}
                 onChange={(v) => setTab(v as 'create' | 'attach')}
                 options={[{ value: 'create', label: 'Create new' }, { value: 'attach', label: 'Attach to existing' }]}
               />
 
-              {/* ── Create new tab ── */}
               {tab === 'create' && (
                 successName !== null ? (
-                  // Success view
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, padding: '24px 0', textAlign: 'center' }}>
                     <div style={{
                       width: 48, height: 48, borderRadius: '50%',
@@ -245,29 +236,16 @@ export function RecurringLinkSheet({
                     <button
                       type="button"
                       onClick={onClose}
-                      style={{
-                        marginTop: 8,
-                        padding: '10px 28px',
-                        borderRadius: 10,
-                        background: 'var(--terracotta)',
-                        color: 'white',
-                        border: 'none',
-                        fontSize: 13,
-                        fontWeight: 600,
-                        cursor: 'pointer',
-                      }}
+                      className="fern-btn sheet-primary primary"
+                      style={{ marginTop: 8, flex: 'none', padding: '10px 28px' }}
                     >
                       Done
                     </button>
                   </div>
                 ) : (
-                  // Create form
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                    {/* Name */}
                     <Field data-invalid={showErr('name')}>
-                      <FieldLabel style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-soft)', display: 'block', marginBottom: 6 }}>
-                        Name
-                      </FieldLabel>
+                      <label className="fern-field-label">Name</label>
                       <input
                         className="fern-input"
                         placeholder="e.g. Spotify, Rent, Salary"
@@ -276,11 +254,8 @@ export function RecurringLinkSheet({
                       {showErr('name') && <FieldError>{errors.name?.message}</FieldError>}
                     </Field>
 
-                    {/* Cadence */}
                     <div>
-                      <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-soft)', display: 'block', marginBottom: 8 }}>
-                        How often
-                      </label>
+                      <label className="fern-field-label wide">How often</label>
                       <Controller
                         control={control}
                         name="cadence"
@@ -294,12 +269,9 @@ export function RecurringLinkSheet({
                       />
                     </div>
 
-                    {/* Day of month */}
                     {watchedCadence === 'monthly' && (
                       <Field>
-                        <FieldLabel style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-soft)', display: 'block', marginBottom: 6 }}>
-                          Day of month
-                        </FieldLabel>
+                        <label className="fern-field-label">Day of month</label>
                         <input
                           className="fern-input"
                           type="number"
@@ -310,18 +282,15 @@ export function RecurringLinkSheet({
                       </Field>
                     )}
 
-                    {/* Day of week */}
                     {watchedCadence === 'weekly' && (
                       <div>
-                        <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-soft)', display: 'block', marginBottom: 8 }}>
-                          Day of week
-                        </label>
+                        <label className="fern-field-label wide">Day of week</label>
                         <Controller
                           control={control}
                           name="dayOfWeek"
                           render={({ field }) => (
                             <div className="fern-segmented">
-                              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d, i) => (
+                              {DOW.map((d, i) => (
                                 <button
                                   key={i}
                                   type="button"
@@ -337,15 +306,12 @@ export function RecurringLinkSheet({
                       </div>
                     )}
 
-                    {/* Category */}
                     <Controller
                       control={control}
                       name="categoryId"
                       render={({ field }) => (
                         <Field>
-                          <FieldLabel style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-soft)', display: 'block', marginBottom: 6 }}>
-                            Category
-                          </FieldLabel>
+                          <label className="fern-field-label">Category</label>
                           <SearchableSelect
                             value={field.value}
                             onChange={field.onChange}
@@ -358,32 +324,13 @@ export function RecurringLinkSheet({
                       )}
                     />
 
-                    <div style={{ display: 'flex', gap: 8, paddingTop: 8, borderTop: '1px solid var(--line)' }}>
-                      <button
-                        type="button"
-                        onClick={onClose}
-                        style={{ flex: 1, background: 'var(--bg-sunken)', border: 'none', borderRadius: 10, padding: '10px 14px', fontSize: 13, cursor: 'pointer', color: 'var(--ink-soft)' }}
-                      >
-                        Cancel
-                      </button>
+                    <div className="fern-sheet-footer" style={{ marginTop: 0 }}>
+                      <button type="button" onClick={onClose} className="fern-btn sheet-secondary">Cancel</button>
                       <button
                         type="button"
                         onClick={handleSubmit(onCreateSubmit)}
-                        style={{
-                          flex: 2,
-                          background: isValid ? 'var(--terracotta)' : 'var(--bg-sunken)',
-                          color: isValid ? 'white' : 'var(--ink-faint)',
-                          border: 'none',
-                          borderRadius: 10,
-                          padding: '10px 14px',
-                          fontSize: 13,
-                          fontWeight: 600,
-                          cursor: isValid ? 'pointer' : 'default',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: 6,
-                        }}
+                        disabled={!isValid}
+                        className="fern-btn sheet-primary primary"
                       >
                         <Icon name="check" size={16} /> Create recurring
                       </button>
@@ -392,7 +339,6 @@ export function RecurringLinkSheet({
                 )
               )}
 
-              {/* ── Attach to existing tab ── */}
               {tab === 'attach' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                   {recurringOptions.length === 0 ? (
@@ -402,9 +348,7 @@ export function RecurringLinkSheet({
                   ) : (
                     <>
                       <Field>
-                        <FieldLabel style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-soft)', display: 'block', marginBottom: 6 }}>
-                          Recurring entry
-                        </FieldLabel>
+                        <label className="fern-field-label">Recurring entry</label>
                         <SearchableSelect
                           value={attachValue}
                           onChange={setAttachValue}
@@ -413,33 +357,13 @@ export function RecurringLinkSheet({
                         />
                       </Field>
 
-                      <div style={{ display: 'flex', gap: 8, paddingTop: 8, borderTop: '1px solid var(--line)' }}>
-                        <button
-                          type="button"
-                          onClick={onClose}
-                          style={{ flex: 1, background: 'var(--bg-sunken)', border: 'none', borderRadius: 10, padding: '10px 14px', fontSize: 13, cursor: 'pointer', color: 'var(--ink-soft)' }}
-                        >
-                          Cancel
-                        </button>
+                      <div className="fern-sheet-footer" style={{ marginTop: 0 }}>
+                        <button type="button" onClick={onClose} className="fern-btn sheet-secondary">Cancel</button>
                         <button
                           type="button"
                           onClick={onAttach}
                           disabled={!attachValue}
-                          style={{
-                            flex: 2,
-                            background: attachValue ? 'var(--terracotta)' : 'var(--bg-sunken)',
-                            color: attachValue ? 'white' : 'var(--ink-faint)',
-                            border: 'none',
-                            borderRadius: 10,
-                            padding: '10px 14px',
-                            fontSize: 13,
-                            fontWeight: 600,
-                            cursor: attachValue ? 'pointer' : 'default',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            gap: 6,
-                          }}
+                          className="fern-btn sheet-primary primary"
                         >
                           <Icon name="repeat" size={14} /> Attach
                         </button>

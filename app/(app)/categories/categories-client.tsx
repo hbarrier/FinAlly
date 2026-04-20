@@ -1,16 +1,27 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useMemo, useState, useTransition } from 'react'
 import { Icon } from '@/components/fern/icon'
 import { CatSwatch } from '@/components/fern/cat-swatch'
 import { SegmentedControl } from '@/components/fern/segmented-control'
 import { CategorySheet } from '@/components/fern/sheets/category-sheet'
-import { fmt, thisMonthTransactions, type Category, type Transaction } from '@/lib/derive'
+import { PageHeader } from '@/components/fern/page-header'
+import { FernButton } from '@/components/fern/button'
+import { EmptyState } from '@/components/fern/empty-state'
+import { fmt, thisMonthTransactions, type Category } from '@/lib/derive'
 import { addCategory, updateCategory, deleteCategory } from '@/lib/actions/categories'
+
+type TransactionSlice = {
+  id: string
+  date: string
+  amount: number
+  kind: 'expense' | 'income'
+  categoryId: string | null
+}
 
 interface CategoriesClientProps {
   categories: Category[]
-  transactions: Transaction[]
+  transactions: TransactionSlice[]
 }
 
 export function CategoriesClient({ categories, transactions: txns }: CategoriesClientProps) {
@@ -18,17 +29,29 @@ export function CategoriesClient({ categories, transactions: txns }: CategoriesC
   const [editing, setEditing] = useState<string | 'new' | null>(null)
   const [, startTransition] = useTransition()
 
-  const monthTxns = thisMonthTransactions(txns)
-  const spending: Record<string, number> = {}
-  monthTxns.filter((t) => t.kind === 'expense').forEach((t) => {
-    if (t.categoryId) spending[t.categoryId] = (spending[t.categoryId] ?? 0) + Number(t.amount ?? 0)
-  })
+  const spending = useMemo(() => {
+    const map: Record<string, number> = {}
+    thisMonthTransactions(txns)
+      .filter((t) => t.kind === 'expense')
+      .forEach((t) => {
+        if (t.categoryId) map[t.categoryId] = (map[t.categoryId] ?? 0) + Number(t.amount ?? 0)
+      })
+    return map
+  }, [txns])
+
+  const usageById = useMemo(() => {
+    const map: Record<string, number> = {}
+    txns.forEach((t) => {
+      if (t.categoryId) map[t.categoryId] = (map[t.categoryId] ?? 0) + 1
+    })
+    return map
+  }, [txns])
 
   const filtered = categories.filter((c) => kindTab === 'all' || c.kind === kindTab)
   const expenseCount = categories.filter((c) => c.kind === 'expense').length
   const incomeCount = categories.filter((c) => c.kind === 'income').length
 
-  const usage = (id: string) => txns.filter((t) => t.categoryId === id).length
+  const usage = (id: string) => usageById[id] ?? 0
 
   const editingItem = editing && editing !== 'new' ? categories.find((c) => c.id === editing) : null
 
@@ -54,18 +77,15 @@ export function CategoriesClient({ categories, transactions: txns }: CategoriesC
 
   return (
     <div>
-      <div className="fern-page-header">
-        <div>
-          <div className="fern-page-kicker">{categories.length} total · {expenseCount} expense · {incomeCount} income</div>
-          <h1 className="fern-page-title">Your <em>categories</em></h1>
-        </div>
-        <button
-          onClick={() => setEditing('new')}
-          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 16px', borderRadius: 12, background: 'var(--terracotta)', color: 'white', border: 'none', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
-        >
-          <Icon name="plus" size={16} /> New category
-        </button>
-      </div>
+      <PageHeader
+        kicker={`${categories.length} total · ${expenseCount} expense · ${incomeCount} income`}
+        title={<>Your <em>categories</em></>}
+        actions={
+          <FernButton onClick={() => setEditing('new')}>
+            <Icon name="plus" size={16} /> New category
+          </FernButton>
+        }
+      />
 
       <div style={{ marginBottom: 20 }}>
         <SegmentedControl
@@ -80,14 +100,20 @@ export function CategoriesClient({ categories, transactions: txns }: CategoriesC
       </div>
 
       {categories.length === 0 ? (
-        <div className="fern-empty">
-          <div className="illu">∅</div>
-          <h3 style={{ fontSize: 18, margin: '0 0 8px' }}>No categories yet</h3>
-          <p style={{ margin: 0 }}>Create your first category to start logging.</p>
-          <button onClick={() => setEditing('new')} style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, border: '1.5px solid var(--line)', background: 'transparent', cursor: 'pointer', fontSize: 13, color: 'var(--ink)' }}>
-            <Icon name="plus" size={14} /> Add category
-          </button>
-        </div>
+        <EmptyState
+          illu="∅"
+          title="No categories yet"
+          description="Create your first category to start logging."
+          action={
+            <FernButton
+              tone="outline"
+              onClick={() => setEditing('new')}
+              style={{ marginTop: 12, padding: '8px 14px', borderRadius: 10, fontSize: 13, background: 'transparent', color: 'var(--ink)' }}
+            >
+              <Icon name="plus" size={14} /> Add category
+            </FernButton>
+          }
+        />
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
           {filtered.map((c) => {

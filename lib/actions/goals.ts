@@ -1,6 +1,6 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
+import { revalidateApp } from './_shared'
 import { db } from '../db'
 import { goals } from '../schema'
 import { nanoid } from '../utils'
@@ -15,7 +15,7 @@ export async function addGoal(data: {
   deadline?: string | null
 }) {
   await db.insert(goals).values({ id: nanoid(), saved: 0, ...data })
-  revalidatePath('/', 'layout')
+  revalidateApp()
 }
 
 export async function updateGoal(
@@ -30,10 +30,10 @@ export async function updateGoal(
   }>,
 ) {
   await db.update(goals).set(data).where(eq(goals.id, id))
-  revalidatePath('/', 'layout')
+  revalidateApp()
 }
 
 export async function deleteGoal(id: string) {
   await db.delete(goals).where(eq(goals.id, id))
-  revalidatePath('/', 'layout')
+  revalidateApp()
 }

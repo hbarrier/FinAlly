@@ -1,4 +1,4 @@
-import { int, real, text, sqliteTable, unique } from 'drizzle-orm/sqlite-core'
+import { int, real, text, sqliteTable, unique, index } from 'drizzle-orm/sqlite-core'
 import { sql, relations } from 'drizzle-orm'
 
 // --- categories ---
@@ -15,15 +15,22 @@ export const categories = sqliteTable('categories', {
 })
 
 // --- merchants ---
-export const merchants = sqliteTable('merchants', {
-  id: text('id').primaryKey(),
-  name: text('name').notNull(),
-  comment: text('comment'),
-  categoryId: text('category_id').references(() => categories.id, {
-    onDelete: 'set null',
-  }),
-  isActive: int('is_active').notNull().default(1),
-})
+export const merchants = sqliteTable(
+  'merchants',
+  {
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+    comment: text('comment'),
+    categoryId: text('category_id').references(() => categories.id, {
+      onDelete: 'set null',
+    }),
+    isActive: int('is_active').notNull().default(1),
+  },
+  (t) => [
+    index('merchants_is_active_idx').on(t.isActive),
+    index('merchants_category_id_idx').on(t.categoryId),
+  ],
+)
 
 // --- recurring ---
 export const recurring = sqliteTable('recurring', {
@@ -44,14 +51,18 @@ export const recurring = sqliteTable('recurring', {
 })
 
 // --- recurring amounts (time-versioned history) ---
-export const recurringAmounts = sqliteTable('recurring_amounts', {
-  id: text('id').primaryKey(),
-  recurringId: text('recurring_id')
-    .notNull()
-    .references(() => recurring.id, { onDelete: 'cascade' }),
-  amount: real('amount').notNull(),
-  startDate: text('start_date').notNull(),
-})
+export const recurringAmounts = sqliteTable(
+  'recurring_amounts',
+  {
+    id: text('id').primaryKey(),
+    recurringId: text('recurring_id')
+      .notNull()
+      .references(() => recurring.id, { onDelete: 'cascade' }),
+    amount: real('amount').notNull(),
+    startDate: text('start_date').notNull(),
+  },
+  (t) => [index('recurring_amounts_recurring_id_idx').on(t.recurringId)],
+)
 
 export const recurringRelations = relations(recurring, ({ many }) => ({
   amounts: many(recurringAmounts),
@@ -65,28 +76,38 @@ export const recurringAmountsRelations = relations(recurringAmounts, ({ one }) =
 }))
 
 // --- transactions ---
-export const transactions = sqliteTable('transactions', {
-  id: text('id').primaryKey(),
-  date: text('date').notNull(),
-  amount: real('amount').notNull(),
-  kind: text('kind', { enum: ['expense', 'income'] }).notNull(),
-  categoryId: text('category_id').references(() => categories.id, {
-    onDelete: 'set null',
-  }),
-  merchantId: text('merchant_id').references(() => merchants.id, {
-    onDelete: 'set null',
-  }),
-  note: text('note'),
-  recurringId: text('recurring_id').references(() => recurring.id, {
-    onDelete: 'set null',
-  }),
-  reimbursable: int('reimbursable').notNull().default(0),
-  reimbursementTxId: text('reimbursement_tx_id'),
-  cleared: int('cleared').notNull().default(0),
-  createdAt: text('created_at')
-    .notNull()
-    .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
-})
+export const transactions = sqliteTable(
+  'transactions',
+  {
+    id: text('id').primaryKey(),
+    date: text('date').notNull(),
+    amount: real('amount').notNull(),
+    kind: text('kind', { enum: ['expense', 'income'] }).notNull(),
+    categoryId: text('category_id').references(() => categories.id, {
+      onDelete: 'set null',
+    }),
+    merchantId: text('merchant_id').references(() => merchants.id, {
+      onDelete: 'set null',
+    }),
+    note: text('note'),
+    recurringId: text('recurring_id').references(() => recurring.id, {
+      onDelete: 'set null',
+    }),
+    reimbursable: int('reimbursable').notNull().default(0),
+    reimbursementTxId: text('reimbursement_tx_id'),
+    cleared: int('cleared').notNull().default(0),
+    createdAt: text('created_at')
+      .notNull()
+      .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
+  },
+  (t) => [
+    index('transactions_category_id_idx').on(t.categoryId),
+    index('transactions_merchant_id_idx').on(t.merchantId),
+    index('transactions_recurring_id_idx').on(t.recurringId),
+    index('transactions_date_idx').on(t.date),
+    index('transactions_kind_date_idx').on(t.kind, t.date),
+  ],
+)
 
 // --- budgets ---
 export const budgets = sqliteTable(
@@ -124,8 +145,12 @@ export const userSettings = sqliteTable('user_settings', {
 })
 
 // --- reimbursement rates (global, time-versioned) ---
-export const reimbursementRates = sqliteTable('reimbursement_rates', {
-  id: text('id').primaryKey(),
-  percent: real('percent').notNull(),   // e.g. 75 for 75%
-  startDate: text('start_date').notNull(), // ISO date, rate applies from this date onward
-})
+export const reimbursementRates = sqliteTable(
+  'reimbursement_rates',
+  {
+    id: text('id').primaryKey(),
+    percent: real('percent').notNull(),   // e.g. 75 for 75%
+    startDate: text('start_date').notNull(), // ISO date, rate applies from this date onward
+  },
+  (t) => [index('reimbursement_rates_start_date_idx').on(t.startDate)],
+)

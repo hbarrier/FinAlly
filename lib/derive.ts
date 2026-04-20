@@ -3,19 +3,19 @@
  * Usable on server and client.
  */
 
-import type { InferSelectModel } from 'drizzle-orm'
+export type {
+  Category,
+  Transaction,
+  Recurring,
+  RecurringAmount,
+  RecurringWithAmounts,
+} from './db-types'
 import type {
-  categories,
-  transactions,
-  recurring,
-  recurringAmounts,
-} from './schema'
-
-export type Category = InferSelectModel<typeof categories>
-export type Transaction = InferSelectModel<typeof transactions>
-export type Recurring = InferSelectModel<typeof recurring>
-export type RecurringAmount = InferSelectModel<typeof recurringAmounts>
-export type RecurringWithAmounts = Recurring & { amounts: RecurringAmount[] }
+  Category,
+  Transaction,
+  Recurring,
+  RecurringAmount,
+} from './db-types'
 
 export function effectiveAmount(amounts: RecurringAmount[], date: Date = new Date()): number {
   if (amounts.length === 0) return 0
@@ -27,14 +27,14 @@ export function effectiveAmount(amounts: RecurringAmount[], date: Date = new Dat
 
 // ---- date helpers ----
 
-export function monthKey(iso: string) {
+function monthKey(iso: string) {
   return iso.slice(0, 7)
 }
 
-export function thisMonthTransactions(
-  txns: Transaction[],
+export function thisMonthTransactions<T extends { date: string }>(
+  txns: T[],
   ref: Date = new Date(),
-) {
+): T[] {
   const key = ref.toISOString().slice(0, 7)
   return txns.filter((t) => monthKey(t.date) === key)
 }
@@ -72,7 +72,7 @@ export function spendingByCategory(
 
 // ---- recurring ----
 
-export function matchesCadence(d: Date, r: Recurring): boolean {
+function matchesCadence(d: Date, r: Recurring): boolean {
   const dow = d.getDay()
   const dom = d.getDate()
   if (r.cadence === 'monthly') return dom === (r.dayOfMonth || 1)
@@ -84,7 +84,7 @@ export function matchesCadence(d: Date, r: Recurring): boolean {
   return false
 }
 
-export type UpcomingItem = Recurring & { date: Date }
+type UpcomingItem = Recurring & { date: Date }
 
 /**
  * Returns all occurrences of recurring items within the current calendar month,
@@ -146,30 +146,6 @@ export function allOccurrencesInRange(
   return out.sort((a, b) => a.date.getTime() - b.date.getTime())
 }
 
-export function upcomingRecurring(
-  items: Recurring[],
-  days = 30,
-  from: Date = new Date(),
-): UpcomingItem[] {
-  const out: UpcomingItem[] = []
-  const end = new Date(from)
-  end.setDate(end.getDate() + days)
-
-  items.forEach((r) => {
-    const start = r.startDate ? new Date(r.startDate) : from
-    const cursor = new Date(Math.max(start.getTime(), from.getTime()))
-    for (let i = 0; i <= days; i++) {
-      if (cursor > end) break
-      if (matchesCadence(cursor, r)) {
-        out.push({ ...r, date: new Date(cursor) })
-      }
-      cursor.setDate(cursor.getDate() + 1)
-    }
-  })
-
-  return out.sort((a, b) => a.date.getTime() - b.date.getTime())
-}
-
 export function monthlyEstimate(r: Recurring): number {
   const a = Number(r.amount || 0)
   if (r.cadence === 'monthly') return a
@@ -178,7 +154,32 @@ export function monthlyEstimate(r: Recurring): number {
   return a
 }
 
+// ---- select helpers ----
+
+export function buildCategorySelectOptions(
+  cats: Category[],
+): { value: string; label: string; group: string }[] {
+  return [
+    ...cats
+      .filter((c) => c.kind === 'expense')
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((c) => ({ value: c.id, label: c.name, group: 'Expenses' })),
+    ...cats
+      .filter((c) => c.kind === 'income')
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((c) => ({ value: c.id, label: c.name, group: 'Income' })),
+  ]
+}
+
 // ---- formatting ----
+
+export function formatDate(
+  iso: string,
+  locale: string = 'fr-FR',
+  opts: Intl.DateTimeFormatOptions = { day: '2-digit', month: '2-digit', year: 'numeric' },
+): string {
+  return new Date(iso).toLocaleDateString(locale, opts)
+}
 
 export function fmt(amt: number | string, opts: { noSymbol?: boolean } = {}): string {
   const n = Number(amt || 0)

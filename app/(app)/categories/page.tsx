@@ -6,5 +6,5 @@ export default async function CategoriesPage() {
     db.query.categories.findMany(),
     db.query.transactions.findMany({ columns: { id: true, categoryId: true, kind: true, amount: true, date: true } }),
   ])
-  return <CategoriesClient categories={cats} transactions={txns as any} />
+  return <CategoriesClient categories={cats} transactions={txns} />
 }

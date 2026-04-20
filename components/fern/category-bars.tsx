@@ -1,5 +1,3 @@
-'use client'
-
 import { COLOR_VARS } from './color-vars'
 import { CatSwatch } from './cat-swatch'
 import { fmt } from '@/lib/derive'

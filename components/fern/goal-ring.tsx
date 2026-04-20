@@ -1,5 +1,3 @@
-'use client'
-
 import { COLOR_VARS } from './color-vars'
 
 interface GoalRingProps {

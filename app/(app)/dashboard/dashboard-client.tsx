@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useMemo, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { Icon } from '@/components/fern/icon'
 import { CatSwatch } from '@/components/fern/cat-swatch'
@@ -8,15 +8,18 @@ import { Chip } from '@/components/fern/chip'
 import { CashflowRiver } from '@/components/fern/cashflow-river'
 import { CategoryBars } from '@/components/fern/category-bars'
 import { TransactionSheet } from '@/components/fern/sheets/transaction-sheet'
+import { PageHeader } from '@/components/fern/page-header'
+import { FernButton } from '@/components/fern/button'
+import { EmptyState } from '@/components/fern/empty-state'
+import { Money } from '@/components/fern/money'
+import { Fab } from '@/components/fern/fab'
 import {
-  thisMonthTransactions,
   thisMonthRecurring,
   sumByKind,
   spendingByCategory,
-  currentBalance,
-  splitCents,
   fmt,
   fmtShort,
+  formatDate,
   type Category,
   type Transaction,
   type Recurring,
@@ -27,44 +30,52 @@ import {
   deleteTransaction,
 } from '@/lib/actions/transactions'
 
-type Settings = { id: number; name: string; startingBalance: number; currency: string }
-type Merchant = { id: string; name: string; categoryId: string | null }
+import type { Merchant, UserSettings as Settings } from '@/lib/db-types'
 
 interface DashboardClientProps {
   settings: Settings
-  transactions: Transaction[]
+  monthTransactions: Transaction[]
+  balance: number
   recurring: Recurring[]
   categories: Category[]
-  merchants?: Merchant[]
+  merchants: Merchant[]
 }
 
 export function DashboardClient({
   settings,
-  transactions: txns,
+  monthTransactions: monthTxns,
+  balance,
   recurring,
   categories,
-  merchants = [],
+  merchants,
 }: DashboardClientProps) {
   const [sheetOpen, setSheetOpen] = useState(false)
   const [editingTxn, setEditingTxn] = useState<Transaction | null>(null)
   const [, startTransition] = useTransition()
 
-  const today = new Date()
-  const monthTxns = thisMonthTransactions(txns, today)
-  const income = sumByKind(monthTxns, 'income')
-  const expense = sumByKind(monthTxns, 'expense')
-  const net = income - expense
-  const balance = currentBalance(settings.startingBalance, txns)
-  const bSplit = splitCents(balance)
+  const today = useMemo(() => new Date(), [])
+  const { income, expense, net, cats, upcoming } = useMemo(() => {
+    const inc = sumByKind(monthTxns, 'income')
+    const exp = sumByKind(monthTxns, 'expense')
+    return {
+      income: inc,
+      expense: exp,
+      net: inc - exp,
+      cats: spendingByCategory(monthTxns, categories),
+      upcoming: thisMonthRecurring(recurring, today).slice(0, 8),
+    }
+  }, [monthTxns, categories, recurring, today])
 
-  const cats = spendingByCategory(monthTxns, categories)
-  const upcoming = thisMonthRecurring(recurring, today).slice(0, 8)
+  const categoryById = useMemo(
+    () => new Map(categories.map((c) => [c.id, c])),
+    [categories],
+  )
 
   const monthName = today.toLocaleString('en-US', { month: 'long' })
   const dayOfMonth = today.getDate()
   const totalDays = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate()
 
-  const hasData = txns.length > 0 || recurring.length > 0
+  const hasData = monthTxns.length > 0 || recurring.length > 0
 
   const handleSave = async (data: Parameters<typeof addTransaction>[0]) => {
     startTransition(async () => {
@@ -89,28 +100,15 @@ export function DashboardClient({
 
   return (
     <div>
-      {/* Header */}
-      <div className="fern-page-header">
-        <div>
-          <div className="fern-page-kicker">
-            {today.toLocaleDateString('en-US', { weekday: 'long', day: 'numeric', month: 'long' })}
-          </div>
-          <h1 className="fern-page-title">
-            Hello, <em>{settings.name}</em>.
-          </h1>
-        </div>
-        <button
-          onClick={() => { setEditingTxn(null); setSheetOpen(true) }}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 6,
-            padding: '10px 16px', borderRadius: 12,
-            background: 'var(--terracotta)', color: 'white',
-            border: 'none', fontSize: 14, fontWeight: 600, cursor: 'pointer',
-          }}
-        >
-          <Icon name="plus" size={16} /> Log something
-        </button>
-      </div>
+      <PageHeader
+        kicker={formatDate(today.toISOString(), 'en-US', { weekday: 'long', day: 'numeric', month: 'long' })}
+        title={<>Hello, <em>{settings.name}</em>.</>}
+        actions={
+          <FernButton onClick={() => { setEditingTxn(null); setSheetOpen(true) }}>
+            <Icon name="plus" size={16} /> Log something
+          </FernButton>
+        }
+      />
 
       {/* Hero row */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
@@ -119,11 +117,7 @@ export function DashboardClient({
           <div style={{ fontSize: 12, fontFamily: 'var(--mono-fern)', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--ink-faint)', marginBottom: 8 }}>
             Total balance
           </div>
-          <div className="fern-hero-amount">
-            <span className="cur">€</span>
-            <span>{bSplit.whole}</span>
-            <span className="cents">,{bSplit.cents}</span>
-          </div>
+          <Money amount={balance} />
           <div style={{ display: 'flex', gap: 12, marginTop: 12, flexWrap: 'wrap', fontSize: 13 }}>
             <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <Chip tone="income"><Icon name="arrowUp" size={12} /> In</Chip>
@@ -184,14 +178,21 @@ export function DashboardClient({
           {cats.length > 0 ? (
             <CategoryBars items={cats} />
           ) : (
-            <div className="fern-empty" style={{ padding: '40px 20px' }}>
-              <div className="illu">∅</div>
-              <h3 style={{ fontSize: 15, margin: '0 0 4px' }}>No expenses yet</h3>
-              <p style={{ margin: 0, fontSize: 13 }}>Log your first expense to see your categories.</p>
-              <button onClick={() => setSheetOpen(true)} style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, border: '1.5px solid var(--line)', background: 'transparent', cursor: 'pointer', fontSize: 13, color: 'var(--ink)' }}>
-                <Icon name="plus" size={14} /> Add expense
-              </button>
-            </div>
+            <EmptyState
+              illu="∅"
+              title="No expenses yet"
+              description="Log your first expense to see your categories."
+              style={{ padding: '40px 20px' }}
+              action={
+                <FernButton
+                  tone="outline"
+                  onClick={() => setSheetOpen(true)}
+                  style={{ marginTop: 12, padding: '8px 14px', borderRadius: 10, fontSize: 13, background: 'transparent', color: 'var(--ink)' }}
+                >
+                  <Icon name="plus" size={14} /> Add expense
+                </FernButton>
+              }
+            />
           )}
         </div>
 
@@ -209,7 +210,7 @@ export function DashboardClient({
           {upcoming.length > 0 ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {upcoming.slice(0, 6).map((u, i) => {
-                const cat = categories.find((c) => c.id === u.categoryId)
+                const cat = u.categoryId ? categoryById.get(u.categoryId) : undefined
                 const dateStr = u.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
                 const isPast = u.date < today
                 return (
@@ -227,26 +228,25 @@ export function DashboardClient({
               })}
             </div>
           ) : (
-            <div className="fern-empty" style={{ padding: '40px 20px' }}>
-              <div className="illu">◎</div>
-              <h3 style={{ fontSize: 15, margin: '0 0 4px' }}>Nothing scheduled</h3>
-              <p style={{ margin: 0, fontSize: 13 }}>Set up a recurring bill or payday.</p>
-              <Link href="/recurring" style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, border: '1.5px solid var(--line)', background: 'transparent', textDecoration: 'none', fontSize: 13, color: 'var(--ink)' }}>
-                <Icon name="repeat" size={14} /> Add recurring
-              </Link>
-            </div>
+            <EmptyState
+              illu="◎"
+              title="Nothing scheduled"
+              description="Set up a recurring bill or payday."
+              style={{ padding: '40px 20px' }}
+              action={
+                <Link href="/recurring" style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, border: '1.5px solid var(--line)', background: 'transparent', textDecoration: 'none', fontSize: 13, color: 'var(--ink)' }}>
+                  <Icon name="repeat" size={14} /> Add recurring
+                </Link>
+              }
+            />
           )}
         </div>
       </div>
 
-      {/* FAB */}
-      <button
-        className="fern-fab"
+      <Fab
         onClick={() => { setEditingTxn(null); setSheetOpen(true) }}
-        aria-label="Log something"
-      >
-        <Icon name="plus" size={26} />
-      </button>
+        label="Log something"
+      />
 
       <TransactionSheet
         open={sheetOpen}

@@ -1,10 +1,10 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
 import { db } from '../db'
 import { transactions } from '../schema'
 import { nanoid } from '../utils'
 import { eq } from 'drizzle-orm'
+import { revalidateApp } from './_shared'
 
 export async function addTransaction(data: {
   date: string
@@ -18,7 +18,7 @@ export async function addTransaction(data: {
   cleared?: number
 }) {
   await db.insert(transactions).values({ id: nanoid(), ...data })
-  revalidatePath('/', 'layout')
+  revalidateApp()
 }
 
 export async function updateTransaction(
@@ -34,25 +34,25 @@ export async function updateTransaction(
   },
 ) {
   await db.update(transactions).set(data).where(eq(transactions.id, id))
-  revalidatePath('/', 'layout')
+  revalidateApp()
 }
 
 export async function deleteTransaction(id: string) {
   await db.delete(transactions).where(eq(transactions.id, id))
-  revalidatePath('/', 'layout')
+  revalidateApp()
 }
 
 export async function clearTransaction(id: string, cleared: boolean) {
   await db.update(transactions).set({ cleared: cleared ? 1 : 0 }).where(eq(transactions.id, id))
-  revalidatePath('/', 'layout')
+  revalidateApp()
 }
 
 export async function linkTransactionToRecurring(id: string, recurringId: string) {
   await db.update(transactions).set({ recurringId }).where(eq(transactions.id, id))
-  revalidatePath('/', 'layout')
+  revalidateApp()
 }
 
 export async function detachTransactionFromRecurring(id: string) {
   await db.update(transactions).set({ recurringId: null }).where(eq(transactions.id, id))
-  revalidatePath('/', 'layout')
+  revalidateApp()
 }

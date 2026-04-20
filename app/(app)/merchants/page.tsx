@@ -7,5 +7,5 @@ export default async function MerchantsPage() {
     db.query.categories.findMany(),
     db.query.transactions.findMany({ columns: { id: true, merchantId: true } }),
   ])
-  return <MerchantsClient merchants={merchantsList} categories={cats} transactions={txns as any} />
+  return <MerchantsClient merchants={merchantsList} categories={cats} transactions={txns} />
 }

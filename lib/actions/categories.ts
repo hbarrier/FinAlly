@@ -1,6 +1,6 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
+import { revalidateApp } from './_shared'
 import { db } from '../db'
 import { categories } from '../schema'
 import { nanoid } from '../utils'
@@ -13,7 +13,7 @@ export async function addCategory(data: {
   kind: 'expense' | 'income'
 }) {
   await db.insert(categories).values({ id: nanoid(), ...data })
-  revalidatePath('/', 'layout')
+  revalidateApp()
 }
 
 export async function updateCategory(
@@ -21,10 +21,10 @@ export async function updateCategory(
   data: Partial<{ name: string; icon: string; color: string; kind: 'expense' | 'income' }>,
 ) {
   await db.update(categories).set(data).where(eq(categories.id, id))
-  revalidatePath('/', 'layout')
+  revalidateApp()
 }
 
 export async function deleteCategory(id: string) {
   await db.delete(categories).where(eq(categories.id, id))
-  revalidatePath('/', 'layout')
+  revalidateApp()
 }

@@ -1,17 +1,17 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useMemo, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { Icon } from '@/components/fern/icon'
 import { CatSwatch } from '@/components/fern/cat-swatch'
 import { SegmentedControl } from '@/components/fern/segmented-control'
 import { MerchantSheet } from '@/components/fern/sheets/merchant-sheet'
+import { PageHeader } from '@/components/fern/page-header'
+import { FernButton } from '@/components/fern/button'
+import { EmptyState } from '@/components/fern/empty-state'
 import type { Category } from '@/lib/derive'
-import type { InferSelectModel } from 'drizzle-orm'
-import type { merchants } from '@/lib/schema'
+import type { Merchant } from '@/lib/db-types'
 import { addMerchant, updateMerchant, deleteMerchant, mergeMerchants } from '@/lib/actions/merchants'
-
-type Merchant = InferSelectModel<typeof merchants>
 
 interface MerchantsClientProps {
   merchants: Merchant[]
@@ -28,7 +28,20 @@ export function MerchantsClient({ merchants: merchantsList, categories, transact
   const [selected, setSelected] = useState<string[]>([])
   const [, startTransition] = useTransition()
 
-  const usage = (id: string) => transactions.filter((t) => t.merchantId === id).length
+  const usageById = useMemo(() => {
+    const map: Record<string, number> = {}
+    transactions.forEach((t) => {
+      if (t.merchantId) map[t.merchantId] = (map[t.merchantId] ?? 0) + 1
+    })
+    return map
+  }, [transactions])
+
+  const categoryById = useMemo(
+    () => new Map(categories.map((c) => [c.id, c])),
+    [categories],
+  )
+
+  const usage = (id: string) => usageById[id] ?? 0
 
   const editingItem = editing && editing !== 'new' ? merchantsList.find((m) => m.id === editing) : null
 
@@ -76,29 +89,26 @@ export function MerchantsClient({ merchants: merchantsList, categories, transact
 
   return (
     <div>
-      <div className="fern-page-header">
-        <div>
-          <div className="fern-page-kicker">{merchantsList.length} merchants</div>
-          <h1 className="fern-page-title">Your <em>merchants</em></h1>
-        </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <SegmentedControl
-            value={filter}
-            onChange={(v) => setFilter(v as FilterMode)}
-            options={[
-              { value: 'active', label: 'Active' },
-              { value: 'inactive', label: 'Inactive' },
-              { value: 'all', label: 'All' },
-            ]}
-          />
-          <button
-            onClick={() => setEditing('new')}
-            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 16px', borderRadius: 12, background: 'var(--terracotta)', color: 'white', border: 'none', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
-          >
-            <Icon name="plus" size={16} /> New merchant
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        kicker={`${merchantsList.length} merchants`}
+        title={<>Your <em>merchants</em></>}
+        actions={
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <SegmentedControl
+              value={filter}
+              onChange={(v) => setFilter(v as FilterMode)}
+              options={[
+                { value: 'active', label: 'Active' },
+                { value: 'inactive', label: 'Inactive' },
+                { value: 'all', label: 'All' },
+              ]}
+            />
+            <FernButton onClick={() => setEditing('new')}>
+              <Icon name="plus" size={16} /> New merchant
+            </FernButton>
+          </div>
+        }
+      />
 
       <div style={{ marginBottom: 12 }}>
         <input
@@ -131,24 +141,25 @@ export function MerchantsClient({ merchants: merchantsList, categories, transact
       )}
 
       {merchantsList.length === 0 ? (
-        <div className="fern-empty">
-          <div className="illu">◇</div>
-          <h3 style={{ fontSize: 18, margin: '0 0 8px' }}>No merchants yet</h3>
-          <p style={{ margin: 0 }}>Add merchants and link them to categories to speed up expense logging.</p>
-          <button onClick={() => setEditing('new')} style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, border: '1.5px solid var(--line)', background: 'transparent', cursor: 'pointer', fontSize: 13, color: 'var(--ink)' }}>
-            <Icon name="plus" size={14} /> Add merchant
-          </button>
-        </div>
+        <EmptyState
+          title="No merchants yet"
+          description="Add merchants and link them to categories to speed up expense logging."
+          action={
+            <FernButton
+              tone="outline"
+              onClick={() => setEditing('new')}
+              style={{ marginTop: 12, padding: '8px 14px', borderRadius: 10, fontSize: 13, background: 'transparent', color: 'var(--ink)' }}
+            >
+              <Icon name="plus" size={14} /> Add merchant
+            </FernButton>
+          }
+        />
       ) : filteredMerchants.length === 0 ? (
-        <div className="fern-empty">
-          <div className="illu">◇</div>
-          <h3 style={{ fontSize: 18, margin: '0 0 8px' }}>No results</h3>
-          <p style={{ margin: 0 }}>Try a different search or filter.</p>
-        </div>
+        <EmptyState title="No results" description="Try a different search or filter." />
       ) : (
         <div className="fern-card" style={{ padding: '8px 0' }}>
           {filteredMerchants.map((m) => {
-            const cat = categories.find((c) => c.id === m.categoryId)
+            const cat = m.categoryId ? categoryById.get(m.categoryId) : undefined
             const used = usage(m.id)
             const isSelected = selected.includes(m.id)
             const isKeeper = selected[0] === m.id

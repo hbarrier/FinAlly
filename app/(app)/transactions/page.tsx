@@ -1,6 +1,6 @@
 import { db } from '@/lib/db'
-import { desc, eq } from 'drizzle-orm'
-import { transactions, merchants } from '@/lib/schema'
+import { desc } from 'drizzle-orm'
+import { transactions } from '@/lib/schema'
 import { TransactionsClient } from './transactions-client'
 
 export default async function TransactionsPage({ searchParams }: { searchParams: Promise<{ merchant?: string }> }) {

@@ -1,7 +1,7 @@
 'use client'
 
+import { useId, useMemo } from 'react'
 import type { RecurringAmount } from '@/lib/derive'
-import { fmt } from '@/lib/derive'
 
 interface AmountHistoryChartProps {
   amounts: RecurringAmount[]
@@ -14,55 +14,71 @@ export function AmountHistoryChart({
   color = 'var(--rose)',
   height = 120,
 }: AmountHistoryChartProps) {
-  if (amounts.length === 0) return null
+  const gradId = useId()
+  const fillId = `ah-fill-${gradId}`
 
-  const sorted = [...amounts].sort((a, b) => a.startDate.localeCompare(b.startDate))
+  const computed = useMemo(() => {
+    if (amounts.length === 0) return null
 
-  const today = new Date().toISOString().slice(0, 10)
-  const rightEdge = sorted[sorted.length - 1].startDate > today
-    ? sorted[sorted.length - 1].startDate
-    : (() => { const d = new Date(); d.setDate(d.getDate() + 15); return d.toISOString().slice(0, 10) })()
+    const sorted = [...amounts].sort((a, b) => a.startDate.localeCompare(b.startDate))
 
-  const toMs = (iso: string) => new Date(iso).getTime()
-  const minMs = toMs(sorted[0].startDate)
-  const maxMs = toMs(rightEdge)
-  const rangeMs = Math.max(maxMs - minMs, 1)
+    const today = new Date().toISOString().slice(0, 10)
+    const rightEdge = sorted[sorted.length - 1].startDate > today
+      ? sorted[sorted.length - 1].startDate
+      : (() => { const d = new Date(); d.setDate(d.getDate() + 15); return d.toISOString().slice(0, 10) })()
 
-  const maxAmount = Math.max(...sorted.map((a) => a.amount))
-  const amountCeil = maxAmount * 1.25
+    const toMs = (iso: string) => new Date(iso).getTime()
+    const minMs = toMs(sorted[0].startDate)
+    const maxMs = toMs(rightEdge)
+    const rangeMs = Math.max(maxMs - minMs, 1)
 
-  const w = 500
-  const padLeft = 8
-  const padRight = 8
-  const padTop = 12
-  const padBottom = 24
-  const innerW = w - padLeft - padRight
-  const innerH = height - padTop - padBottom
+    const maxAmount = Math.max(...sorted.map((a) => a.amount))
+    const amountCeil = maxAmount * 1.25
 
-  const xOf = (iso: string) => padLeft + ((toMs(iso) - minMs) / rangeMs) * innerW
-  const yOf = (amt: number) => padTop + innerH - (amt / amountCeil) * innerH
+    const w = 500
+    const padLeft = 8
+    const padRight = 8
+    const padTop = 12
+    const padBottom = 24
+    const innerW = w - padLeft - padRight
+    const innerH = height - padTop - padBottom
 
-  // Build step path: horizontal then vertical at each transition
-  let pathD = ''
-  for (let i = 0; i < sorted.length; i++) {
-    const x = xOf(sorted[i].startDate)
-    const y = yOf(sorted[i].amount)
-    if (i === 0) {
-      pathD += `M ${x} ${y}`
-    } else {
-      // Vertical step up/down at this date, then horizontal
-      pathD += ` L ${x} ${yOf(sorted[i - 1].amount)} L ${x} ${y}`
+    const xOf = (iso: string) => padLeft + ((toMs(iso) - minMs) / rangeMs) * innerW
+    const yOf = (amt: number) => padTop + innerH - (amt / amountCeil) * innerH
+
+    let pathD = ''
+    for (let i = 0; i < sorted.length; i++) {
+      const x = xOf(sorted[i].startDate)
+      const y = yOf(sorted[i].amount)
+      if (i === 0) {
+        pathD += `M ${x} ${y}`
+      } else {
+        pathD += ` L ${x} ${yOf(sorted[i - 1].amount)} L ${x} ${y}`
+      }
     }
-  }
-  // Extend last segment to right edge
-  const xRight = xOf(rightEdge)
-  pathD += ` L ${xRight} ${yOf(sorted[sorted.length - 1].amount)}`
+    const xRight = xOf(rightEdge)
+    pathD += ` L ${xRight} ${yOf(sorted[sorted.length - 1].amount)}`
 
-  // Area fill path
-  const areaD = pathD + ` L ${xRight} ${padTop + innerH} L ${padLeft} ${padTop + innerH} Z`
+    const areaD = pathD + ` L ${xRight} ${padTop + innerH} L ${padLeft} ${padTop + innerH} Z`
 
-  // Today line
-  const todayX = today >= sorted[0].startDate && today <= rightEdge ? xOf(today) : null
+    const todayX = today >= sorted[0].startDate && today <= rightEdge ? xOf(today) : null
+
+    const dots = sorted.map((entry, i) => ({
+      id: entry.id,
+      x: xOf(entry.startDate),
+      y: yOf(entry.amount),
+      anchor: (i === 0 ? 'start' : i === sorted.length - 1 ? 'end' : 'middle') as
+        | 'start'
+        | 'end'
+        | 'middle',
+      label: entry.startDate.slice(0, 7),
+    }))
+
+    return { pathD, areaD, todayX, dots, w, padLeft, padRight, padTop, innerH }
+  }, [amounts, height])
+
+  if (!computed) return null
+  const { pathD, areaD, todayX, dots, w, padLeft, padRight, padTop, innerH } = computed
 
   return (
     <svg
@@ -71,20 +87,18 @@ export function AmountHistoryChart({
       style={{ width: '100%', height }}
     >
       <defs>
-        <linearGradient id="ah-fill" x1="0" x2="0" y1="0" y2="1">
+        <linearGradient id={fillId} x1="0" x2="0" y1="0" y2="1">
           <stop offset="0%" stopColor={color} stopOpacity="0.18" />
           <stop offset="100%" stopColor={color} stopOpacity="0" />
         </linearGradient>
       </defs>
 
-      {/* Baseline */}
       <line
         x1={padLeft} x2={w - padRight}
         y1={padTop + innerH} y2={padTop + innerH}
         stroke="var(--line)" strokeWidth="1"
       />
 
-      {/* Today marker */}
       {todayX !== null && (
         <line
           x1={todayX} x2={todayX}
@@ -93,33 +107,25 @@ export function AmountHistoryChart({
         />
       )}
 
-      {/* Area fill */}
-      <path d={areaD} fill="url(#ah-fill)" />
+      <path d={areaD} fill={`url(#${fillId})`} />
 
-      {/* Step line */}
       <path d={pathD} stroke={color} strokeWidth="2" fill="none" strokeLinejoin="round" />
 
-      {/* Dots + labels at each entry */}
-      {sorted.map((entry, i) => {
-        const x = xOf(entry.startDate)
-        const y = yOf(entry.amount)
-        const labelAnchor = i === 0 ? 'start' : i === sorted.length - 1 ? 'end' : 'middle'
-        return (
-          <g key={entry.id}>
-            <circle cx={x} cy={y} r={3} fill={color} />
-            <text
-              x={x}
-              y={padTop + innerH + 14}
-              textAnchor={labelAnchor}
-              fontSize="9"
-              fill="var(--ink-faint)"
-              style={{ fontFamily: 'var(--mono-fern, monospace)' }}
-            >
-              {entry.startDate.slice(0, 7)}
-            </text>
-          </g>
-        )
-      })}
+      {dots.map((d) => (
+        <g key={d.id}>
+          <circle cx={d.x} cy={d.y} r={3} fill={color} />
+          <text
+            x={d.x}
+            y={padTop + innerH + 14}
+            textAnchor={d.anchor}
+            fontSize="9"
+            fill="var(--ink-faint)"
+            style={{ fontFamily: 'var(--mono-fern, monospace)' }}
+          >
+            {d.label}
+          </text>
+        </g>
+      ))}
     </svg>
   )
 }

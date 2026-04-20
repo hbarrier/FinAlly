@@ -1,20 +1,15 @@
 'use client'
 
-import { useEffect, useState, useTransition } from 'react'
+import { useEffect, useMemo, useState, useTransition } from 'react'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from '@/components/ui/sheet'
-import { Field, FieldLabel, FieldError } from '@/components/ui/field'
+import { Field, FieldError } from '@/components/ui/field'
 import { Icon } from '../icon'
 import { SegmentedControl } from '../segmented-control'
 import { SearchableSelect } from '../searchable-select'
 import { AmountHistoryChart } from '../amount-history-chart'
+import { SheetShell } from '../sheet-shell'
 import { fmt, type Category, type Recurring, type RecurringAmount } from '@/lib/derive'
 import { addRecurringAmount, deleteRecurringAmount } from '@/lib/actions/recurring'
 
@@ -52,7 +47,7 @@ type RecurringFormValues = z.infer<typeof recurringSchema>
 function getDefaultValues(item?: Recurring | null): RecurringFormValues {
   const startDate = item?.startDate ?? new Date().toISOString().slice(0, 10)
   const d = new Date(startDate)
-  const cadence = (item?.cadence === 'biweekly' ? 'monthly' : item?.cadence) ?? 'monthly'
+  const cadence = item?.cadence ?? 'monthly'
   return {
     kind: item?.kind ?? 'expense',
     amount: item?.amount ? String(item.amount) : '',
@@ -105,7 +100,7 @@ export function RecurringSheet({ open, onClose, categories, item, amounts = [], 
       reset(getDefaultValues(item))
       trigger()
     }
-  }, [open])
+  }, [open, item, reset, trigger])
 
   const showErr = (field: keyof RecurringFormValues) =>
     !!(errors[field] && (dirtyFields[field] || isSubmitted))
@@ -113,10 +108,13 @@ export function RecurringSheet({ open, onClose, categories, item, amounts = [], 
   const watchedKind = watch('kind')
   const watchedCadence = watch('cadence')
 
-  const categoryOptions = categories
-    .filter((c) => c.kind === watchedKind)
-    .sort((a, b) => a.name.localeCompare(b.name))
-    .map((c) => ({ value: c.id, label: c.name }))
+  const categoryOptions = useMemo(
+    () => categories
+      .filter((c) => c.kind === watchedKind)
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((c) => ({ value: c.id, label: c.name })),
+    [categories, watchedKind],
+  )
 
   const onSubmit = (data: RecurringFormValues) => {
     let startDate = data.startDate
@@ -142,183 +140,166 @@ export function RecurringSheet({ open, onClose, categories, item, amounts = [], 
   const accentColor = watchedKind === 'income' ? 'var(--sage)' : 'var(--rose)'
 
   return (
-    <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
-      <SheetContent side="right" style={{ maxWidth: 460, background: 'var(--bg-elevated)', border: 'none' }}>
-        <SheetHeader>
-          <SheetTitle style={{ color: 'var(--ink)' }}>
-            {item ? 'Edit recurring' : 'New recurring'}
-          </SheetTitle>
-        </SheetHeader>
+    <SheetShell
+      open={open}
+      onClose={onClose}
+      title={item ? 'Edit recurring' : 'New recurring'}
+      primary={{
+        label: item ? 'Save' : 'Create',
+        icon: 'check',
+        onClick: handleSubmit(onSubmit),
+        disabled: !isValid,
+      }}
+    >
+      <Controller
+        control={control}
+        name="kind"
+        render={({ field }) => (
+          <div className="fern-type-toggle" style={{ marginBottom: 0 }}>
+            <button
+              type="button"
+              className={field.value === 'expense' ? 'active expense' : ''}
+              onClick={() => {
+                field.onChange('expense')
+                const current = watch('categoryId')
+                const stillValid = categories.find((c) => c.kind === 'expense' && c.id === current)
+                if (!stillValid) setValue('categoryId', '')
+              }}
+            >
+              <Icon name="arrowDown" size={14} /> Expense
+            </button>
+            <button
+              type="button"
+              className={field.value === 'income' ? 'active income' : ''}
+              onClick={() => {
+                field.onChange('income')
+                const current = watch('categoryId')
+                const stillValid = categories.find((c) => c.kind === 'income' && c.id === current)
+                if (!stillValid) setValue('categoryId', '')
+              }}
+            >
+              <Icon name="arrowUp" size={14} /> Income
+            </button>
+          </div>
+        )}
+      />
 
-        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '0 24px 24px', display: 'flex', flexDirection: 'column', gap: 18 }}>
-          {/* Kind toggle */}
-          <Controller
-            control={control}
-            name="kind"
-            render={({ field }) => (
-              <div className="fern-type-toggle" style={{ marginBottom: 0 }}>
-                <button
-                  type="button"
-                  className={field.value === 'expense' ? 'active expense' : ''}
-                  onClick={() => {
-                    field.onChange('expense')
-                    const current = watch('categoryId')
-                    const stillValid = categories.find((c) => c.kind === 'expense' && c.id === current)
-                    if (!stillValid) setValue('categoryId', '')
-                  }}
-                >
-                  <Icon name="arrowDown" size={14} /> Expense
-                </button>
-                <button
-                  type="button"
-                  className={field.value === 'income' ? 'active income' : ''}
-                  onClick={() => {
-                    field.onChange('income')
-                    const current = watch('categoryId')
-                    const stillValid = categories.find((c) => c.kind === 'income' && c.id === current)
-                    if (!stillValid) setValue('categoryId', '')
-                  }}
-                >
-                  <Icon name="arrowUp" size={14} /> Income
-                </button>
-              </div>
-            )}
-          />
+      <Field data-invalid={showErr('amount')}>
+        <div style={{ position: 'relative' }}>
+          <span style={{ position: 'absolute', left: 0, top: '50%', transform: 'translateY(-50%)', fontSize: 28, color: 'var(--ink-soft)', fontFamily: 'var(--serif)' }}>€</span>
+          <input className="fern-input big" style={{ paddingLeft: 28 }} placeholder="0,00" inputMode="decimal" {...register('amount')} />
+        </div>
+        {showErr('amount') && <FieldError>{errors.amount?.message}</FieldError>}
+      </Field>
 
-          {/* Amount */}
-          <Field data-invalid={showErr('amount')}>
-            <div style={{ position: 'relative' }}>
-              <span style={{ position: 'absolute', left: 0, top: '50%', transform: 'translateY(-50%)', fontSize: 28, color: 'var(--ink-soft)', fontFamily: 'var(--serif)' }}>€</span>
-              <input className="fern-input big" style={{ paddingLeft: 28 }} placeholder="0,00" inputMode="decimal" {...register('amount')} />
-            </div>
-            {showErr('amount') && <FieldError>{errors.amount?.message}</FieldError>}
-          </Field>
+      <Field data-invalid={showErr('name')}>
+        <label className="fern-field-label">Name</label>
+        <input className="fern-input" placeholder="e.g. Spotify, Rent, Salary" {...register('name')} />
+        {showErr('name') && <FieldError>{errors.name?.message}</FieldError>}
+      </Field>
 
-          {/* Name */}
-          <Field data-invalid={showErr('name')}>
-            <FieldLabel style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-soft)', display: 'block', marginBottom: 6 }}>Name</FieldLabel>
-            <input className="fern-input" placeholder="e.g. Spotify, Rent, Salary" {...register('name')} />
-            {showErr('name') && <FieldError>{errors.name?.message}</FieldError>}
-          </Field>
+      <Controller
+        control={control}
+        name="categoryId"
+        render={({ field, fieldState }) => {
+          const showCatErr = !!(fieldState.error && (fieldState.isDirty || isSubmitted))
+          return (
+            <Field data-invalid={showCatErr}>
+              <label className="fern-field-label">Category</label>
+              <SearchableSelect
+                value={field.value || null}
+                onChange={(v) => field.onChange(v ?? '')}
+                options={categoryOptions}
+                placeholder="Choose…"
+              />
+              {showCatErr && <FieldError>{fieldState.error?.message}</FieldError>}
+            </Field>
+          )
+        }}
+      />
 
-          {/* Category */}
-          <Controller
-            control={control}
-            name="categoryId"
-            render={({ field, fieldState }) => {
-              const showCatErr = !!(fieldState.error && (fieldState.isDirty || isSubmitted))
-              return (
-                <Field data-invalid={showCatErr}>
-                  <FieldLabel style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-soft)', display: 'block', marginBottom: 6 }}>Category</FieldLabel>
-                  <SearchableSelect
-                    value={field.value || null}
-                    onChange={(v) => field.onChange(v ?? '')}
-                    options={categoryOptions}
-                    placeholder="Choose…"
-                  />
-                  {showCatErr && <FieldError>{fieldState.error?.message}</FieldError>}
-                </Field>
-              )
-            }}
-          />
+      <div>
+        <label className="fern-field-label wide">How often</label>
+        <Controller
+          control={control}
+          name="cadence"
+          render={({ field }) => (
+            <SegmentedControl
+              value={field.value}
+              onChange={field.onChange}
+              options={CADENCES}
+            />
+          )}
+        />
+      </div>
 
-          {/* Cadence */}
-          <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-soft)', display: 'block', marginBottom: 8 }}>How often</label>
+      {watchedCadence === 'monthly' && (
+        <div>
+          <label className="fern-field-label">Day of month</label>
+          <input className="fern-input" type="number" min="1" max="28" {...register('dayOfMonth', { valueAsNumber: true })} />
+        </div>
+      )}
+
+      {watchedCadence === 'yearly' && (
+        <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ flex: '0 0 80px' }}>
+            <label className="fern-field-label">Day</label>
+            <input className="fern-input" type="number" min="1" max="31" {...register('dayOfMonth', { valueAsNumber: true })} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <label className="fern-field-label">Month</label>
             <Controller
               control={control}
-              name="cadence"
+              name="monthOfYear"
               render={({ field }) => (
-                <SegmentedControl
-                  value={field.value}
-                  onChange={field.onChange}
-                  options={CADENCES}
-                />
+                <select
+                  className="fern-input"
+                  value={field.value ?? 1}
+                  onChange={(e) => field.onChange(Number(e.target.value))}
+                >
+                  {MONTHS.map((m, i) => (
+                    <option key={i + 1} value={i + 1}>{m}</option>
+                  ))}
+                </select>
               )}
             />
           </div>
-
-          {/* Day of month */}
-          {watchedCadence === 'monthly' && (
-            <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-soft)', display: 'block', marginBottom: 6 }}>Day of month</label>
-              <input className="fern-input" type="number" min="1" max="28" {...register('dayOfMonth', { valueAsNumber: true })} />
-            </div>
-          )}
-
-          {/* Day + month for yearly */}
-          {watchedCadence === 'yearly' && (
-            <div style={{ display: 'flex', gap: 8 }}>
-              <div style={{ flex: '0 0 80px' }}>
-                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-soft)', display: 'block', marginBottom: 6 }}>Day</label>
-                <input className="fern-input" type="number" min="1" max="31" {...register('dayOfMonth', { valueAsNumber: true })} />
-              </div>
-              <div style={{ flex: 1 }}>
-                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-soft)', display: 'block', marginBottom: 6 }}>Month</label>
-                <Controller
-                  control={control}
-                  name="monthOfYear"
-                  render={({ field }) => (
-                    <select
-                      className="fern-input"
-                      value={field.value ?? 1}
-                      onChange={(e) => field.onChange(Number(e.target.value))}
-                    >
-                      {MONTHS.map((m, i) => (
-                        <option key={i + 1} value={i + 1}>{m}</option>
-                      ))}
-                    </select>
-                  )}
-                />
-              </div>
-            </div>
-          )}
-
-          {/* Day of week */}
-          {watchedCadence === 'weekly' && (
-            <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-soft)', display: 'block', marginBottom: 8 }}>Day of week</label>
-              <Controller
-                control={control}
-                name="dayOfWeek"
-                render={({ field }) => (
-                  <div className="fern-segmented">
-                    {DOW.map((d, i) => (
-                      <button key={i} type="button" className={field.value === i ? 'active' : ''} onClick={() => field.onChange(i)}>{d}</button>
-                    ))}
-                  </div>
-                )}
-              />
-            </div>
-          )}
-
-          {/* Start date — not shown for yearly (day+month above serve as recurrence anchor) */}
-          {watchedCadence !== 'yearly' && (
-            <Field data-invalid={showErr('startDate')}>
-              <FieldLabel style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-soft)', display: 'block', marginBottom: 6 }}>Starting from</FieldLabel>
-              <input className="fern-input" type="date" {...register('startDate')} />
-              {showErr('startDate') && <FieldError>{errors.startDate?.message}</FieldError>}
-            </Field>
-          )}
-
-          {/* Amount history — only when editing an existing item */}
-          {item && (
-            <AmountHistorySection
-              recurringId={item.id}
-              amounts={amounts}
-              color={accentColor}
-            />
-          )}
-
-          <div style={{ display: 'flex', gap: 8, marginTop: 8, paddingTop: 16, borderTop: '1px solid var(--line)' }}>
-            <button type="button" onClick={onClose} style={{ flex: 1, background: 'var(--bg-sunken)', border: 'none', borderRadius: 10, padding: '10px 14px', fontSize: 13, cursor: 'pointer', color: 'var(--ink-soft)' }}>Cancel</button>
-            <button type="button" onClick={handleSubmit(onSubmit)} style={{ flex: 2, background: isValid ? 'var(--terracotta)' : 'var(--bg-sunken)', color: isValid ? 'white' : 'var(--ink-faint)', border: 'none', borderRadius: 10, padding: '10px 14px', fontSize: 13, fontWeight: 600, cursor: isValid ? 'pointer' : 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-              <Icon name="check" size={16} /> {item ? 'Save' : 'Create'}
-            </button>
-          </div>
         </div>
-      </SheetContent>
-    </Sheet>
+      )}
+
+      {watchedCadence === 'weekly' && (
+        <div>
+          <label className="fern-field-label wide">Day of week</label>
+          <Controller
+            control={control}
+            name="dayOfWeek"
+            render={({ field }) => (
+              <div className="fern-segmented">
+                {DOW.map((d, i) => (
+                  <button key={i} type="button" className={field.value === i ? 'active' : ''} onClick={() => field.onChange(i)}>{d}</button>
+                ))}
+              </div>
+            )}
+          />
+        </div>
+      )}
+
+      {watchedCadence !== 'yearly' && (
+        <Field data-invalid={showErr('startDate')}>
+          <label className="fern-field-label">Starting from</label>
+          <input className="fern-input" type="date" {...register('startDate')} />
+          {showErr('startDate') && <FieldError>{errors.startDate?.message}</FieldError>}
+        </Field>
+      )}
+
+      {item && (
+        <AmountHistorySection
+          recurringId={item.id}
+          amounts={amounts}
+          color={accentColor}
+        />
+      )}
+    </SheetShell>
   )
 }
 
@@ -359,14 +340,12 @@ function AmountHistorySection({
         Amount history
       </div>
 
-      {/* Chart */}
       {sorted.length >= 1 && (
         <div style={{ marginBottom: 12, borderRadius: 8, overflow: 'hidden', background: 'var(--bg-sunken)', padding: '8px 4px 4px' }}>
           <AmountHistoryChart amounts={sorted} color={color} height={120} />
         </div>
       )}
 
-      {/* History list */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 12 }}>
         {sorted.map((entry) => (
           <div
@@ -399,7 +378,6 @@ function AmountHistorySection({
         ))}
       </div>
 
-      {/* Add new amount */}
       <div style={{ display: 'flex', gap: 6, alignItems: 'flex-end' }}>
         <div style={{ flex: 1 }}>
           <label style={{ fontSize: 11, color: 'var(--ink-faint)', display: 'block', marginBottom: 4 }}>New amount</label>

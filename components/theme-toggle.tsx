@@ -1,25 +1,36 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useSyncExternalStore } from 'react'
 import { Icon } from './fern/icon'
 
+const THEME_EVENT = 'fern-theme-change'
+
+function subscribe(callback: () => void) {
+  window.addEventListener(THEME_EVENT, callback)
+  window.addEventListener('storage', callback)
+  return () => {
+    window.removeEventListener(THEME_EVENT, callback)
+    window.removeEventListener('storage', callback)
+  }
+}
+
+function getSnapshot() {
+  return localStorage.getItem('fern-theme') === 'dark'
+}
+
+function getServerSnapshot() {
+  return false
+}
+
 export function ThemeToggle() {
-  const [dark, setDark] = useState(false)
+  const dark = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot)
 
-  useEffect(() => {
-    const stored = localStorage.getItem('fern-theme')
-    if (stored === 'dark') {
-      setDark(true)
-      document.documentElement.setAttribute('data-theme', 'dark')
-    }
-  }, [])
-
-  const toggle = () => {
-    const next = !dark
-    setDark(next)
+  const toggle = useCallback(() => {
+    const next = localStorage.getItem('fern-theme') !== 'dark'
     document.documentElement.setAttribute('data-theme', next ? 'dark' : 'light')
     localStorage.setItem('fern-theme', next ? 'dark' : 'light')
-  }
+    window.dispatchEvent(new Event(THEME_EVENT))
+  }, [])
 
   return (
     <button

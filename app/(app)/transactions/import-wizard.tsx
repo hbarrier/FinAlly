@@ -10,16 +10,14 @@ import {
 import { SearchableSelect } from '@/components/fern/searchable-select'
 import { Icon } from '@/components/fern/icon'
 import { importTransactions, type MerchantMappingPayload, type ImportRow } from '@/lib/actions/import'
-import type { Category, Recurring } from '@/lib/derive'
-
-type Merchant = { id: string; name: string; categoryId: string | null }
+import type { Recurring } from '@/lib/derive'
+import type { Merchant } from '@/lib/db-types'
 
 interface ImportWizardProps {
   open: boolean
   onClose: () => void
   merchants: Merchant[]
   recurring: Recurring[]
-  categories: Category[]
 }
 
 // ─── CSV parsing ───────────────────────────────────────────────────────────
@@ -164,7 +162,6 @@ export function ImportWizard({
   onClose,
   merchants: existingMerchants,
   recurring,
-  categories,
 }: ImportWizardProps) {
   const [step, setStep] = useState<1 | 2 | 3>(1)
   const [parsedRows, setParsedRows] = useState<ParsedRow[]>([])

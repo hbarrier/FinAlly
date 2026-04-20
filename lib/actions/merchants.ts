@@ -1,6 +1,6 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
+import { revalidateApp } from './_shared'
 import { db } from '../db'
 import { merchants, transactions } from '../schema'
 import { nanoid } from '../utils'
@@ -12,7 +12,7 @@ export async function addMerchant(data: {
   categoryId?: string | null
 }) {
   await db.insert(merchants).values({ id: nanoid(), ...data })
-  revalidatePath('/', 'layout')
+  revalidateApp()
 }
 
 export async function updateMerchant(
@@ -20,16 +20,21 @@ export async function updateMerchant(
   data: Partial<{ name: string; comment: string | null; categoryId: string | null; isActive: number }>,
 ) {
   await db.update(merchants).set(data).where(eq(merchants.id, id))
-  revalidatePath('/', 'layout')
+  revalidateApp()
 }
 
 export async function deleteMerchant(id: string) {
   await db.delete(merchants).where(eq(merchants.id, id))
-  revalidatePath('/', 'layout')
+  revalidateApp()
 }
 
 export async function mergeMerchants(keepId: string, mergeIds: string[]) {
-  await db.update(transactions).set({ merchantId: keepId }).where(inArray(transactions.merchantId, mergeIds))
-  await db.delete(merchants).where(inArray(merchants.id, mergeIds))
-  revalidatePath('/', 'layout')
+  await db.transaction(async (tx) => {
+    await tx
+      .update(transactions)
+      .set({ merchantId: keepId })
+      .where(inArray(transactions.merchantId, mergeIds))
+    await tx.delete(merchants).where(inArray(merchants.id, mergeIds))
+  })
+  revalidateApp()
 }
