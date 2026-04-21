@@ -12,6 +12,7 @@ export async function addRecurring(data: {
   amount: number
   kind: 'expense' | 'income'
   categoryId: string | null
+  merchantId?: string | null
   cadence: 'weekly' | 'monthly' | 'yearly'
   dayOfMonth?: number | null
   dayOfWeek?: number | null
@@ -20,7 +21,7 @@ export async function addRecurring(data: {
 }) {
   const id = nanoid()
   await db.transaction(async (tx) => {
-    await tx.insert(recurring).values({ id, ...data })
+    await tx.insert(recurring).values({ id, ...data, merchantId: data.merchantId ?? null })
     await tx.insert(recurringAmounts).values({
       id: nanoid(),
       recurringId: id,
@@ -38,6 +39,7 @@ export async function updateRecurring(
     amount: number
     kind: 'expense' | 'income'
     categoryId: string | null
+    merchantId: string | null
     cadence: 'weekly' | 'monthly' | 'yearly'
     dayOfMonth: number | null
     dayOfWeek: number | null
@@ -120,6 +122,7 @@ export async function promoteToRecurring(
     amount: number
     kind: 'expense' | 'income'
     categoryId: string | null
+    merchantId: string | null
     cadence: 'weekly' | 'monthly' | 'yearly'
     dayOfMonth: number | null
     dayOfWeek: number | null
@@ -172,6 +175,41 @@ export async function promoteToRecurring(
 
   revalidateApp()
   return { recurringId: newId, linkedCount }
+}
+
+export async function bulkPromoteToRecurring(
+  txnIds: string[],
+  data: {
+    name: string
+    amount: number
+    kind: 'expense' | 'income'
+    categoryId: string | null
+    merchantId: string | null
+    cadence: 'weekly' | 'monthly' | 'yearly'
+    dayOfMonth: number | null
+    dayOfWeek: number | null
+    startDate: string
+  },
+): Promise<{ recurringId: string; linkedCount: number }> {
+  if (txnIds.length === 0) throw new Error('No transactions provided')
+  const newId = nanoid()
+
+  await db.transaction(async (tx) => {
+    await tx.insert(recurring).values({ id: newId, ...data })
+    await tx.insert(recurringAmounts).values({
+      id: nanoid(),
+      recurringId: newId,
+      amount: data.amount,
+      startDate: data.startDate,
+    })
+    await tx
+      .update(transactions)
+      .set({ recurringId: newId, ...(data.categoryId ? { categoryId: data.categoryId } : {}) })
+      .where(inArray(transactions.id, txnIds))
+  })
+
+  revalidateApp()
+  return { recurringId: newId, linkedCount: txnIds.length }
 }
 
 type DbClient = Parameters<Parameters<typeof db.transaction>[0]>[0] | typeof db

@@ -146,7 +146,11 @@ export function allOccurrencesInRange(
   return out.sort((a, b) => a.date.getTime() - b.date.getTime())
 }
 
-export function monthlyEstimate(r: Recurring): number {
+export function monthlyEstimate(r: Recurring, ref: Date = new Date()): number {
+  if (r.endDate) {
+    const refStr = ref.toISOString().slice(0, 10)
+    if (r.endDate < refStr) return 0
+  }
   const a = Number(r.amount || 0)
   if (r.cadence === 'monthly') return a
   if (r.cadence === 'weekly') return a * 4.33

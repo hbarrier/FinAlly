@@ -77,29 +77,44 @@ export function SearchableSelect({
           <ChevronsUpDown size={14} style={{ color: 'var(--ink-soft)', flexShrink: 0, marginLeft: 8 }} />
         </button>
       </PopoverTrigger>
-      <PopoverContent
-        style={{ padding: 0, width: 'var(--radix-popover-trigger-width)', minWidth: 200 }}
-        align="start"
-      >
-        <Command>
-          <CommandInput placeholder={searchPlaceholder} />
-          <CommandList id={listboxId}>
-            <CommandEmpty>{emptyText}</CommandEmpty>
-            {nullable && (
-              <CommandGroup>
-                <CommandItem
-                  value="__null__"
-                  onSelect={() => { onChange(null); setOpen(false) }}
-                >
-                  <Check size={14} style={{ opacity: value === null ? 1 : 0, marginRight: 6, flexShrink: 0 }} />
-                  {nullLabel}
-                </CommandItem>
-              </CommandGroup>
-            )}
-            {hasGroups
-              ? Object.entries(groups).map(([group, opts]) => (
-                  <CommandGroup key={group} heading={group}>
-                    {opts.map((opt) => (
+      {open && (
+        <PopoverContent
+          style={{ padding: 0, width: 'var(--radix-popover-trigger-width)', minWidth: 200 }}
+          align="start"
+        >
+          <Command>
+            <CommandInput placeholder={searchPlaceholder} />
+            <CommandList id={listboxId}>
+              <CommandEmpty>{emptyText}</CommandEmpty>
+              {nullable && (
+                <CommandGroup>
+                  <CommandItem
+                    value="__null__"
+                    onSelect={() => { onChange(null); setOpen(false) }}
+                  >
+                    <Check size={14} style={{ opacity: value === null ? 1 : 0, marginRight: 6, flexShrink: 0 }} />
+                    {nullLabel}
+                  </CommandItem>
+                </CommandGroup>
+              )}
+              {hasGroups
+                ? Object.entries(groups).map(([group, opts]) => (
+                    <CommandGroup key={group} heading={group}>
+                      {opts.map((opt) => (
+                        <CommandItem
+                          key={opt.value}
+                          value={opt.label}
+                          onSelect={() => { onChange(opt.value); setOpen(false) }}
+                        >
+                          <Check size={14} style={{ opacity: opt.value === value ? 1 : 0, marginRight: 6, flexShrink: 0 }} />
+                          {opt.label}
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  ))
+                : (
+                  <CommandGroup>
+                    {(groups[''] ?? []).map((opt) => (
                       <CommandItem
                         key={opt.value}
                         value={opt.label}
@@ -110,24 +125,11 @@ export function SearchableSelect({
                       </CommandItem>
                     ))}
                   </CommandGroup>
-                ))
-              : (
-                <CommandGroup>
-                  {(groups[''] ?? []).map((opt) => (
-                    <CommandItem
-                      key={opt.value}
-                      value={opt.label}
-                      onSelect={() => { onChange(opt.value); setOpen(false) }}
-                    >
-                      <Check size={14} style={{ opacity: opt.value === value ? 1 : 0, marginRight: 6, flexShrink: 0 }} />
-                      {opt.label}
-                    </CommandItem>
-                  ))}
-                </CommandGroup>
-              )}
-          </CommandList>
-        </Command>
-      </PopoverContent>
+                )}
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      )}
     </Popover>
   )
 }

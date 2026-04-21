@@ -12,6 +12,7 @@ import { AmountHistoryChart } from '../amount-history-chart'
 import { SheetShell } from '../sheet-shell'
 import { fmt, type Category, type Recurring, type RecurringAmount } from '@/lib/derive'
 import { addRecurringAmount, deleteRecurringAmount } from '@/lib/actions/recurring'
+import type { Merchant } from '@/lib/db-types'
 
 const parseDecimal = (v: string) => Number(v.replace(',', '.'))
 
@@ -35,11 +36,21 @@ const recurringSchema = z.object({
     .refine((v) => !isNaN(parseDecimal(v)) && parseDecimal(v) > 0, 'Enter a valid positive amount'),
   name: z.string().min(1, 'Name is required'),
   categoryId: z.string().min(1, 'Pick a category'),
+  merchantId: z.string().nullable(),
   cadence: z.enum(['weekly', 'monthly', 'yearly']),
   dayOfMonth: z.number().min(1).max(31).nullable(),
   monthOfYear: z.number().min(1).max(12).nullable(),
   dayOfWeek: z.number().min(0).max(6).nullable(),
   startDate: z.string().min(1, 'Start date is required'),
+  endDate: z.string().nullable().optional(),
+}).superRefine((data, ctx) => {
+  if (data.endDate && data.endDate < data.startDate) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['endDate'],
+      message: 'End date must be on or after start date',
+    })
+  }
 })
 
 type RecurringFormValues = z.infer<typeof recurringSchema>
@@ -53,11 +64,13 @@ function getDefaultValues(item?: Recurring | null): RecurringFormValues {
     amount: item?.amount ? String(item.amount) : '',
     name: item?.name ?? '',
     categoryId: item?.categoryId ?? '',
+    merchantId: item?.merchantId ?? null,
     cadence,
     dayOfMonth: cadence === 'yearly' ? d.getDate() : (item?.dayOfMonth ?? new Date().getDate()),
     monthOfYear: cadence === 'yearly' ? d.getMonth() + 1 : new Date().getMonth() + 1,
     dayOfWeek: item?.dayOfWeek ?? 1,
     startDate,
+    endDate: item?.endDate ?? null,
   }
 }
 
@@ -65,21 +78,25 @@ interface RecurringSheetProps {
   open: boolean
   onClose: () => void
   categories: Category[]
+  merchants: Merchant[]
   item?: Recurring | null
   amounts?: RecurringAmount[]
+  actuals?: { date: string; amount: number }[]
   onSave: (data: {
     name: string
     amount: number
     kind: 'expense' | 'income'
     categoryId: string | null
+    merchantId: string | null
     cadence: 'weekly' | 'monthly' | 'yearly'
     dayOfMonth: number | null
     dayOfWeek: number | null
     startDate: string
+    endDate?: string | null
   }) => void
 }
 
-export function RecurringSheet({ open, onClose, categories, item, amounts = [], onSave }: RecurringSheetProps) {
+export function RecurringSheet({ open, onClose, categories, merchants, item, amounts = [], actuals, onSave }: RecurringSheetProps) {
   const {
     register,
     control,
@@ -116,6 +133,13 @@ export function RecurringSheet({ open, onClose, categories, item, amounts = [], 
     [categories, watchedKind],
   )
 
+  const merchantOptions = useMemo(
+    () => [...merchants]
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((m) => ({ value: m.id, label: m.name })),
+    [merchants],
+  )
+
   const onSubmit = (data: RecurringFormValues) => {
     let startDate = data.startDate
     if (data.cadence === 'yearly') {
@@ -129,10 +153,12 @@ export function RecurringSheet({ open, onClose, categories, item, amounts = [], 
       amount: parseDecimal(data.amount),
       kind: data.kind,
       categoryId: data.categoryId,
+      merchantId: data.merchantId,
       cadence: data.cadence,
       dayOfMonth: data.cadence === 'monthly' ? Number(data.dayOfMonth) : null,
       dayOfWeek: data.cadence === 'weekly' ? Number(data.dayOfWeek) : null,
       startDate,
+      endDate: data.endDate && data.endDate.length ? data.endDate : null,
     })
     onClose()
   }
@@ -218,6 +244,26 @@ export function RecurringSheet({ open, onClose, categories, item, amounts = [], 
         }}
       />
 
+      {merchants.length > 0 && (
+        <div>
+          <label className="fern-field-label">Merchant</label>
+          <Controller
+            control={control}
+            name="merchantId"
+            render={({ field }) => (
+              <SearchableSelect
+                value={field.value}
+                onChange={(mId) => field.onChange(mId)}
+                options={merchantOptions}
+                placeholder="No merchant"
+                nullable
+                nullLabel="No merchant"
+              />
+            )}
+          />
+        </div>
+      )}
+
       <div>
         <label className="fern-field-label wide">How often</label>
         <Controller
@@ -292,10 +338,17 @@ export function RecurringSheet({ open, onClose, categories, item, amounts = [], 
         </Field>
       )}
 
+      <Field data-invalid={showErr('endDate')}>
+        <label className="fern-field-label">End date (optional)</label>
+        <input className="fern-input" type="date" {...register('endDate')} />
+        {showErr('endDate') && <FieldError>{errors.endDate?.message}</FieldError>}
+      </Field>
+
       {item && (
         <AmountHistorySection
           recurringId={item.id}
           amounts={amounts}
+          actuals={actuals}
           color={accentColor}
         />
       )}
@@ -306,10 +359,12 @@ export function RecurringSheet({ open, onClose, categories, item, amounts = [], 
 function AmountHistorySection({
   recurringId,
   amounts,
+  actuals,
   color,
 }: {
   recurringId: string
   amounts: RecurringAmount[]
+  actuals?: { date: string; amount: number }[]
   color: string
 }) {
   const [newAmount, setNewAmount] = useState('')
@@ -342,7 +397,7 @@ function AmountHistorySection({
 
       {sorted.length >= 1 && (
         <div style={{ marginBottom: 12, borderRadius: 8, overflow: 'hidden', background: 'var(--bg-sunken)', padding: '8px 4px 4px' }}>
-          <AmountHistoryChart amounts={sorted} color={color} height={120} />
+          <AmountHistoryChart amounts={sorted} color={color} height={120} actuals={actuals} />
         </div>
       )}
 

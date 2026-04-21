@@ -33,6 +33,7 @@ type PrefillValues = {
   amount?: number
   kind?: 'expense' | 'income'
   categoryId?: string | null
+  merchantId?: string | null
   note?: string
 }
 
@@ -42,7 +43,7 @@ function getDefaultValues(item?: Transaction | null, prefill?: PrefillValues | n
     amount: item?.amount ? String(item.amount) : (prefill?.amount ? String(prefill.amount) : ''),
     date: item?.date ?? prefill?.date ?? new Date().toISOString().slice(0, 10),
     categoryId: item?.categoryId ?? prefill?.categoryId ?? '',
-    merchantId: item?.merchantId ?? null,
+    merchantId: item?.merchantId ?? prefill?.merchantId ?? null,
     note: item?.note ?? prefill?.note ?? '',
     reimbursable: item?.reimbursable === 1,
   }
@@ -82,9 +83,10 @@ export function TransactionSheet({
     control,
     handleSubmit,
     reset,
-    trigger,
     watch,
     setValue,
+    getValues,
+    trigger,
     formState: { errors, isValid, dirtyFields, isSubmitted },
   } = useForm<TransactionFormValues>({
     resolver: zodResolver(transactionSchema),
@@ -95,7 +97,8 @@ export function TransactionSheet({
   useEffect(() => {
     if (open) {
       reset(getDefaultValues(item, prefill))
-      trigger()
+      // Re-run validation so isValid reflects the pre-filled state (especially for edits).
+      setTimeout(() => trigger(), 0)
     }
   }, [open, item, prefill, reset, trigger])
 
@@ -103,7 +106,12 @@ export function TransactionSheet({
     !!(errors[field] && (dirtyFields[field] || isSubmitted))
 
   const watchedKind = watch('kind')
-  const filteredCats = categories.filter((c) => c.kind === watchedKind)
+  const filteredCatsSorted = useMemo(() => {
+    return categories
+      .filter((c) => c.kind === watchedKind)
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name))
+  }, [categories, watchedKind])
 
   const merchantOptions = useMemo(
     () => [...merchants]
@@ -158,9 +166,9 @@ export function TransactionSheet({
               className={field.value === 'expense' ? 'active expense' : ''}
               onClick={() => {
                 field.onChange('expense')
-                const current = watch('categoryId')
+                const current = getValues('categoryId')
                 const stillValid = categories.find((c) => c.kind === 'expense' && c.id === current)
-                if (!stillValid) setValue('categoryId', '')
+                if (!stillValid) setValue('categoryId', '', { shouldValidate: true, shouldDirty: true })
               }}
             >
               <Icon name="arrowDown" size={14} /> Expense
@@ -170,9 +178,9 @@ export function TransactionSheet({
               className={field.value === 'income' ? 'active income' : ''}
               onClick={() => {
                 field.onChange('income')
-                const current = watch('categoryId')
+                const current = getValues('categoryId')
                 const stillValid = categories.find((c) => c.kind === 'income' && c.id === current)
-                if (!stillValid) setValue('categoryId', '')
+                if (!stillValid) setValue('categoryId', '', { shouldValidate: true, shouldDirty: true })
               }}
             >
               <Icon name="arrowUp" size={14} /> Income
@@ -209,7 +217,14 @@ export function TransactionSheet({
                   field.onChange(mId)
                   if (mId) {
                     const m = merchants.find((x) => x.id === mId)
-                    if (m?.categoryId) setValue('categoryId', m.categoryId)
+                    if (m?.categoryId) {
+                      const catBelongsToKind = categories.some(
+                        (c) => c.id === m.categoryId && c.kind === watchedKind
+                      )
+                      if (catBelongsToKind) {
+                        setValue('categoryId', m.categoryId, { shouldValidate: true, shouldDirty: true })
+                      }
+                    }
                   }
                 }}
                 options={merchantOptions}
@@ -230,15 +245,13 @@ export function TransactionSheet({
           return (
             <Field data-invalid={showCatErr}>
               <label className="fern-field-label wide">Category</label>
-              {filteredCats.length === 0 ? (
+              {filteredCatsSorted.length === 0 ? (
                 <p style={{ fontSize: 13, color: 'var(--ink-faint)', padding: '12px', background: 'var(--bg-sunken)', borderRadius: 10 }}>
                   No {watchedKind} categories — add one in Categories.
                 </p>
               ) : (
                 <div className="fern-cat-grid">
-                  {[...filteredCats]
-                    .sort((a, b) => a.name.localeCompare(b.name))
-                    .map((c) => (
+                  {filteredCatsSorted.map((c) => (
                       <button
                         key={c.id}
                         type="button"

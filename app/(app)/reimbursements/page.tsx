@@ -52,6 +52,7 @@ export default async function ReimbursementsPage() {
       amount: e.amount,
       merchantName: merchant?.name ?? null,
       reimbursementTxId: e.reimbursementTxId ?? null,
+      claimedDate: e.claimedDate ?? null,
       reimbursement: reimbTx
         ? { date: reimbTx.date, amount: reimbTx.amount }
         : null,

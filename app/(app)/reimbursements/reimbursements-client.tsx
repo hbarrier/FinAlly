@@ -10,6 +10,7 @@ import type {
 } from '@/lib/db-types'
 import {
   addReimbursementRate,
+  updateReimbursementRate,
   deleteReimbursementRate,
   recordReimbursement,
   deleteReimbursement,
@@ -21,6 +22,7 @@ interface Expense {
   amount: number
   merchantName: string | null
   reimbursementTxId: string | null
+  claimedDate: string | null
   reimbursement: { date: string; amount: number } | null
   applicableRate: number | null
 }
@@ -29,6 +31,12 @@ interface Props {
   expenses: Expense[]
   pensionTxs: PensionTx[]
   rates: Rate[]
+}
+
+function addOneMonth(iso: string): string {
+  const d = new Date(iso + 'T12:00:00')
+  d.setMonth(d.getMonth() + 1)
+  return d.toISOString().slice(0, 10)
 }
 
 // Annual summary helpers
@@ -44,9 +52,16 @@ function groupByYear(items: { date: string; amount: number }[]) {
 export function ReimbursementsClient({ expenses, pensionTxs, rates }: Props) {
   const [, startTransition] = useTransition()
   const [sheetExpense, setSheetExpense] = useState<Expense | null>(null)
+
+  // --- Add rate state ---
   const [showRateForm, setShowRateForm] = useState(false)
   const [ratePercent, setRatePercent] = useState('')
   const [rateDate, setRateDate] = useState(new Date().toISOString().slice(0, 10))
+
+  // --- Edit rate state ---
+  const [editingRateId, setEditingRateId] = useState<string | null>(null)
+  const [editPercent, setEditPercent] = useState('')
+  const [editDate, setEditDate] = useState('')
 
   // --- Rate management ---
   const currentRate = rates[0] ?? null
@@ -62,6 +77,23 @@ export function ReimbursementsClient({ expenses, pensionTxs, rates }: Props) {
     setRateDate(new Date().toISOString().slice(0, 10))
   }
 
+  const handleStartEditRate = (rate: Rate) => {
+    setEditingRateId(rate.id)
+    setEditPercent(String(rate.percent))
+    setEditDate(rate.startDate)
+    setShowRateForm(false)
+  }
+
+  const handleSaveEditRate = () => {
+    if (!editingRateId) return
+    const pct = Number(editPercent.replace(',', '.'))
+    if (!pct || !editDate) return
+    startTransition(async () => {
+      await updateReimbursementRate(editingRateId, pct, editDate)
+    })
+    setEditingRateId(null)
+  }
+
   const handleDeleteRate = (id: string) => {
     startTransition(async () => {
       await deleteReimbursementRate(id)
@@ -69,9 +101,9 @@ export function ReimbursementsClient({ expenses, pensionTxs, rates }: Props) {
   }
 
   // --- Reimbursement actions ---
-  const handleSaveReimbursement = (expenseId: string, date: string, amount: number) => {
+  const handleSaveReimbursement = (expenseId: string, date: string, amount: number, claimedDate: string | null) => {
     startTransition(async () => {
-      await recordReimbursement(expenseId, date, amount)
+      await recordReimbursement(expenseId, date, amount, claimedDate)
     })
   }
 
@@ -98,6 +130,7 @@ export function ReimbursementsClient({ expenses, pensionTxs, rates }: Props) {
     return [...ys].sort((a, b) => b.localeCompare(a))
   }, [reimbByYear, pensionByYear])
 
+  const today = new Date().toISOString().slice(0, 10)
   const pending = expenses.filter((e) => !e.reimbursement)
   const settled = expenses.filter((e) => e.reimbursement)
 
@@ -116,7 +149,7 @@ export function ReimbursementsClient({ expenses, pensionTxs, rates }: Props) {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
           <h2 style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)', margin: 0 }}>Taux de remboursement</h2>
           <button
-            onClick={() => setShowRateForm((v) => !v)}
+            onClick={() => { setShowRateForm((v) => !v); setEditingRateId(null) }}
             style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: 'var(--terracotta-ink)', background: 'var(--terracotta-bg)', border: 'none', borderRadius: 8, padding: '6px 12px', cursor: 'pointer' }}
           >
             <Icon name="plus" size={12} /> Nouveau taux
@@ -163,30 +196,71 @@ export function ReimbursementsClient({ expenses, pensionTxs, rates }: Props) {
         {currentRate ? (
           <div style={{ background: 'var(--bg-elevated)', borderRadius: 12, overflow: 'hidden' }}>
             {/* Current rate */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderBottom: rates.length > 1 ? '1px solid var(--line)' : undefined }}>
-              <div>
-                <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Taux actuel</div>
-                <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--teal-ink)' }}>{currentRate.percent}%</div>
+            {editingRateId === currentRate.id ? (
+              <RateEditRow
+                percent={editPercent}
+                date={editDate}
+                onPercentChange={setEditPercent}
+                onDateChange={setEditDate}
+                onSave={handleSaveEditRate}
+                onCancel={() => setEditingRateId(null)}
+              />
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderBottom: rates.length > 1 ? '1px solid var(--line)' : undefined }}>
+                <div>
+                  <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Taux actuel</div>
+                  <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--teal-ink)' }}>{currentRate.percent}%</div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: 12, color: 'var(--ink-soft)' }}>depuis le</div>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)' }}>{formatDate(currentRate.startDate)}</div>
+                  </div>
+                  <button
+                    onClick={() => handleStartEditRate(currentRate)}
+                    style={{ background: 'none', border: 'none', color: 'var(--ink-faint)', cursor: 'pointer', padding: 4 }}
+                    title="Modifier"
+                  >
+                    <Icon name="edit" size={14} />
+                  </button>
+                </div>
               </div>
-              <div style={{ textAlign: 'right' }}>
-                <div style={{ fontSize: 12, color: 'var(--ink-soft)' }}>depuis le</div>
-                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)' }}>{formatDate(currentRate.startDate)}</div>
-              </div>
-            </div>
+            )}
             {/* Rate history */}
             {rates.slice(1).map((r) => (
-              <div key={r.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', borderBottom: '1px solid var(--line)' }}>
-                <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>
-                  <span style={{ fontWeight: 600, color: 'var(--ink)' }}>{r.percent}%</span> à partir du {formatDate(r.startDate)}
+              editingRateId === r.id ? (
+                <RateEditRow
+                  key={r.id}
+                  percent={editPercent}
+                  date={editDate}
+                  onPercentChange={setEditPercent}
+                  onDateChange={setEditDate}
+                  onSave={handleSaveEditRate}
+                  onCancel={() => setEditingRateId(null)}
+                />
+              ) : (
+                <div key={r.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', borderBottom: '1px solid var(--line)' }}>
+                  <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>
+                    <span style={{ fontWeight: 600, color: 'var(--ink)' }}>{r.percent}%</span> à partir du {formatDate(r.startDate)}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <button
+                      onClick={() => handleStartEditRate(r)}
+                      style={{ background: 'none', border: 'none', color: 'var(--ink-faint)', cursor: 'pointer', padding: 4 }}
+                      title="Modifier"
+                    >
+                      <Icon name="edit" size={14} />
+                    </button>
+                    <button
+                      onClick={() => handleDeleteRate(r.id)}
+                      style={{ background: 'none', border: 'none', color: 'var(--ink-faint)', cursor: 'pointer', padding: 4 }}
+                      title="Supprimer"
+                    >
+                      <Icon name="trash" size={14} />
+                    </button>
+                  </div>
                 </div>
-                <button
-                  onClick={() => handleDeleteRate(r.id)}
-                  style={{ background: 'none', border: 'none', color: 'var(--ink-faint)', cursor: 'pointer', padding: 4 }}
-                  title="Supprimer"
-                >
-                  <Icon name="trash" size={14} />
-                </button>
-              </div>
+              )
             ))}
           </div>
         ) : (
@@ -214,44 +288,58 @@ export function ReimbursementsClient({ expenses, pensionTxs, rates }: Props) {
         ) : (
           <div style={{ background: 'var(--bg-elevated)', borderRadius: 12, overflow: 'hidden' }}>
             {/* Pending */}
-            {pending.map((e, i) => (
-              <button
-                key={e.id}
-                onClick={() => setSheetExpense(e)}
-                style={{
-                  width: '100%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 12,
-                  padding: '12px 16px',
-                  background: 'none',
-                  border: 'none',
-                  borderBottom: i < pending.length - 1 ? '1px solid var(--line)' : undefined,
-                  cursor: 'pointer',
-                  textAlign: 'left',
-                }}
-              >
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>
-                      {e.merchantName ?? '—'}
-                    </span>
-                    <span style={{ fontSize: 11, color: 'var(--ink-faint)' }}>{formatDate(e.date)}</span>
-                  </div>
-                  {e.applicableRate != null && (
-                    <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2 }}>
-                      Attendu {fmt(Math.round(e.amount * e.applicableRate) / 100)} ({e.applicableRate}%)
+            {pending.map((e, i) => {
+              const dueDate = e.claimedDate ? addOneMonth(e.claimedDate) : null
+              const isOverdue = dueDate != null && dueDate < today
+              return (
+                <button
+                  key={e.id}
+                  onClick={() => setSheetExpense(e)}
+                  style={{
+                    width: '100%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 12,
+                    padding: '12px 16px',
+                    background: 'none',
+                    border: 'none',
+                    borderBottom: i < pending.length - 1 || settled.length > 0 ? '1px solid var(--line)' : undefined,
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                  }}
+                >
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>
+                        {e.merchantName ?? '—'}
+                      </span>
+                      <span style={{ fontSize: 11, color: 'var(--ink-faint)' }}>{formatDate(e.date)}</span>
                     </div>
-                  )}
-                </div>
-                <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--rose-ink)' }}>{fmt(e.amount)}</div>
-                  <div style={{ marginTop: 4 }}>
-                    <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--terracotta-ink)', background: 'var(--terracotta-bg)', borderRadius: 6, padding: '2px 7px' }}>En attente</span>
+                    {e.applicableRate != null && (
+                      <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2 }}>
+                        Attendu {fmt(Math.round(e.amount * e.applicableRate / 100))} ({e.applicableRate}%)
+                      </div>
+                    )}
+                    {e.claimedDate && (
+                      <div style={{ fontSize: 11, marginTop: 2, display: 'flex', gap: 8 }}>
+                        <span style={{ color: 'var(--ink-soft)' }}>Déclaré le {formatDate(e.claimedDate)}</span>
+                        {dueDate && (
+                          <span style={{ color: isOverdue ? 'var(--rose-ink)' : 'var(--ink-soft)', fontWeight: isOverdue ? 600 : 400 }}>
+                            · Échéance {formatDate(dueDate)}
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
-                </div>
-              </button>
-            ))}
+                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--rose-ink)' }}>{fmt(e.amount)}</div>
+                    <div style={{ marginTop: 4 }}>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--terracotta-ink)', background: 'var(--terracotta-bg)', borderRadius: 6, padding: '2px 7px' }}>En attente</span>
+                    </div>
+                  </div>
+                </button>
+              )
+            })}
 
             {/* Settled */}
             {settled.map((e, i) => (
@@ -278,8 +366,9 @@ export function ReimbursementsClient({ expenses, pensionTxs, rates }: Props) {
                     </span>
                     <span style={{ fontSize: 11, color: 'var(--ink-faint)' }}>{formatDate(e.date)}</span>
                   </div>
-                  <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2 }}>
-                    Reçu le {formatDate(e.reimbursement!.date)}
+                  <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    {e.claimedDate && <span>Déclaré le {formatDate(e.claimedDate)}</span>}
+                    <span>Reçu le {formatDate(e.reimbursement!.date)}</span>
                   </div>
                 </div>
                 <div style={{ textAlign: 'right', flexShrink: 0 }}>
@@ -389,10 +478,62 @@ export function ReimbursementsClient({ expenses, pensionTxs, rates }: Props) {
           expense={sheetExpense}
           applicableRate={sheetExpense.applicableRate}
           existingReimbursement={sheetExpense.reimbursement}
-          onSave={(date, amount) => handleSaveReimbursement(sheetExpense.id, date, amount)}
+          onSave={(date, amount, claimedDate) => handleSaveReimbursement(sheetExpense.id, date, amount, claimedDate)}
           onDelete={sheetExpense.reimbursement ? () => handleDeleteReimbursement(sheetExpense.id) : undefined}
         />
       )}
+    </div>
+  )
+}
+
+function RateEditRow({
+  percent,
+  date,
+  onPercentChange,
+  onDateChange,
+  onSave,
+  onCancel,
+}: {
+  percent: string
+  date: string
+  onPercentChange: (v: string) => void
+  onDateChange: (v: string) => void
+  onSave: () => void
+  onCancel: () => void
+}) {
+  return (
+    <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--line)', display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+      <div style={{ flex: 1 }}>
+        <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)', display: 'block', marginBottom: 4 }}>Taux (%)</label>
+        <input
+          className="fern-input"
+          placeholder="ex: 75"
+          inputMode="decimal"
+          value={percent}
+          onChange={(e) => onPercentChange(e.target.value)}
+        />
+      </div>
+      <div style={{ flex: 1 }}>
+        <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)', display: 'block', marginBottom: 4 }}>À partir du</label>
+        <input
+          className="fern-input"
+          type="date"
+          value={date}
+          onChange={(e) => onDateChange(e.target.value)}
+        />
+      </div>
+      <button
+        onClick={onSave}
+        style={{ background: 'var(--teal)', color: 'white', border: 'none', borderRadius: 8, padding: '8px 12px', fontSize: 13, fontWeight: 600, cursor: 'pointer', height: 38 }}
+      >
+        <Icon name="check" size={14} />
+      </button>
+      <button
+        onClick={onCancel}
+        style={{ background: 'var(--bg-sunken)', color: 'var(--ink-soft)', border: 'none', borderRadius: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', height: 38 }}
+      >
+        <Icon name="x" size={14} />
+      </button>
     </div>
   )
 }

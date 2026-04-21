@@ -11,6 +11,11 @@ export async function addReimbursementRate(percent: number, startDate: string) {
   revalidateApp()
 }
 
+export async function updateReimbursementRate(id: string, percent: number, startDate: string) {
+  await db.update(reimbursementRates).set({ percent, startDate }).where(eq(reimbursementRates.id, id))
+  revalidateApp()
+}
+
 export async function deleteReimbursementRate(id: string) {
   await db.delete(reimbursementRates).where(eq(reimbursementRates.id, id))
   revalidateApp()
@@ -43,6 +48,7 @@ export async function recordReimbursement(
   expenseId: string,
   date: string,
   amount: number,
+  claimedDate: string | null,
 ) {
   await db.transaction(async (tx) => {
     const categoryId = await findReimbursementCategoryId(tx)
@@ -57,7 +63,7 @@ export async function recordReimbursement(
     })
     await tx
       .update(transactions)
-      .set({ reimbursementTxId: newTxId })
+      .set({ reimbursementTxId: newTxId, claimedDate })
       .where(eq(transactions.id, expenseId))
   })
   revalidateApp()

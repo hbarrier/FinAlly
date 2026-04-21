@@ -10,6 +10,7 @@ import { FernButton } from '@/components/fern/button'
 import { EmptyState } from '@/components/fern/empty-state'
 import { fmt, monthlyEstimate, type Category, type RecurringWithAmounts } from '@/lib/derive'
 import { addRecurring, updateRecurring, deleteRecurring } from '@/lib/actions/recurring'
+import type { Merchant } from '@/lib/db-types'
 
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -17,9 +18,11 @@ const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'S
 interface RecurringClientProps {
   recurring: RecurringWithAmounts[]
   categories: Category[]
+  merchants: Merchant[]
+  transactionsByRecurring: Record<string, { date: string; amount: number }[]>
 }
 
-export function RecurringClient({ recurring, categories }: RecurringClientProps) {
+export function RecurringClient({ recurring, categories, merchants, transactionsByRecurring }: RecurringClientProps) {
   const [editing, setEditing] = useState<string | 'new' | null>(null)
   const [, startTransition] = useTransition()
 
@@ -103,8 +106,10 @@ export function RecurringClient({ recurring, categories }: RecurringClientProps)
         open={!!editing}
         onClose={() => setEditing(null)}
         categories={categories}
+        merchants={merchants}
         item={editingItem ?? null}
         amounts={editingItem?.amounts ?? []}
+        actuals={editingItem ? (transactionsByRecurring[editingItem.id] ?? []) : []}
         onSave={handleSave}
       />
     </div>

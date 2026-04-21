@@ -115,6 +115,7 @@ export function RecurringLinkSheet({
         amount: Number(transaction.amount),
         kind: transaction.kind,
         categoryId: data.categoryId,
+        merchantId: transaction.merchantId ?? null,
         cadence: data.cadence,
         dayOfMonth: data.cadence === 'monthly' ? (data.dayOfMonth ?? txnDate.getDate()) : null,
         dayOfWeek: data.cadence === 'weekly' ? (data.dayOfWeek ?? txnDate.getDay()) : null,

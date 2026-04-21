@@ -3,7 +3,7 @@
 import { db } from '../db'
 import { transactions } from '../schema'
 import { nanoid } from '../utils'
-import { eq } from 'drizzle-orm'
+import { eq, inArray } from 'drizzle-orm'
 import { revalidateApp } from './_shared'
 
 export async function addTransaction(data: {
@@ -54,5 +54,14 @@ export async function linkTransactionToRecurring(id: string, recurringId: string
 
 export async function detachTransactionFromRecurring(id: string) {
   await db.update(transactions).set({ recurringId: null }).where(eq(transactions.id, id))
+  revalidateApp()
+}
+
+export async function bulkLinkTransactionsToRecurring(
+  ids: string[],
+  recurringId: string,
+): Promise<void> {
+  if (ids.length === 0) return
+  await db.update(transactions).set({ recurringId }).where(inArray(transactions.id, ids))
   revalidateApp()
 }

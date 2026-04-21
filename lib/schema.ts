@@ -41,6 +41,9 @@ export const recurring = sqliteTable('recurring', {
   categoryId: text('category_id').references(() => categories.id, {
     onDelete: 'set null',
   }),
+  merchantId: text('merchant_id').references(() => merchants.id, {
+    onDelete: 'set null',
+  }),
   cadence: text('cadence', {
     enum: ['weekly', 'monthly', 'yearly'],
   }).notNull(),
@@ -96,6 +99,7 @@ export const transactions = sqliteTable(
     reimbursable: int('reimbursable').notNull().default(0),
     reimbursementTxId: text('reimbursement_tx_id'),
     cleared: int('cleared').notNull().default(0),
+    claimedDate: text('claimed_date'),
     createdAt: text('created_at')
       .notNull()
       .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
