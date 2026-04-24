@@ -19,6 +19,10 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+# Runtime / logs
+*.log
+.dev.port
+
 # OS
 .DS_Store
 Thumbs.db
