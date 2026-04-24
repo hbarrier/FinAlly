@@ -222,6 +222,7 @@
 .fern-chip.expense { background: var(--rose-bg); color: var(--rose-ink); }
 .fern-chip.recurring { background: var(--teal-bg); color: var(--teal-ink); }
 .fern-chip.scheduled { background: var(--butter-bg); color: var(--butter-ink); }
+.fern-chip.inactive { background: var(--bg-sunken); color: var(--ink-faint); }
 
 /* Empty state */
 .fern-empty {
@@ -507,4 +508,96 @@
   font-weight: 600;
   color: var(--ink-soft);
   margin-bottom: 6px;
+}
+
+/* Merchant table */
+.fern-merchant-table {
+  background: var(--bg-elevated);
+  border-radius: 14px;
+  box-shadow: var(--fern-shadow);
+  overflow: hidden;
+}
+
+.fern-merchant-header {
+  display: grid;
+  grid-template-columns: 1fr 160px 120px 80px 40px;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 11px;
+  font-family: var(--mono-fern);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-faint);
+}
+
+.fern-merchant-row {
+  display: grid;
+  grid-template-columns: 1fr 160px 120px 80px 40px;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line-soft);
+  align-items: center;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.fern-merchant-row:last-child { border-bottom: none; }
+.fern-merchant-row:hover { background: var(--bg-sunken); }
+
+.fern-merchant-row-delete {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--ink-faint);
+  padding: 4px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s, background 0.15s;
+}
+
+.fern-merchant-row-delete:hover {
+  color: var(--rose-ink);
+  background: var(--rose-bg);
+}
+
+/* Combobox dropdown */
+.fern-combobox-wrap {
+  position: relative;
+}
+
+.fern-combobox-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--bg-elevated);
+  border: 1.5px solid var(--line);
+  border-radius: 10px;
+  box-shadow: var(--fern-shadow);
+  z-index: 50;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.fern-combobox-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 14px;
+  cursor: pointer;
+  color: var(--ink);
+  transition: background 0.1s;
+}
+
+.fern-combobox-option:hover { background: var(--bg-sunken); }
+.fern-combobox-option:first-child { border-radius: 8px 8px 0 0; }
+.fern-combobox-option:last-child { border-radius: 0 0 8px 8px; }
+.fern-combobox-empty {
+  padding: 10px 12px;
+  font-size: 13px;
+  color: var(--ink-faint);
 }
