@@ -18,7 +18,7 @@ import {
 
 const NAV_ITEMS: { href: string; label: string; Icon: LucideIcon }[] = [
   { href: "/", label: "Dashboard", Icon: LayoutDashboard },
-  { href: "/movements", label: "Movements", Icon: ArrowUpDown },
+  { href: "/transactions", label: "Transactions", Icon: ArrowUpDown },
   { href: "/recurring", label: "Recurring", Icon: RefreshCw },
   { href: "/reimbursements", label: "Reimbursements", Icon: Receipt },
   { href: "/merchants", label: "Merchants", Icon: Store },

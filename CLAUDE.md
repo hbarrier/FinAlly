@@ -20,7 +20,7 @@ The frontend uses Next.js 16 App Router with TypeScript.
 
 Routes (all under `frontend/src/app/`):
 - `/` — Dashboard
-- `/movements` — Movements
+- `/transactions` — Transactions (full ledger)
 - `/recurring` — Recurring payments
 - `/reimbursements` — Reimbursements
 - `/merchants` — Merchants
@@ -37,6 +37,10 @@ Feature components follow the pattern `frontend/src/components/<feature>/`. Exam
 - `ConfirmModal.tsx` — delete confirmation modal, also Base UI Dialog.
 - `constants.ts` — `CategoryColor`, `CATEGORY_COLORS`, `COLOR_VARS`, `CATEGORY_ICONS`.
 
+`transactions/` components:
+- `TransactionSheet.tsx` — slide-over form (create/edit). Exports `TransactionRead` type. Merchant is above category; selecting a merchant auto-fills category from the merchant's default.
+- `ConfirmModal.tsx` — delete confirmation modal.
+
 API:
 - `frontend/src/lib/api.ts` — exports `API_URL` (`NEXT_PUBLIC_API_URL` env var, defaults to `http://localhost:8000`).
 - All fetch calls use `API_URL` directly; no wrapper client.
@@ -47,6 +51,7 @@ Design system:
 - Fonts: Inter (`--font-inter`) for body/nav, Instrument Serif (`--serif`) for display/logo, JetBrains Mono (`--mono-fern`) for amounts and kickers.
 - Font variables are loaded via `next/font/google` and wired through `@theme inline` in `globals.css`. Do not redefine `--font-inter` in `:root` — it creates a cyclic self-reference that breaks the cascade.
 - Dialogs and modals use `@base-ui-components/react` (not shadcn). CSS classes: `fern-sheet-*`, `fern-modal-*`.
+- Transaction rows use `.fern-txn-row` (flex, border-bottom, hover). Filter bar uses `.fern-filter-bar`, `.fern-segmented` / `.fern-segmented-btn`, `.fern-select`. Big amount input: `.fern-input.big` (serif 36px, bottom-border only).
 
 ## Backend structure
 
@@ -60,7 +65,12 @@ backend/app/
   routers/      — one file per resource (e.g. categories.py)
 ```
 
+Models implemented: `Category`, `Merchant`, `Transaction`.
+
+Key rules:
+- `Transaction.category_id` is required (non-nullable FK to `category`).
+- `Transaction.merchant_id` is nullable; when a merchant is deleted, linked `transaction.merchant_id` is nullified.
+- Each router defines a local `SessionDep = Annotated[Session, Depends(get_session)]`.
+- `_to_read()` helper builds the read schema; computed fields (e.g. `merchant.transaction_count`) are resolved there.
+
 Run everything with `./dev.sh start` (starts backend on :8000 and frontend on :3000). Logs go to `backend.log` / `frontend.log`.
-
-
-
