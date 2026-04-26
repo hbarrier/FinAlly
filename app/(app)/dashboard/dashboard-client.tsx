@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { Icon } from '@/components/fern/icon'
 import { CatSwatch } from '@/components/fern/cat-swatch'
 import { Chip } from '@/components/fern/chip'
-import { CashflowRiver } from '@/components/fern/cashflow-river'
+import { BalanceEvolution } from '@/components/fern/balance-evolution'
 import { CategoryBars } from '@/components/fern/category-bars'
 import { TransactionSheet } from '@/components/fern/sheets/transaction-sheet'
 import { PageHeader } from '@/components/fern/page-header'
@@ -29,13 +29,17 @@ import {
   updateTransaction,
   deleteTransaction,
 } from '@/lib/actions/transactions'
+import { upsertMonthlyOpeningBalance } from '@/lib/actions/monthly-opening-balances'
 
 import type { Merchant, UserSettings as Settings } from '@/lib/db-types'
 
 interface DashboardClientProps {
   settings: Settings
   monthTransactions: Transaction[]
-  balance: number
+  monthKey: string
+  monthStart: string
+  openingBalance: number
+  openingBalanceIsExplicit: boolean
   recurring: Recurring[]
   categories: Category[]
   merchants: Merchant[]
@@ -44,27 +48,75 @@ interface DashboardClientProps {
 export function DashboardClient({
   settings,
   monthTransactions: monthTxns,
-  balance,
+  monthKey,
+  monthStart,
+  openingBalance,
+  openingBalanceIsExplicit,
   recurring,
   categories,
   merchants,
 }: DashboardClientProps) {
   const [sheetOpen, setSheetOpen] = useState(false)
   const [editingTxn, setEditingTxn] = useState<Transaction | null>(null)
+  const [clearedOnly, setClearedOnly] = useState(false)
   const [, startTransition] = useTransition()
 
   const today = useMemo(() => new Date(), [])
+  const todayIso = today.toISOString().slice(0, 10)
+  const monthEndDay = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate()
+  const monthEndIso = `${monthKey}-${String(monthEndDay).padStart(2, '0')}`
+
+  const filteredMonthTxns = useMemo(
+    () => (clearedOnly ? monthTxns.filter((t) => t.cleared === 1) : monthTxns),
+    [monthTxns, clearedOnly],
+  )
+
+  const series = useMemo(() => {
+    const txns = [...filteredMonthTxns].sort((a, b) => a.date.localeCompare(b.date))
+    const out: number[] = []
+    let bal = openingBalance
+    let idx = 0
+    for (let day = 1; day <= monthEndDay; day++) {
+      const iso = `${monthKey}-${String(day).padStart(2, '0')}`
+      while (idx < txns.length && txns[idx].date <= iso) {
+        const t = txns[idx]
+        bal += (t.kind === 'income' ? 1 : -1) * Number(t.amount || 0)
+        idx++
+      }
+      out.push(bal)
+    }
+    return out
+  }, [filteredMonthTxns, openingBalance, monthKey, monthEndDay])
+
+  const balanceToday = useMemo(() => {
+    return (
+      openingBalance +
+      filteredMonthTxns
+        .filter((t) => t.date >= monthStart && t.date <= todayIso)
+        .reduce((s, t) => s + (t.kind === 'income' ? 1 : -1) * Number(t.amount || 0), 0)
+    )
+  }, [openingBalance, filteredMonthTxns, monthStart, todayIso])
+
+  const balanceProjected = useMemo(() => {
+    return (
+      openingBalance +
+      filteredMonthTxns
+        .filter((t) => t.date >= monthStart && t.date <= monthEndIso)
+        .reduce((s, t) => s + (t.kind === 'income' ? 1 : -1) * Number(t.amount || 0), 0)
+    )
+  }, [openingBalance, filteredMonthTxns, monthStart, monthEndIso])
+
   const { income, expense, net, cats, upcoming } = useMemo(() => {
-    const inc = sumByKind(monthTxns, 'income')
-    const exp = sumByKind(monthTxns, 'expense')
+    const inc = sumByKind(filteredMonthTxns, 'income')
+    const exp = sumByKind(filteredMonthTxns, 'expense')
     return {
       income: inc,
       expense: exp,
       net: inc - exp,
-      cats: spendingByCategory(monthTxns, categories),
-      upcoming: thisMonthRecurring(recurring, today).slice(0, 8),
+      cats: spendingByCategory(filteredMonthTxns, categories),
+      upcoming: thisMonthRecurring(recurring, today).slice(0, 6),
     }
-  }, [monthTxns, categories, recurring, today])
+  }, [filteredMonthTxns, categories, recurring, today])
 
   const categoryById = useMemo(
     () => new Map(categories.map((c) => [c.id, c])),
@@ -73,7 +125,7 @@ export function DashboardClient({
 
   const monthName = today.toLocaleString('en-US', { month: 'long' })
   const dayOfMonth = today.getDate()
-  const totalDays = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate()
+  const totalDays = monthEndDay
 
   const hasData = monthTxns.length > 0 || recurring.length > 0
 
@@ -115,9 +167,33 @@ export function DashboardClient({
         {/* Balance card */}
         <div className="fern-card">
           <div style={{ fontSize: 12, fontFamily: 'var(--mono-fern)', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--ink-faint)', marginBottom: 8 }}>
-            Total balance
+            Balance · {monthName} {today.getFullYear()}
           </div>
-          <Money amount={balance} />
+          <Money amount={balanceToday} />
+          <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', fontSize: 12 }}>
+            <span style={{ color: 'var(--ink-faint)', fontFamily: 'var(--mono-fern)' }}>
+              Opening{openingBalanceIsExplicit ? '' : ' (derived)'}:
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ color: 'var(--ink-faint)' }}>€</span>
+              <input
+                className="fern-input"
+                style={{ width: 110, padding: '4px 8px', fontSize: 13, textAlign: 'right' }}
+                type="number"
+                defaultValue={openingBalance}
+                onBlur={(e) => {
+                  const v = Number(e.target.value)
+                  if (!Number.isFinite(v)) return
+                  startTransition(async () => {
+                    await upsertMonthlyOpeningBalance(monthKey, v)
+                  })
+                }}
+              />
+            </span>
+            <span style={{ marginLeft: 'auto', color: 'var(--ink-faint)', fontFamily: 'var(--mono-fern)' }}>
+              Projected: <strong style={{ color: 'var(--ink)' }}>{fmt(balanceProjected)}</strong>
+            </span>
+          </div>
           <div style={{ display: 'flex', gap: 12, marginTop: 12, flexWrap: 'wrap', fontSize: 13 }}>
             <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <Chip tone="income"><Icon name="arrowUp" size={12} /> In</Chip>
@@ -135,25 +211,44 @@ export function DashboardClient({
 
         {/* Cash flow card */}
         <div className="fern-card">
-          <div style={{ marginBottom: 12 }}>
-            <div style={{ fontSize: 11, fontFamily: 'var(--mono-fern)', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--ink-faint)', marginBottom: 4 }}>
-              {monthName} · day {dayOfMonth}/{totalDays}
+          <div style={{ marginBottom: 12, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+            <div>
+              <div style={{ fontSize: 11, fontFamily: 'var(--mono-fern)', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--ink-faint)', marginBottom: 4 }}>
+                {monthName} · day {dayOfMonth}/{totalDays}
+              </div>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: 'var(--ink)' }}>Balance evolution</h3>
             </div>
-            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: 'var(--ink)' }}>Cash flow this month</h3>
+            <div className="fern-type-toggle" style={{ marginTop: -2 }}>
+              <button
+                type="button"
+                className={clearedOnly ? '' : 'active income'}
+                onClick={() => setClearedOnly(false)}
+              >
+                All
+              </button>
+              <button
+                type="button"
+                className={clearedOnly ? 'active expense' : ''}
+                onClick={() => setClearedOnly(true)}
+              >
+                Cleared
+              </button>
+            </div>
           </div>
           {hasData ? (
             <>
-              <CashflowRiver income={income || 1} expense={expense || 1} days={totalDays} />
-              <div style={{ display: 'flex', gap: 16, marginTop: 8, fontSize: 12 }}>
-                <span style={{ color: 'var(--sage-ink)' }}>◉ In · {fmt(income)}</span>
-                <span style={{ color: 'var(--rose-ink)' }}>◉ Out · {fmt(expense)}</span>
+              <BalanceEvolution series={series.length > 1 ? series : [openingBalance, openingBalance]} />
+              <div style={{ display: 'flex', gap: 16, marginTop: 8, fontSize: 12, flexWrap: 'wrap' }}>
+                <span style={{ color: 'var(--ink-faint)' }}>Start · <strong style={{ color: 'var(--ink)' }}>{fmt(openingBalance)}</strong></span>
+                <span style={{ color: 'var(--ink-faint)' }}>Now · <strong style={{ color: 'var(--ink)' }}>{fmt(balanceToday)}</strong></span>
+                <span style={{ color: 'var(--ink-faint)' }}>End · <strong style={{ color: 'var(--ink)' }}>{fmt(balanceProjected)}</strong></span>
               </div>
             </>
           ) : (
             <div style={{ height: 200, display: 'grid', placeItems: 'center', color: 'var(--ink-faint)', textAlign: 'center' }}>
               <div>
                 <div style={{ fontFamily: 'var(--serif)', fontSize: 40, fontStyle: 'italic', marginBottom: 6 }}>—</div>
-                <div style={{ fontSize: 13 }}>Log a few transactions to see your flow</div>
+                <div style={{ fontSize: 13 }}>Log a few transactions to see your balance evolve</div>
               </div>
             </div>
           )}
@@ -209,7 +304,7 @@ export function DashboardClient({
           </div>
           {upcoming.length > 0 ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {upcoming.slice(0, 6).map((u, i) => {
+              {upcoming.map((u, i) => {
                 const cat = u.categoryId ? categoryById.get(u.categoryId) : undefined
                 const dateStr = u.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
                 const isPast = u.date < today

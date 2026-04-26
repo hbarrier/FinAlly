@@ -1,0 +1,1 @@
+ALTER TABLE `transactions` ADD `manual_settlement_at` text;

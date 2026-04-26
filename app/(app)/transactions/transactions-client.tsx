@@ -14,12 +14,20 @@ import { FernButton } from '@/components/fern/button'
 import { EmptyState } from '@/components/fern/empty-state'
 import { Fab } from '@/components/fern/fab'
 import {
+  ReimbursementMappingSheet,
+  type ReimbursementMappingExpense,
+} from '@/components/fern/sheets/reimbursement-mapping-sheet'
+import {
   addTransaction,
   updateTransaction,
   deleteTransaction,
   clearTransaction,
   detachTransactionFromRecurring,
 } from '@/lib/actions/transactions'
+import {
+  mapReimbursementIncomeToExpenses,
+  setExpenseManualSettlement,
+} from '@/lib/actions/reimbursements'
 import { RecurringLinkSheet } from '@/components/fern/sheets/recurring-link-sheet'
 import { BulkRecurringLinkSheet } from '@/components/fern/sheets/bulk-recurring-link-sheet'
 import type { Merchant } from '@/lib/db-types'
@@ -43,8 +51,29 @@ type VirtualEntry = {
 
 type Movement = Transaction | VirtualEntry
 
+type ReimbursementFilter =
+  | 'all'
+  | 'unresolved'
+  | 'expense:not_reimbursed'
+  | 'expense:partially_reimbursed'
+  | 'expense:reimbursed'
+  | 'expense:manually_settled'
+  | 'income:unmapped'
+  | 'income:partially_allocated'
+  | 'income:fully_allocated'
+
 function isVirtual(m: Movement): m is VirtualEntry {
-  return '_virtual' in m && (m as VirtualEntry)._virtual === true
+  return '_virtual' in m
+}
+
+function isUnresolvedReimbursementStatus(status: string) {
+  return (
+    status === 'not_reimbursed' ||
+    status === 'partially_reimbursed' ||
+    status === 'no_rate' ||
+    status === 'unmapped' ||
+    status === 'partially_allocated'
+  )
 }
 
 interface TransactionsClientProps {
@@ -52,38 +81,58 @@ interface TransactionsClientProps {
   categories: Category[]
   merchants: Merchant[]
   recurring: Recurring[]
+  eligibleReimbursementExpenses: ReimbursementMappingExpense[]
+  reimbursementSummaries: Record<string, { status: string; label: string }>
+  reimbursementMappingCounts: Record<string, number>
   initialMerchantId?: string
   selectedYear: number
   years: string[]
 }
 
-export function TransactionsClient({ transactions: txns, categories, merchants, recurring, initialMerchantId = 'all', selectedYear, years }: TransactionsClientProps) {
+export function TransactionsClient({
+  transactions: txns,
+  categories,
+  merchants,
+  recurring,
+  eligibleReimbursementExpenses,
+  reimbursementSummaries,
+  reimbursementMappingCounts,
+  initialMerchantId = 'all',
+  selectedYear,
+  years,
+}: TransactionsClientProps) {
   const router = useRouter()
   const [q, setQ] = useState('')
   const [kindFilter, setKindFilter] = useState('all')
   const [catFilter, setCatFilter] = useState('all')
   const [merchantFilter, setMerchantFilter] = useState(initialMerchantId)
   const [clearedFilter, setClearedFilter] = useState<'all' | 'cleared' | 'uncleared'>('all')
+  const [reimbursementFilter, setReimbursementFilter] = useState<ReimbursementFilter>('all')
   const [importOpen, setImportOpen] = useState(false)
   const [sheetOpen, setSheetOpen] = useState(false)
   const [editingTxn, setEditingTxn] = useState<Transaction | null>(null)
   const [linkSheetOpen, setLinkSheetOpen] = useState(false)
   const [linkingTxn, setLinkingTxn] = useState<Transaction | null>(null)
+  const [mappingSheetOpen, setMappingSheetOpen] = useState(false)
+  const [mappingIncome, setMappingIncome] = useState<Transaction | null>(null)
   const [prefillData, setPrefillData] = useState<{
     date: string; amount: number; kind: 'expense' | 'income'
     categoryId: string | null; merchantId: string | null; note: string; recurringId: string
   } | null>(null)
-  const [visibleMonths, setVisibleMonths] = useState(2)
+  const [visibleMonthsByYear, setVisibleMonthsByYear] = useState<Record<number, number>>({})
   const [selectionMode, setSelectionMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [bulkSheetOpen, setBulkSheetOpen] = useState(false)
   const [, startTransition] = useTransition()
   const clearSheetStateTimer = useRef<number | null>(null)
 
-  // Reset month pagination when year changes
-  useEffect(() => {
-    setVisibleMonths(2)
-  }, [selectedYear])
+  const visibleMonths = visibleMonthsByYear[selectedYear] ?? 2
+  const setVisibleMonths = (updater: (current: number) => number) => {
+    setVisibleMonthsByYear((prev) => ({
+      ...prev,
+      [selectedYear]: updater(prev[selectedYear] ?? 2),
+    }))
+  }
 
   // Generate virtual entries for recurring occurrences not yet logged as transactions
   const virtualEntries = useMemo(() => {
@@ -94,6 +143,12 @@ export function TransactionsClient({ transactions: txns, categories, merchants, 
       new Date().getTime(),
     ))
     rangeEnd.setHours(23, 59, 59, 999)
+
+    // Format a Date as YYYY-MM-DD in local time (not UTC) to avoid off-by-one
+    // when local midnight is behind UTC (e.g. France UTC+1/+2).
+    function localDateStr(d: Date): string {
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    }
 
     // Dedup by period rather than exact date: a transaction logged any day within
     // the expected cadence period counts as covering that occurrence.
@@ -107,20 +162,21 @@ export function TransactionsClient({ transactions: txns, categories, merchants, 
       return monday.toISOString().slice(0, 10)
     }
 
+    const recurringById = new Map(recurring.map((r) => [r.id, r]))
     const loggedPeriods = new Set<string>()
     txns
       .filter((t) => t.recurringId)
       .forEach((t) => {
-        const r = recurring.find((r) => r.id === t.recurringId)
+        const r = recurringById.get(t.recurringId!)
         if (r) loggedPeriods.add(`${t.recurringId}:${periodKey(t.date, r.cadence)}`)
       })
 
     return allOccurrencesInRange(recurring, yearStart, rangeEnd)
-      .filter((o) => !loggedPeriods.has(`${o.id}:${periodKey(o.date.toISOString().slice(0, 10), o.cadence)}`))
+      .filter((o) => !loggedPeriods.has(`${o.id}:${periodKey(localDateStr(o.date), o.cadence)}`))
       .map((o) => ({
         _virtual: true as const,
-        id: `virtual:${o.id}:${o.date.toISOString().slice(0, 10)}`,
-        date: o.date.toISOString().slice(0, 10),
+        id: `virtual:${o.id}:${localDateStr(o.date)}`,
+        date: localDateStr(o.date),
         amount: o.amount,
         kind: o.kind,
         categoryId: o.categoryId,
@@ -164,6 +220,21 @@ export function TransactionsClient({ transactions: txns, categories, merchants, 
           if (clearedFilter === 'uncleared' && isCleared) return false
         }
       }
+      if (reimbursementFilter !== 'all') {
+        if (isVirtual(m)) return false
+
+        const summary = reimbursementSummaries[m.id]
+        if (!summary) return false
+
+        if (reimbursementFilter === 'unresolved') {
+          if (!isUnresolvedReimbursementStatus(summary.status)) return false
+        } else {
+          const [scope, status] = reimbursementFilter.split(':')
+          if (summary.status !== status) return false
+          if (scope === 'expense' && m.kind !== 'expense') return false
+          if (scope === 'income' && m.kind !== 'income') return false
+        }
+      }
       if (q) {
         const cat = m.categoryId ? categoryById.get(m.categoryId) : undefined
         const hay = isVirtual(m)
@@ -173,7 +244,18 @@ export function TransactionsClient({ transactions: txns, categories, merchants, 
       }
       return true
     })
-  }, [txns, virtualEntries, kindFilter, catFilter, merchantFilter, clearedFilter, q, categoryById])
+  }, [
+    txns,
+    virtualEntries,
+    kindFilter,
+    catFilter,
+    merchantFilter,
+    clearedFilter,
+    reimbursementFilter,
+    reimbursementSummaries,
+    q,
+    categoryById,
+  ])
 
   // All months in the filtered data, sorted newest-first
   const allMonths = useMemo(() => {
@@ -223,8 +305,12 @@ export function TransactionsClient({ transactions: txns, categories, merchants, 
     return Object.entries(byMonth).sort(([a], [b]) => b.localeCompare(a))
   }, [dateGroups])
 
-  const filteredActual = filtered.filter((m) => !isVirtual(m)).length
-  const filteredScheduled = filtered.filter(isVirtual).length
+  let filteredActual = 0
+  let filteredScheduled = 0
+  for (const m of filtered) {
+    if (isVirtual(m)) filteredScheduled++
+    else filteredActual++
+  }
 
   const closeSheet = () => {
     setSheetOpen(false)
@@ -245,7 +331,43 @@ export function TransactionsClient({ transactions: txns, categories, merchants, 
     }
   }, [sheetOpen])
 
+  useEffect(() => {
+    return () => {
+      if (clearSheetStateTimer.current) window.clearTimeout(clearSheetStateTimer.current)
+    }
+  }, [])
+
   const handleSave = async (data: Parameters<typeof addTransaction>[0]) => {
+    if (editingTxn) {
+      const mappingCount = reimbursementMappingCounts[editingTxn.id] ?? 0
+      const currentCategory = editingTxn.categoryId ? categoryById.get(editingTxn.categoryId) : undefined
+      const nextCategory = data.categoryId ? categoryById.get(data.categoryId) : undefined
+      const wasReimbursableExpense = editingTxn.kind === 'expense' && editingTxn.reimbursable === 1
+      const willBeReimbursableExpense = data.kind === 'expense' && data.reimbursable === 1
+      const wasReimbursementIncome =
+        editingTxn.kind === 'income' &&
+        currentCategory?.kind === 'income' &&
+        currentCategory.name === 'Remboursements'
+      const willBeReimbursementIncome =
+        data.kind === 'income' &&
+        nextCategory?.kind === 'income' &&
+        nextCategory.name === 'Remboursements'
+
+      if (mappingCount > 0 && wasReimbursableExpense && !willBeReimbursableExpense) {
+        const confirmed = window.confirm(
+          'This expense has reimbursement mappings. Turning off reimbursable will clear its mappings and manual settlement state.',
+        )
+        if (!confirmed) return
+      }
+
+      if (mappingCount > 0 && wasReimbursementIncome && !willBeReimbursementIncome) {
+        const confirmed = window.confirm(
+          'This reimbursement income has mappings. Changing it out of the Remboursements category will clear those mappings.',
+        )
+        if (!confirmed) return
+      }
+    }
+
     startTransition(async () => {
       if (editingTxn) {
         await updateTransaction(editingTxn.id, data)
@@ -283,7 +405,8 @@ export function TransactionsClient({ transactions: txns, categories, merchants, 
   const toggleRow = (id: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
       return next
     })
   }
@@ -314,6 +437,26 @@ export function TransactionsClient({ transactions: txns, categories, merchants, 
     setEditingTxn(null)
     setSheetOpen(true)
   }
+
+  const handleOpenMapping = (transaction: Transaction) => {
+    setMappingIncome(transaction)
+    setMappingSheetOpen(true)
+  }
+
+  const handleSaveMapping = (expenseIds: string[]) => {
+    if (!mappingIncome) return
+    startTransition(async () => {
+      await mapReimbursementIncomeToExpenses(mappingIncome.id, expenseIds)
+    })
+  }
+
+  const isReimbursementIncome = (transaction: Transaction, category?: Category) =>
+    transaction.kind === 'income' &&
+    category?.kind === 'income' &&
+    category.name === 'Remboursements'
+
+  const isReimbursableExpense = (transaction: Transaction) =>
+    transaction.kind === 'expense' && transaction.reimbursable === 1
 
   return (
     <div>
@@ -406,6 +549,22 @@ export function TransactionsClient({ transactions: txns, categories, merchants, 
           {merchantsSortedByName.map((m) => (
             <option key={m.id} value={m.id}>{m.name}</option>
           ))}
+        </select>
+        <select
+          className="fern-select"
+          style={{ maxWidth: 240 }}
+          value={reimbursementFilter}
+          onChange={(e) => setReimbursementFilter(e.target.value as ReimbursementFilter)}
+        >
+          <option value="all">All reimbursement states</option>
+          <option value="unresolved">Unresolved reimbursement work</option>
+          <option value="expense:not_reimbursed">Expenses: not reimbursed</option>
+          <option value="expense:partially_reimbursed">Expenses: partially reimbursed</option>
+          <option value="expense:reimbursed">Expenses: reimbursed</option>
+          <option value="expense:manually_settled">Expenses: manually settled</option>
+          <option value="income:unmapped">Income: unmapped</option>
+          <option value="income:partially_allocated">Income: partially allocated</option>
+          <option value="income:fully_allocated">Income: fully allocated</option>
         </select>
       </div>
 
@@ -524,6 +683,10 @@ export function TransactionsClient({ transactions: txns, categories, merchants, 
                     const merchant = t.merchantId ? merchantById.get(t.merchantId) : undefined
                     const isCleared = t.cleared === 1
                     const isSelected = selectedIds.has(t.id)
+                    const reimbursementSummary = reimbursementSummaries[t.id]
+                    const showReimbursementAction = isReimbursementIncome(t, cat)
+                    const showManualSettlementAction = isReimbursableExpense(t)
+                    const isManuallySettled = reimbursementSummary?.status === 'manually_settled'
                     return (
                       <div
                         key={t.id}
@@ -565,11 +728,63 @@ export function TransactionsClient({ transactions: txns, categories, merchants, 
                             <span style={{ fontSize: 12, color: 'var(--ink-faint)' }}>{cat?.name ?? 'Uncategorized'}</span>
                             {merchant && <span style={{ fontSize: 11, color: 'var(--ink-faint)' }}>· {merchant.name}</span>}
                             {t.recurringId && <Chip tone="recurring"><Icon name="repeat" size={10} /> recurring</Chip>}
+                            {reimbursementSummary && (
+                              <Chip tone={reimbursementSummary.status === 'reimbursed' || reimbursementSummary.status === 'fully_allocated' || reimbursementSummary.status === 'manually_settled' ? 'recurring' : 'scheduled'}>
+                                {reimbursementSummary.label}
+                              </Chip>
+                            )}
                           </div>
                         </div>
                         <div style={{ fontSize: 14, fontWeight: 600, color: t.kind === 'income' ? 'var(--sage-ink)' : 'var(--rose-ink)', fontFamily: 'var(--mono-fern)', flexShrink: 0 }}>
                           {t.kind === 'income' ? '+' : '−'}{fmt(Math.abs(t.amount ?? 0))}
                         </div>
+                        {!selectionMode && showReimbursementAction && (
+                          <button
+                            title="Map reimbursement"
+                            onClick={(e) => { e.stopPropagation(); handleOpenMapping(t) }}
+                            style={{
+                              flexShrink: 0,
+                              width: 20,
+                              height: 20,
+                              borderRadius: 6,
+                              border: 'none',
+                              background: 'var(--teal-bg)',
+                              color: 'var(--teal-ink)',
+                              display: 'grid',
+                              placeItems: 'center',
+                              cursor: 'pointer',
+                              padding: 0,
+                            }}
+                          >
+                            <Icon name="bank" size={12} />
+                          </button>
+                        )}
+                        {!selectionMode && showManualSettlementAction && (
+                          <button
+                            title={isManuallySettled ? 'Clear manual settlement' : 'Manually settle reimbursement'}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              startTransition(async () => {
+                                await setExpenseManualSettlement(t.id, !isManuallySettled)
+                              })
+                            }}
+                            style={{
+                              flexShrink: 0,
+                              width: 20,
+                              height: 20,
+                              borderRadius: 6,
+                              border: isManuallySettled ? 'none' : '1.5px solid var(--line)',
+                              background: isManuallySettled ? 'var(--sage-bg)' : 'transparent',
+                              color: isManuallySettled ? 'var(--sage-ink)' : 'var(--ink-faint)',
+                              display: 'grid',
+                              placeItems: 'center',
+                              cursor: 'pointer',
+                              padding: 0,
+                            }}
+                          >
+                            <Icon name={isManuallySettled ? 'x' : 'check'} size={12} />
+                          </button>
+                        )}
                         {!selectionMode && (
                           <button
                             title={t.recurringId ? 'Manage recurring link' : 'Make recurring'}
@@ -701,6 +916,17 @@ export function TransactionsClient({ transactions: txns, categories, merchants, 
           categories={categories}
           recurring={recurring}
           onDetach={linkingTxn.recurringId ? handleDetach : undefined}
+        />
+      )}
+
+      {mappingIncome && (
+        <ReimbursementMappingSheet
+          key={mappingIncome.id}
+          open={mappingSheetOpen}
+          onClose={() => { setMappingSheetOpen(false); setMappingIncome(null) }}
+          income={mappingIncome}
+          expenses={eligibleReimbursementExpenses}
+          onSave={handleSaveMapping}
         />
       )}
 

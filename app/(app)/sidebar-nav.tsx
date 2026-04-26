@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { Icon } from '@/components/fern/icon'
+import styles from './sidebar-nav.module.css'
 
 const NAV = [
   { href: '/dashboard', label: 'Dashboard', icon: 'home' },
@@ -26,20 +27,7 @@ export function SidebarNav() {
           <Link
             key={item.href}
             href={item.href}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 10,
-              padding: '9px 12px',
-              borderRadius: 10,
-              fontSize: 14,
-              fontWeight: active ? 600 : 400,
-              color: active ? 'var(--terracotta-ink)' : 'var(--ink-soft)',
-              background: active ? 'var(--terracotta-bg)' : 'transparent',
-              textDecoration: 'none',
-              transition: 'all 0.15s',
-              marginBottom: 2,
-            }}
+            className={active ? `${styles.link} ${styles.active}` : styles.link}
           >
             <Icon name={item.icon} size={16} />
             {item.label}

@@ -6,13 +6,14 @@
 |---|---|---|
 | Framework | Next.js (App Router) | Server Components + Server Actions for all data mutations |
 | Language | TypeScript 5 | Strict mode throughout |
-| Database | SQLite via LibSQL | Local file `finance.db`; no external DB server |
+| UI runtime | React 19 | Client components for interactivity only |
+| Database | SQLite via LibSQL | Local file `finance.db`; uses `@libsql/client` with `drizzle-orm/libsql` |
 | ORM | Drizzle ORM | Schema-first; migrations in `drizzle/` |
-| UI components | shadcn/ui + Radix UI | **Note: uses `render` prop, not `asChild`** |
-| Styling | Tailwind CSS v4 | PostCSS plugin; custom CSS tokens in `app/globals.css` |
+| UI components | shadcn/ui + Radix UI | Base primitives + Fern-specific components in `components/fern/` |
+| Styling | Tailwind CSS v4 | Token-driven Fern theme in `app/globals.css` + utility usage as needed |
 | Forms | React Hook Form + Zod | Validation schema co-located with form |
 | Icons | Lucide React | Wrapped in `<Icon>` component |
-| Font | Geist | Loaded via `next/font` |
+| Fonts | Google fonts via `next/font` | Inter (body), Instrument Serif (display), JetBrains Mono (numbers) |
 
 ## Architecture patterns
 
@@ -27,6 +28,9 @@ Every write operation is a named async function exported from `lib/actions/*.ts`
 
 ### Schema-driven data model
 `lib/schema.ts` is the single source of truth for all table structures, relations, and enums. Drizzle migrations live in `drizzle/`.
+
+### Opening balances
+The dashboard uses `monthly_opening_balances` for explicit per-month openings with a derived fallback from the latest prior opening (or `userSettings.startingBalance` if none exist).
 
 ### Sheets for CRUD
 All create/edit/delete operations happen inside sheet (slide-over) components in `components/fern/sheets/`. Each sheet owns its form state and calls the relevant server action on submit.

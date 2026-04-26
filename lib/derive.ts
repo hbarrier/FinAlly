@@ -56,9 +56,10 @@ export function spendingByCategory(
       if (!t.categoryId) return
       map[t.categoryId] = (map[t.categoryId] || 0) + Number(t.amount || 0)
     })
+  const catById = new Map(cats.map((c) => [c.id, c]))
   return Object.entries(map)
     .map(([id, amount]) => {
-      const c = cats.find((x) => x.id === id)
+      const c = catById.get(id)
       return {
         id,
         amount,

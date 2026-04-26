@@ -243,7 +243,7 @@ export function BulkRecurringLinkSheet({
             >
               <Icon name="triangle-alert" size={14} style={{ flexShrink: 0, marginTop: 1 }} />
               <span>
-                You've selected a mix of expenses and income. They'll all be linked to the same
+                You&apos;ve selected a mix of expenses and income. They&apos;ll all be linked to the same
                 recurring entry — confirm this is intentional.
               </span>
             </div>

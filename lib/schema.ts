@@ -100,6 +100,7 @@ export const transactions = sqliteTable(
     reimbursementTxId: text('reimbursement_tx_id'),
     cleared: int('cleared').notNull().default(0),
     claimedDate: text('claimed_date'),
+    manualSettlementAt: text('manual_settlement_at'),
     createdAt: text('created_at')
       .notNull()
       .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
@@ -148,6 +149,22 @@ export const userSettings = sqliteTable('user_settings', {
   currency: text('currency').notNull().default('EUR'),
 })
 
+// --- monthly opening balances (global, per calendar month) ---
+export const monthlyOpeningBalances = sqliteTable(
+  'monthly_opening_balances',
+  {
+    month: text('month').primaryKey(), // YYYY-MM
+    openingBalance: real('opening_balance').notNull(),
+    createdAt: text('created_at')
+      .notNull()
+      .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
+    updatedAt: text('updated_at')
+      .notNull()
+      .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
+  },
+  (t) => [index('monthly_opening_balances_month_idx').on(t.month)],
+)
+
 // --- reimbursement rates (global, time-versioned) ---
 export const reimbursementRates = sqliteTable(
   'reimbursement_rates',
@@ -157,4 +174,27 @@ export const reimbursementRates = sqliteTable(
     startDate: text('start_date').notNull(), // ISO date, rate applies from this date onward
   },
   (t) => [index('reimbursement_rates_start_date_idx').on(t.startDate)],
+)
+
+// --- reimbursement allocations (income-driven mapping) ---
+export const reimbursementAllocations = sqliteTable(
+  'reimbursement_allocations',
+  {
+    id: text('id').primaryKey(),
+    reimbursementTxId: text('reimbursement_tx_id')
+      .notNull()
+      .references(() => transactions.id, { onDelete: 'cascade' }),
+    expenseTxId: text('expense_tx_id')
+      .notNull()
+      .references(() => transactions.id, { onDelete: 'cascade' }),
+    amount: real('amount').notNull(),
+    createdAt: text('created_at')
+      .notNull()
+      .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
+  },
+  (t) => [
+    unique('reimbursement_allocations_income_expense_unique').on(t.reimbursementTxId, t.expenseTxId),
+    index('reimbursement_allocations_reimbursement_tx_id_idx').on(t.reimbursementTxId),
+    index('reimbursement_allocations_expense_tx_id_idx').on(t.expenseTxId),
+  ],
 )

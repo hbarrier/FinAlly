@@ -8,7 +8,9 @@ import type {
   budgets,
   goals,
   userSettings,
+  monthlyOpeningBalances,
   reimbursementRates,
+  reimbursementAllocations,
 } from './schema'
 
 export type Category = InferSelectModel<typeof categories>
@@ -19,7 +21,9 @@ export type Transaction = InferSelectModel<typeof transactions>
 export type Budget = InferSelectModel<typeof budgets>
 export type Goal = InferSelectModel<typeof goals>
 export type UserSettings = InferSelectModel<typeof userSettings>
+export type MonthlyOpeningBalance = InferSelectModel<typeof monthlyOpeningBalances>
 export type ReimbursementRate = InferSelectModel<typeof reimbursementRates>
+export type ReimbursementAllocation = InferSelectModel<typeof reimbursementAllocations>
 
 export type RecurringWithAmounts = Recurring & { amounts: RecurringAmount[] }
 

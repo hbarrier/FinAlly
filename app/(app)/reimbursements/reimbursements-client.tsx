@@ -1,70 +1,114 @@
 'use client'
 
-import { useState, useTransition, useMemo } from 'react'
+import { useMemo, useState, useTransition } from 'react'
+import { Chip } from '@/components/fern/chip'
 import { Icon } from '@/components/fern/icon'
-import { ReimbursementSheet } from '@/components/fern/sheets/reimbursement-sheet'
+import {
+  ReimbursementMappingSheet,
+  type ReimbursementMappingExpense,
+} from '@/components/fern/sheets/reimbursement-mapping-sheet'
 import { fmt, formatDate } from '@/lib/derive'
-import type {
-  ReimbursementRate as Rate,
-  Transaction as PensionTx,
-} from '@/lib/db-types'
+import type { ReimbursementRate as Rate, Transaction } from '@/lib/db-types'
 import {
   addReimbursementRate,
-  updateReimbursementRate,
   deleteReimbursementRate,
-  recordReimbursement,
-  deleteReimbursement,
+  mapReimbursementIncomeToExpenses,
+  setExpenseManualSettlement,
+  updateReimbursementRate,
 } from '@/lib/actions/reimbursements'
 
-interface Expense {
+type IncomeStatus = 'unmapped' | 'partially_allocated' | 'fully_allocated'
+type ExpenseStatus =
+  | 'not_reimbursed'
+  | 'partially_reimbursed'
+  | 'reimbursed'
+  | 'manually_settled'
+  | 'no_rate'
+
+type IncomeReviewItem = Pick<Transaction, 'id' | 'date' | 'amount' | 'note'> & {
+  allocatedAmount: number
+  unallocatedAmount: number
+  status: IncomeStatus
+  label: string
+}
+
+type ExpenseReviewItem = {
   id: string
   date: string
   amount: number
   merchantName: string | null
-  reimbursementTxId: string | null
-  claimedDate: string | null
-  reimbursement: { date: string; amount: number } | null
-  applicableRate: number | null
+  categoryName: string | null
+  manualSettlementAt: string | null
+  expectedAmount: number | null
+  allocatedAmount: number
+  remainingExpectedAmount: number | null
+  status: ExpenseStatus
+  label: string
 }
 
 interface Props {
-  expenses: Expense[]
-  pensionTxs: PensionTx[]
+  incomes: IncomeReviewItem[]
+  expenses: ExpenseReviewItem[]
+  mappingExpenses: ReimbursementMappingExpense[]
   rates: Rate[]
 }
 
-function addOneMonth(iso: string): string {
-  const d = new Date(iso + 'T12:00:00')
-  d.setMonth(d.getMonth() + 1)
-  return d.toISOString().slice(0, 10)
-}
+const INCOME_GROUPS: { status: IncomeStatus; title: string; tone: 'scheduled' | 'recurring' }[] = [
+  { status: 'unmapped', title: 'Unmapped income', tone: 'scheduled' },
+  { status: 'partially_allocated', title: 'Partially allocated income', tone: 'scheduled' },
+  { status: 'fully_allocated', title: 'Fully allocated income', tone: 'recurring' },
+]
 
-// Annual summary helpers
-function groupByYear(items: { date: string; amount: number }[]) {
-  const map: Record<string, number> = {}
-  items.forEach(({ date, amount }) => {
-    const year = date.slice(0, 4)
-    map[year] = (map[year] ?? 0) + amount
-  })
-  return map
-}
+const EXPENSE_GROUPS: { status: ExpenseStatus; title: string; tone: 'scheduled' | 'recurring' | 'expense' }[] = [
+  { status: 'not_reimbursed', title: 'Not reimbursed', tone: 'expense' },
+  { status: 'partially_reimbursed', title: 'Partially reimbursed', tone: 'scheduled' },
+  { status: 'no_rate', title: 'Missing rate', tone: 'scheduled' },
+  { status: 'reimbursed', title: 'Reimbursed', tone: 'recurring' },
+  { status: 'manually_settled', title: 'Manually settled', tone: 'recurring' },
+]
 
-export function ReimbursementsClient({ expenses, pensionTxs, rates }: Props) {
+export function ReimbursementsClient({ incomes, expenses, mappingExpenses, rates }: Props) {
   const [, startTransition] = useTransition()
-  const [sheetExpense, setSheetExpense] = useState<Expense | null>(null)
+  const [mappingIncome, setMappingIncome] = useState<IncomeReviewItem | null>(null)
 
-  // --- Add rate state ---
   const [showRateForm, setShowRateForm] = useState(false)
   const [ratePercent, setRatePercent] = useState('')
   const [rateDate, setRateDate] = useState(new Date().toISOString().slice(0, 10))
-
-  // --- Edit rate state ---
   const [editingRateId, setEditingRateId] = useState<string | null>(null)
   const [editPercent, setEditPercent] = useState('')
   const [editDate, setEditDate] = useState('')
 
-  // --- Rate management ---
+  const incomeByStatus = useMemo(
+    () => groupByStatus(incomes),
+    [incomes],
+  )
+  const expensesByStatus = useMemo(
+    () => groupByStatus(expenses),
+    [expenses],
+  )
+
+  const unresolvedIncomeCount =
+    (incomeByStatus.unmapped?.length ?? 0) +
+    (incomeByStatus.partially_allocated?.length ?? 0)
+  const unresolvedExpenseCount =
+    (expensesByStatus.not_reimbursed?.length ?? 0) +
+    (expensesByStatus.partially_reimbursed?.length ?? 0) +
+    (expensesByStatus.no_rate?.length ?? 0)
+
   const currentRate = rates[0] ?? null
+
+  const handleSaveMapping = (expenseIds: string[]) => {
+    if (!mappingIncome) return
+    startTransition(async () => {
+      await mapReimbursementIncomeToExpenses(mappingIncome.id, expenseIds)
+    })
+  }
+
+  const handleToggleManualSettlement = (expense: ExpenseReviewItem) => {
+    startTransition(async () => {
+      await setExpenseManualSettlement(expense.id, expense.status !== 'manually_settled')
+    })
+  }
 
   const handleAddRate = () => {
     const pct = Number(ratePercent.replace(',', '.'))
@@ -100,137 +144,114 @@ export function ReimbursementsClient({ expenses, pensionTxs, rates }: Props) {
     })
   }
 
-  // --- Reimbursement actions ---
-  const handleSaveReimbursement = (expenseId: string, date: string, amount: number, claimedDate: string | null) => {
-    startTransition(async () => {
-      await recordReimbursement(expenseId, date, amount, claimedDate)
-    })
-  }
-
-  const handleDeleteReimbursement = (expenseId: string) => {
-    startTransition(async () => {
-      await deleteReimbursement(expenseId)
-    })
-  }
-
-  // --- Annual summary ---
-  const reimbByYear = useMemo(() => {
-    const settled = expenses
-      .filter((e) => e.reimbursement != null)
-      .map((e) => ({ date: e.reimbursement!.date, amount: e.reimbursement!.amount }))
-    return groupByYear(settled)
-  }, [expenses])
-
-  const pensionByYear = useMemo(() => {
-    return groupByYear(pensionTxs.map((t) => ({ date: t.date, amount: t.amount })))
-  }, [pensionTxs])
-
-  const allYears = useMemo(() => {
-    const ys = new Set([...Object.keys(reimbByYear), ...Object.keys(pensionByYear)])
-    return [...ys].sort((a, b) => b.localeCompare(a))
-  }, [reimbByYear, pensionByYear])
-
-  const today = new Date().toISOString().slice(0, 10)
-  const pending = expenses.filter((e) => !e.reimbursement)
-  const settled = expenses.filter((e) => e.reimbursement)
-
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 32, padding: '32px 0' }}>
-      {/* Header */}
-      <div>
-        <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--ink)', margin: 0 }}>Remboursements</h1>
-        <p style={{ fontSize: 13, color: 'var(--ink-soft)', margin: '4px 0 0' }}>
-          Dépenses remboursables et pension alimentaire
-        </p>
-      </div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 28, padding: '32px 0' }}>
+      <header style={{ display: 'grid', gap: 14 }}>
+        <div>
+          <div style={{ fontSize: 11, fontFamily: 'var(--mono-fern)', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--teal-ink)', fontWeight: 700 }}>
+            Reimbursement review
+          </div>
+          <h1 style={{ fontSize: 28, lineHeight: 1.05, fontWeight: 700, color: 'var(--ink)', margin: '6px 0 0' }}>
+            Allocate income, close expenses.
+          </h1>
+          <p style={{ fontSize: 13, color: 'var(--ink-soft)', margin: '8px 0 0', maxWidth: 620 }}>
+            Review recorded reimbursement income and reimbursable expenses without using the old expense-driven creation flow.
+          </p>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10 }}>
+          <MetricCard label="Income to allocate" value={unresolvedIncomeCount} tone="teal" />
+          <MetricCard label="Expenses to review" value={unresolvedExpenseCount} tone="rose" />
+          <MetricCard label="Manual closures" value={expensesByStatus.manually_settled?.length ?? 0} tone="sage" />
+        </div>
+      </header>
 
-      {/* ── Section A: Rate configuration ── */}
       <section>
+        <SectionHeader
+          title="Reimbursement income"
+          description="Unmapped and partial income are the main allocation queue."
+        />
+        <div style={{ display: 'grid', gap: 12 }}>
+          {INCOME_GROUPS.map((group) => (
+            <ReviewGroup
+              key={group.status}
+              title={group.title}
+              count={incomeByStatus[group.status]?.length ?? 0}
+              tone={group.tone}
+            >
+              {(incomeByStatus[group.status] ?? []).map((income) => (
+                <IncomeCard
+                  key={income.id}
+                  income={income}
+                  onMap={() => setMappingIncome(income)}
+                />
+              ))}
+            </ReviewGroup>
+          ))}
+        </div>
+      </section>
+
+      <section>
+        <SectionHeader
+          title="Reimbursable expenses"
+          description="Manual settlements are tracked separately from unresolved reimbursement work."
+        />
+        <div style={{ display: 'grid', gap: 12 }}>
+          {EXPENSE_GROUPS.map((group) => (
+            <ReviewGroup
+              key={group.status}
+              title={group.title}
+              count={expensesByStatus[group.status]?.length ?? 0}
+              tone={group.tone}
+            >
+              {(expensesByStatus[group.status] ?? []).map((expense) => (
+                <ExpenseCard
+                  key={expense.id}
+                  expense={expense}
+                  onToggleManualSettlement={() => handleToggleManualSettlement(expense)}
+                />
+              ))}
+            </ReviewGroup>
+          ))}
+        </div>
+      </section>
+
+      <section>
+        <SectionHeader
+          title="Reimbursement rates"
+          description="Expected reimbursement still follows the active rate for each expense date."
+        />
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-          <h2 style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)', margin: 0 }}>Taux de remboursement</h2>
+          <span style={{ fontSize: 12, color: 'var(--ink-faint)' }}>
+            {rates.length} configured rate{rates.length === 1 ? '' : 's'}
+          </span>
           <button
+            type="button"
             onClick={() => { setShowRateForm((v) => !v); setEditingRateId(null) }}
             style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: 'var(--terracotta-ink)', background: 'var(--terracotta-bg)', border: 'none', borderRadius: 8, padding: '6px 12px', cursor: 'pointer' }}
           >
-            <Icon name="plus" size={12} /> Nouveau taux
+            <Icon name="plus" size={12} /> New rate
           </button>
         </div>
 
-        {/* Add rate form */}
         {showRateForm && (
-          <div style={{ background: 'var(--bg-elevated)', borderRadius: 12, padding: 16, marginBottom: 12, display: 'flex', gap: 10, alignItems: 'flex-end' }}>
-            <div style={{ flex: 1 }}>
-              <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)', display: 'block', marginBottom: 4 }}>Taux (%)</label>
-              <input
-                className="fern-input"
-                placeholder="ex: 75"
-                inputMode="decimal"
-                value={ratePercent}
-                onChange={(e) => setRatePercent(e.target.value)}
-              />
-            </div>
-            <div style={{ flex: 1 }}>
-              <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)', display: 'block', marginBottom: 4 }}>À partir du</label>
-              <input
-                className="fern-input"
-                type="date"
-                value={rateDate}
-                onChange={(e) => setRateDate(e.target.value)}
-              />
-            </div>
-            <button
-              onClick={handleAddRate}
-              style={{ background: 'var(--terracotta)', color: 'white', border: 'none', borderRadius: 10, padding: '10px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
-            >
-              Ajouter
+          <div style={{ background: 'var(--bg-elevated)', borderRadius: 12, padding: 16, marginBottom: 12, display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+            <RateInput label="Rate (%)" value={ratePercent} onChange={setRatePercent} />
+            <RateDateInput label="Starts on" value={rateDate} onChange={setRateDate} />
+            <button type="button" onClick={handleAddRate} style={{ background: 'var(--terracotta)', color: 'white', border: 'none', borderRadius: 10, padding: '10px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+              Add
             </button>
-            <button
-              onClick={() => setShowRateForm(false)}
-              style={{ background: 'var(--bg-sunken)', color: 'var(--ink-soft)', border: 'none', borderRadius: 10, padding: '10px 16px', fontSize: 13, cursor: 'pointer' }}
-            >
-              Annuler
+            <button type="button" onClick={() => setShowRateForm(false)} style={{ background: 'var(--bg-sunken)', color: 'var(--ink-soft)', border: 'none', borderRadius: 10, padding: '10px 16px', fontSize: 13, cursor: 'pointer' }}>
+              Cancel
             </button>
           </div>
         )}
 
         {currentRate ? (
           <div style={{ background: 'var(--bg-elevated)', borderRadius: 12, overflow: 'hidden' }}>
-            {/* Current rate */}
-            {editingRateId === currentRate.id ? (
-              <RateEditRow
-                percent={editPercent}
-                date={editDate}
-                onPercentChange={setEditPercent}
-                onDateChange={setEditDate}
-                onSave={handleSaveEditRate}
-                onCancel={() => setEditingRateId(null)}
-              />
-            ) : (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderBottom: rates.length > 1 ? '1px solid var(--line)' : undefined }}>
-                <div>
-                  <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Taux actuel</div>
-                  <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--teal-ink)' }}>{currentRate.percent}%</div>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: 12, color: 'var(--ink-soft)' }}>depuis le</div>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)' }}>{formatDate(currentRate.startDate)}</div>
-                  </div>
-                  <button
-                    onClick={() => handleStartEditRate(currentRate)}
-                    style={{ background: 'none', border: 'none', color: 'var(--ink-faint)', cursor: 'pointer', padding: 4 }}
-                    title="Modifier"
-                  >
-                    <Icon name="edit" size={14} />
-                  </button>
-                </div>
-              </div>
-            )}
-            {/* Rate history */}
-            {rates.slice(1).map((r) => (
-              editingRateId === r.id ? (
+            {rates.map((rate, index) => (
+              editingRateId === rate.id ? (
                 <RateEditRow
-                  key={r.id}
+                  key={rate.id}
                   percent={editPercent}
                   date={editDate}
                   onPercentChange={setEditPercent}
@@ -239,249 +260,209 @@ export function ReimbursementsClient({ expenses, pensionTxs, rates }: Props) {
                   onCancel={() => setEditingRateId(null)}
                 />
               ) : (
-                <div key={r.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', borderBottom: '1px solid var(--line)' }}>
-                  <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>
-                    <span style={{ fontWeight: 600, color: 'var(--ink)' }}>{r.percent}%</span> à partir du {formatDate(r.startDate)}
+                <div key={rate.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: index === 0 ? '14px 16px' : '10px 16px', borderBottom: index < rates.length - 1 ? '1px solid var(--line)' : undefined }}>
+                  <div>
+                    <div style={{ fontSize: 12, color: 'var(--ink-soft)' }}>{index === 0 ? 'Current rate' : 'Historical rate'}</div>
+                    <div style={{ fontSize: index === 0 ? 22 : 14, fontWeight: 700, color: index === 0 ? 'var(--teal-ink)' : 'var(--ink)' }}>
+                      {rate.percent}%
+                    </div>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <button
-                      onClick={() => handleStartEditRate(r)}
-                      style={{ background: 'none', border: 'none', color: 'var(--ink-faint)', cursor: 'pointer', padding: 4 }}
-                      title="Modifier"
-                    >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>from {formatDate(rate.startDate)}</span>
+                    <button type="button" onClick={() => handleStartEditRate(rate)} style={{ background: 'none', border: 'none', color: 'var(--ink-faint)', cursor: 'pointer', padding: 4 }} title="Edit">
                       <Icon name="edit" size={14} />
                     </button>
-                    <button
-                      onClick={() => handleDeleteRate(r.id)}
-                      style={{ background: 'none', border: 'none', color: 'var(--ink-faint)', cursor: 'pointer', padding: 4 }}
-                      title="Supprimer"
-                    >
-                      <Icon name="trash" size={14} />
-                    </button>
-                  </div>
-                </div>
-              )
-            ))}
-          </div>
-        ) : (
-          <div style={{ background: 'var(--bg-elevated)', borderRadius: 12, padding: '20px 16px', color: 'var(--ink-soft)', fontSize: 13, textAlign: 'center' }}>
-            Aucun taux configuré. Ajoutez un taux pour calculer les remboursements attendus.
-          </div>
-        )}
-      </section>
-
-      {/* ── Section B: Reimbursable expenses ── */}
-      <section>
-        <h2 style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)', margin: '0 0 12px' }}>
-          Dépenses remboursables
-          {expenses.length > 0 && (
-            <span style={{ marginLeft: 8, fontSize: 12, fontWeight: 500, color: 'var(--ink-soft)' }}>
-              {pending.length} en attente · {settled.length} remboursées
-            </span>
-          )}
-        </h2>
-
-        {expenses.length === 0 ? (
-          <div style={{ background: 'var(--bg-elevated)', borderRadius: 12, padding: '24px 16px', color: 'var(--ink-soft)', fontSize: 13, textAlign: 'center' }}>
-            Aucune dépense remboursable. Cochez &laquo;&nbsp;Remboursable&nbsp;&raquo; lors de la saisie d&rsquo;une dépense.
-          </div>
-        ) : (
-          <div style={{ background: 'var(--bg-elevated)', borderRadius: 12, overflow: 'hidden' }}>
-            {/* Pending */}
-            {pending.map((e, i) => {
-              const dueDate = e.claimedDate ? addOneMonth(e.claimedDate) : null
-              const isOverdue = dueDate != null && dueDate < today
-              return (
-                <button
-                  key={e.id}
-                  onClick={() => setSheetExpense(e)}
-                  style={{
-                    width: '100%',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 12,
-                    padding: '12px 16px',
-                    background: 'none',
-                    border: 'none',
-                    borderBottom: i < pending.length - 1 || settled.length > 0 ? '1px solid var(--line)' : undefined,
-                    cursor: 'pointer',
-                    textAlign: 'left',
-                  }}
-                >
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>
-                        {e.merchantName ?? '—'}
-                      </span>
-                      <span style={{ fontSize: 11, color: 'var(--ink-faint)' }}>{formatDate(e.date)}</span>
-                    </div>
-                    {e.applicableRate != null && (
-                      <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2 }}>
-                        Attendu {fmt(Math.round(e.amount * e.applicableRate / 100))} ({e.applicableRate}%)
-                      </div>
-                    )}
-                    {e.claimedDate && (
-                      <div style={{ fontSize: 11, marginTop: 2, display: 'flex', gap: 8 }}>
-                        <span style={{ color: 'var(--ink-soft)' }}>Déclaré le {formatDate(e.claimedDate)}</span>
-                        {dueDate && (
-                          <span style={{ color: isOverdue ? 'var(--rose-ink)' : 'var(--ink-soft)', fontWeight: isOverdue ? 600 : 400 }}>
-                            · Échéance {formatDate(dueDate)}
-                          </span>
-                        )}
-                      </div>
+                    {index > 0 && (
+                      <button type="button" onClick={() => handleDeleteRate(rate.id)} style={{ background: 'none', border: 'none', color: 'var(--ink-faint)', cursor: 'pointer', padding: 4 }} title="Delete">
+                        <Icon name="trash" size={14} />
+                      </button>
                     )}
                   </div>
-                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--rose-ink)' }}>{fmt(e.amount)}</div>
-                    <div style={{ marginTop: 4 }}>
-                      <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--terracotta-ink)', background: 'var(--terracotta-bg)', borderRadius: 6, padding: '2px 7px' }}>En attente</span>
-                    </div>
-                  </div>
-                </button>
+                </div>
               )
-            })}
-
-            {/* Settled */}
-            {settled.map((e, i) => (
-              <button
-                key={e.id}
-                onClick={() => setSheetExpense(e)}
-                style={{
-                  width: '100%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 12,
-                  padding: '12px 16px',
-                  background: 'none',
-                  border: 'none',
-                  borderBottom: i < settled.length - 1 ? '1px solid var(--line)' : undefined,
-                  cursor: 'pointer',
-                  textAlign: 'left',
-                }}
-              >
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>
-                      {e.merchantName ?? '—'}
-                    </span>
-                    <span style={{ fontSize: 11, color: 'var(--ink-faint)' }}>{formatDate(e.date)}</span>
-                  </div>
-                  <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    {e.claimedDate && <span>Déclaré le {formatDate(e.claimedDate)}</span>}
-                    <span>Reçu le {formatDate(e.reimbursement!.date)}</span>
-                  </div>
-                </div>
-                <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--rose-ink)' }}>{fmt(e.amount)}</div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--teal-ink)', marginTop: 2 }}>
-                    +{fmt(e.reimbursement!.amount)}
-                  </div>
-                </div>
-              </button>
             ))}
-          </div>
-        )}
-      </section>
-
-      {/* ── Section C: Pension alimentaire ── */}
-      <section>
-        <h2 style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)', margin: '0 0 12px' }}>
-          Pension alimentaire
-        </h2>
-        {pensionTxs.length === 0 ? (
-          <div style={{ background: 'var(--bg-elevated)', borderRadius: 12, padding: '24px 16px', color: 'var(--ink-soft)', fontSize: 13, textAlign: 'center' }}>
-            Aucun versement enregistré. Ajoutez un revenu avec la catégorie &laquo;&nbsp;Pension alimentaire&nbsp;&raquo;.
           </div>
         ) : (
-          <div style={{ background: 'var(--bg-elevated)', borderRadius: 12, overflow: 'hidden' }}>
-            {pensionTxs.map((t, i) => (
-              <div
-                key={t.id}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  padding: '12px 16px',
-                  borderBottom: i < pensionTxs.length - 1 ? '1px solid var(--line)' : undefined,
-                }}
-              >
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>
-                    {formatDate(t.date)}
-                  </div>
-                  {t.note && <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2 }}>{t.note}</div>}
-                </div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--teal-ink)' }}>
-                  +{fmt(t.amount)}
-                </div>
-              </div>
-            ))}
-          </div>
+          <EmptyPanel message="No reimbursement rate configured yet." />
         )}
       </section>
 
-      {/* ── Section D: Annual summary ── */}
-      {allYears.length > 0 && (
-        <section>
-          <h2 style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)', margin: '0 0 12px' }}>
-            Récapitulatif annuel
-            <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--ink-soft)', marginLeft: 8 }}>
-              basé sur la date de réception
-            </span>
-          </h2>
-          <div style={{ background: 'var(--bg-elevated)', borderRadius: 12, overflow: 'hidden' }}>
-            {/* Header row */}
-            <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr 1fr 1fr', gap: 8, padding: '10px 16px', background: 'var(--bg-sunken)', borderBottom: '1px solid var(--line)' }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-soft)' }}>Année</div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-soft)', textAlign: 'right' }}>Remboursements</div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-soft)', textAlign: 'right' }}>Pension alim.</div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-soft)', textAlign: 'right' }}>Total</div>
-            </div>
-            {allYears.map((year, i) => {
-              const reimb = reimbByYear[year] ?? 0
-              const pension = pensionByYear[year] ?? 0
-              const total = reimb + pension
-              return (
-                <div
-                  key={year}
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: '80px 1fr 1fr 1fr',
-                    gap: 8,
-                    padding: '12px 16px',
-                    borderBottom: i < allYears.length - 1 ? '1px solid var(--line)' : undefined,
-                    alignItems: 'center',
-                  }}
-                >
-                  <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>{year}</div>
-                  <div style={{ fontSize: 13, fontWeight: 500, color: reimb > 0 ? 'var(--teal-ink)' : 'var(--ink-faint)', textAlign: 'right' }}>
-                    {reimb > 0 ? fmt(reimb) : '—'}
-                  </div>
-                  <div style={{ fontSize: 13, fontWeight: 500, color: pension > 0 ? 'var(--teal-ink)' : 'var(--ink-faint)', textAlign: 'right' }}>
-                    {pension > 0 ? fmt(pension) : '—'}
-                  </div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--teal-ink)', textAlign: 'right' }}>
-                    {fmt(total)}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </section>
-      )}
-
-      {/* Reimbursement sheet */}
-      {sheetExpense && (
-        <ReimbursementSheet
-          open={sheetExpense != null}
-          onClose={() => setSheetExpense(null)}
-          expense={sheetExpense}
-          applicableRate={sheetExpense.applicableRate}
-          existingReimbursement={sheetExpense.reimbursement}
-          onSave={(date, amount, claimedDate) => handleSaveReimbursement(sheetExpense.id, date, amount, claimedDate)}
-          onDelete={sheetExpense.reimbursement ? () => handleDeleteReimbursement(sheetExpense.id) : undefined}
+      {mappingIncome && (
+        <ReimbursementMappingSheet
+          key={mappingIncome.id}
+          open={mappingIncome != null}
+          onClose={() => setMappingIncome(null)}
+          income={{
+            id: mappingIncome.id,
+            date: mappingIncome.date,
+            amount: mappingIncome.amount,
+            kind: 'income',
+            categoryId: null,
+            merchantId: null,
+            note: mappingIncome.note,
+            recurringId: null,
+            reimbursable: 0,
+            reimbursementTxId: null,
+            cleared: 0,
+            claimedDate: null,
+            manualSettlementAt: null,
+            createdAt: '',
+          }}
+          expenses={mappingExpenses}
+          onSave={handleSaveMapping}
         />
       )}
+    </div>
+  )
+}
+
+function groupByStatus<T extends { status: string }>(items: T[]) {
+  return items.reduce<Record<string, T[]>>((groups, item) => {
+    groups[item.status] = groups[item.status] ?? []
+    groups[item.status].push(item)
+    return groups
+  }, {})
+}
+
+function MetricCard({ label, value, tone }: { label: string; value: number; tone: 'teal' | 'rose' | 'sage' }) {
+  const color = tone === 'teal' ? 'var(--teal-ink)' : tone === 'rose' ? 'var(--rose-ink)' : 'var(--sage-ink)'
+  const bg = tone === 'teal' ? 'var(--teal-bg)' : tone === 'rose' ? 'var(--rose-bg)' : 'var(--sage-bg)'
+  return (
+    <div style={{ background: bg, borderRadius: 14, padding: '14px 16px' }}>
+      <div style={{ fontSize: 24, fontWeight: 800, color }}>{value}</div>
+      <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 2 }}>{label}</div>
+    </div>
+  )
+}
+
+function SectionHeader({ title, description }: { title: string; description: string }) {
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <h2 style={{ fontSize: 15, fontWeight: 800, color: 'var(--ink)', margin: 0 }}>{title}</h2>
+      <p style={{ fontSize: 12, color: 'var(--ink-soft)', margin: '3px 0 0' }}>{description}</p>
+    </div>
+  )
+}
+
+function ReviewGroup({
+  title,
+  count,
+  tone,
+  children,
+}: {
+  title: string
+  count: number
+  tone: 'scheduled' | 'recurring' | 'expense'
+  children: React.ReactNode
+}) {
+  return (
+    <div style={{ background: 'var(--bg-elevated)', borderRadius: 14, overflow: 'hidden', border: '1px solid var(--line-soft)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'var(--bg-sunken)', borderBottom: '1px solid var(--line-soft)' }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{title}</div>
+        <Chip tone={tone}>{count}</Chip>
+      </div>
+      {count === 0 ? (
+        <div style={{ padding: '16px 14px', fontSize: 13, color: 'var(--ink-faint)' }}>Nothing here.</div>
+      ) : (
+        <div>{children}</div>
+      )}
+    </div>
+  )
+}
+
+function IncomeCard({ income, onMap }: { income: IncomeReviewItem; onMap: () => void }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderBottom: '1px solid var(--line-soft)' }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <strong style={{ fontSize: 13, color: 'var(--ink)' }}>{income.note ?? 'Reimbursement income'}</strong>
+          <span style={{ fontSize: 11, color: 'var(--ink-faint)' }}>{formatDate(income.date)}</span>
+          <Chip tone={income.status === 'fully_allocated' ? 'recurring' : 'scheduled'}>{income.label}</Chip>
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 3 }}>
+          Allocated {fmt(income.allocatedAmount)} · Unallocated {fmt(income.unallocatedAmount)}
+        </div>
+      </div>
+      <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--sage-ink)', fontFamily: 'var(--mono-fern)' }}>
+        +{fmt(income.amount)}
+      </div>
+      <button type="button" onClick={onMap} style={{ flexShrink: 0, display: 'grid', placeItems: 'center', width: 28, height: 28, borderRadius: 8, border: 'none', color: 'var(--teal-ink)', background: 'var(--teal-bg)', cursor: 'pointer' }} title="Map reimbursement">
+        <Icon name="bank" size={14} />
+      </button>
+    </div>
+  )
+}
+
+function ExpenseCard({
+  expense,
+  onToggleManualSettlement,
+}: {
+  expense: ExpenseReviewItem
+  onToggleManualSettlement: () => void
+}) {
+  const isManuallySettled = expense.status === 'manually_settled'
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderBottom: '1px solid var(--line-soft)' }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <strong style={{ fontSize: 13, color: 'var(--ink)' }}>{expense.merchantName ?? expense.categoryName ?? 'Reimbursable expense'}</strong>
+          <span style={{ fontSize: 11, color: 'var(--ink-faint)' }}>{formatDate(expense.date)}</span>
+          <Chip tone={expense.status === 'reimbursed' || expense.status === 'manually_settled' ? 'recurring' : 'scheduled'}>{expense.label}</Chip>
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 3 }}>
+          Expected {expense.expectedAmount == null ? '—' : fmt(expense.expectedAmount)}
+          {' '}· Allocated {fmt(expense.allocatedAmount)}
+          {' '}· Remaining {expense.remainingExpectedAmount == null ? '—' : fmt(expense.remainingExpectedAmount)}
+        </div>
+      </div>
+      <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--rose-ink)', fontFamily: 'var(--mono-fern)' }}>
+        -{fmt(expense.amount)}
+      </div>
+      <button
+        type="button"
+        onClick={onToggleManualSettlement}
+        style={{
+          flexShrink: 0,
+          display: 'grid',
+          placeItems: 'center',
+          width: 28,
+          height: 28,
+          borderRadius: 8,
+          border: isManuallySettled ? 'none' : '1.5px solid var(--line)',
+          color: isManuallySettled ? 'var(--sage-ink)' : 'var(--ink-faint)',
+          background: isManuallySettled ? 'var(--sage-bg)' : 'transparent',
+          cursor: 'pointer',
+        }}
+        title={isManuallySettled ? 'Clear manual settlement' : 'Manually settle'}
+      >
+        <Icon name={isManuallySettled ? 'x' : 'check'} size={14} />
+      </button>
+    </div>
+  )
+}
+
+function EmptyPanel({ message }: { message: string }) {
+  return (
+    <div style={{ background: 'var(--bg-elevated)', borderRadius: 12, padding: '20px 16px', color: 'var(--ink-soft)', fontSize: 13, textAlign: 'center' }}>
+      {message}
+    </div>
+  )
+}
+
+function RateInput({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+  return (
+    <div style={{ flex: '1 1 160px' }}>
+      <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)', display: 'block', marginBottom: 4 }}>{label}</label>
+      <input className="fern-input" placeholder="ex: 75" inputMode="decimal" value={value} onChange={(e) => onChange(e.target.value)} />
+    </div>
+  )
+}
+
+function RateDateInput({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+  return (
+    <div style={{ flex: '1 1 180px' }}>
+      <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)', display: 'block', marginBottom: 4 }}>{label}</label>
+      <input className="fern-input" type="date" value={value} onChange={(e) => onChange(e.target.value)} />
     </div>
   )
 }
@@ -496,42 +477,19 @@ function RateEditRow({
 }: {
   percent: string
   date: string
-  onPercentChange: (v: string) => void
-  onDateChange: (v: string) => void
+  onPercentChange: (value: string) => void
+  onDateChange: (value: string) => void
   onSave: () => void
   onCancel: () => void
 }) {
   return (
-    <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--line)', display: 'flex', gap: 8, alignItems: 'flex-end' }}>
-      <div style={{ flex: 1 }}>
-        <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)', display: 'block', marginBottom: 4 }}>Taux (%)</label>
-        <input
-          className="fern-input"
-          placeholder="ex: 75"
-          inputMode="decimal"
-          value={percent}
-          onChange={(e) => onPercentChange(e.target.value)}
-        />
-      </div>
-      <div style={{ flex: 1 }}>
-        <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)', display: 'block', marginBottom: 4 }}>À partir du</label>
-        <input
-          className="fern-input"
-          type="date"
-          value={date}
-          onChange={(e) => onDateChange(e.target.value)}
-        />
-      </div>
-      <button
-        onClick={onSave}
-        style={{ background: 'var(--teal)', color: 'white', border: 'none', borderRadius: 8, padding: '8px 12px', fontSize: 13, fontWeight: 600, cursor: 'pointer', height: 38 }}
-      >
+    <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--line)', display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+      <RateInput label="Rate (%)" value={percent} onChange={onPercentChange} />
+      <RateDateInput label="Starts on" value={date} onChange={onDateChange} />
+      <button type="button" onClick={onSave} style={{ background: 'var(--teal)', color: 'white', border: 'none', borderRadius: 8, padding: '8px 12px', fontSize: 13, fontWeight: 600, cursor: 'pointer', height: 38 }}>
         <Icon name="check" size={14} />
       </button>
-      <button
-        onClick={onCancel}
-        style={{ background: 'var(--bg-sunken)', color: 'var(--ink-soft)', border: 'none', borderRadius: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', height: 38 }}
-      >
+      <button type="button" onClick={onCancel} style={{ background: 'var(--bg-sunken)', color: 'var(--ink-soft)', border: 'none', borderRadius: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', height: 38 }}>
         <Icon name="x" size={14} />
       </button>
     </div>

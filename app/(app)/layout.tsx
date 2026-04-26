@@ -1,122 +1,47 @@
+import { Suspense } from 'react'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { SidebarNav } from './sidebar-nav'
-import { db } from '@/lib/db'
+import { getUserSettings } from '@/lib/queries/user-settings'
+import styles from './layout.module.css'
 
 export default async function AppLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
-  const settings = await db.query.userSettings.findFirst()
+  const settings = await getUserSettings()
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        minHeight: '100vh',
-        background: 'var(--bg)',
-      }}
-    >
+    <div className={styles.appShell}>
       {/* Sidebar */}
-      <aside
-        style={{
-          width: 220,
-          flexShrink: 0,
-          background: 'var(--bg-elevated)',
-          borderRight: '1px solid var(--line-soft)',
-          display: 'flex',
-          flexDirection: 'column',
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          bottom: 0,
-          zIndex: 20,
-        }}
-      >
+      <aside className={styles.sidebar}>
         {/* Logo */}
-        <div
-          style={{
-            padding: '24px 20px 20px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-            borderBottom: '1px solid var(--line-soft)',
-          }}
-        >
-          <div
-            style={{
-              width: 32,
-              height: 32,
-              borderRadius: 10,
-              background: 'var(--terracotta)',
-              color: 'white',
-              display: 'grid',
-              placeItems: 'center',
-              fontFamily: 'var(--serif)',
-              fontSize: 20,
-              fontStyle: 'italic',
-              lineHeight: 1,
-            }}
-          >
+        <div className={styles.logo}>
+          <div className={styles.logoMark}>
             f
           </div>
-          <span
-            style={{
-              fontFamily: 'var(--serif)',
-              fontSize: 18,
-              fontStyle: 'italic',
-              color: 'var(--ink)',
-            }}
-          >
+          <span className={styles.logoType}>
             Fern
           </span>
         </div>
 
         {/* Nav */}
-        <nav style={{ flex: 1, padding: '12px 10px', overflowY: 'auto' }}>
-          <SidebarNav />
+        <nav className={styles.nav}>
+          <Suspense fallback={null}>
+            <SidebarNav />
+          </Suspense>
         </nav>
 
         {/* Footer */}
-        <div
-          style={{
-            padding: '16px 20px',
-            borderTop: '1px solid var(--line-soft)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-          }}
-        >
-          <div
-            style={{
-              width: 32,
-              height: 32,
-              borderRadius: 10,
-              background: 'var(--terracotta-bg)',
-              color: 'var(--terracotta-ink)',
-              display: 'grid',
-              placeItems: 'center',
-              fontSize: 13,
-              fontWeight: 600,
-              flexShrink: 0,
-            }}
-          >
+        <div className={styles.sidebarFooter}>
+          <div className={styles.avatar}>
             {(settings?.name ?? 'Y').slice(0, 1).toUpperCase()}
           </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div
-              style={{
-                fontWeight: 600,
-                fontSize: 13,
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                color: 'var(--ink)',
-              }}
-            >
+          <div className={styles.userMeta}>
+            <div className={styles.userName}>
               {settings?.name ?? 'You'}
             </div>
-            <div style={{ fontSize: 11, color: 'var(--ink-faint)' }}>
+            <div className={styles.userCurrency}>
               € · EUR
             </div>
           </div>
@@ -125,14 +50,7 @@ export default async function AppLayout({
       </aside>
 
       {/* Main content */}
-      <main
-        style={{
-          flex: 1,
-          marginLeft: 220,
-          padding: '32px 40px',
-          maxWidth: 1200,
-        }}
-      >
+      <main className={styles.main}>
         {children}
       </main>
     </div>

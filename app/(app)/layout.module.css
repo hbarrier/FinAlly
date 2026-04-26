@@ -1,0 +1,102 @@
+.appShell {
+  display: flex;
+  min-height: 100vh;
+  background: var(--bg);
+}
+
+.sidebar {
+  width: 220px;
+  flex-shrink: 0;
+  background: var(--bg-elevated);
+  border-right: 1px solid var(--line-soft);
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  z-index: 20;
+}
+
+.logo {
+  padding: 24px 20px 20px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.logoMark {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: var(--terracotta);
+  color: white;
+  display: grid;
+  place-items: center;
+  font-family: var(--serif);
+  font-size: 20px;
+  font-style: italic;
+  line-height: 1;
+}
+
+.logoType {
+  font-family: var(--serif);
+  font-size: 18px;
+  font-style: italic;
+  color: var(--ink);
+}
+
+.nav {
+  flex: 1;
+  padding: 12px 10px;
+  overflow-y: auto;
+}
+
+.sidebarFooter {
+  padding: 16px 20px;
+  border-top: 1px solid var(--line-soft);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: var(--terracotta-bg);
+  color: var(--terracotta-ink);
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.userMeta {
+  flex: 1;
+  min-width: 0;
+}
+
+.userName {
+  font-weight: 600;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--ink);
+}
+
+.userCurrency {
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+
+.main {
+  flex: 1;
+  margin-left: 220px;
+  padding: 32px 40px;
+  max-width: 1200px;
+}
+

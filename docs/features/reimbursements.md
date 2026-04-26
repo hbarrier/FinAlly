@@ -4,35 +4,49 @@
 
 ## Overview
 
-Some expenses are partially or fully paid back — healthcare, work costs, childcare. The reimbursement feature lets you flag those expenses, record when the money comes back, and track the rate at which you expect to be reimbursed.
+Some expenses are partially or fully paid back — healthcare, work costs, childcare. Fern tracks reimbursement work using an **income-driven mapping** model:
 
-There is also a dedicated section for **pension alimentaire** (French childcare support), which is modelled as income transactions in a specially-flagged category.
+- You record reimbursement **income** as a normal transaction in the `Remboursements` **income** category.
+- You flag eligible **expense** transactions as `reimbursable`.
+- You **map** each reimbursement income to one or more reimbursable expenses and the app auto-allocates amounts oldest-first.
+- Reimbursable expenses have a derived settlement status (not reimbursed / partial / reimbursed) with an optional **manual settlement** override.
+
+This page is a review dashboard to allocate reimbursement income and to close out reimbursable expenses.
 
 ## Reference files
 
 | File | Role |
 |---|---|
-| [app/(app)/reimbursements/page.tsx](../../app/(app)/reimbursements/page.tsx) | Server Component; fetches reimbursable expenses, rates, and pension alimentaire income |
-| [app/(app)/reimbursements/reimbursements-client.tsx](../../app/(app)/reimbursements/reimbursements-client.tsx) | Client Component; expense list, rate management UI, pension alimentaire list |
-| [lib/actions/reimbursements.ts](../../lib/actions/reimbursements.ts) | `addReimbursementRate`, `updateReimbursementRate`, `deleteReimbursementRate`, `getApplicableRate`, `recordReimbursement`, `deleteReimbursement` |
-| [components/fern/sheets/reimbursement-sheet.tsx](../../components/fern/sheets/reimbursement-sheet.tsx) | Form to record a reimbursement on an expense |
-| [lib/schema.ts](../../lib/schema.ts) | `reimbursementRates` table, `transactions.reimbursable`, `transactions.reimbursementTxId`, `transactions.claimedDate`, `categories.isPensionAlimentaire` |
+| [app/(app)/reimbursements/page.tsx](../../app/(app)/reimbursements/page.tsx) | Server Component; loads rates, reimbursable expenses, reimbursement incomes, and allocation rows |
+| [app/(app)/reimbursements/reimbursements-client.tsx](../../app/(app)/reimbursements/reimbursements-client.tsx) | Client Component; review UI, mapping sheet launch, manual settlement, rate management |
+| [components/fern/sheets/reimbursement-mapping-sheet.tsx](../../components/fern/sheets/reimbursement-mapping-sheet.tsx) | Mapping UI: select eligible expenses and preview allocations before saving |
+| [lib/actions/reimbursements.ts](../../lib/actions/reimbursements.ts) | `mapReimbursementIncomeToExpenses`, `setExpenseManualSettlement`, rate CRUD; legacy `recordReimbursement` helpers |
+| [lib/reimbursement-mapping.ts](../../lib/reimbursement-mapping.ts) | Allocation + status logic (`calculateReimbursementAllocations`, summaries, labels) |
+| [lib/schema.ts](../../lib/schema.ts) | `reimbursementRates`, `reimbursementAllocations`, `transactions.reimbursable`, `transactions.manualSettlementAt` |
 
 ## Data model
 
-### Marking an expense as reimbursable
-Set `reimbursable = 1` on a transaction. This can be done when creating or editing the transaction. The expense appears in the reimbursements list.
+### Reimbursable expenses
+Set `transactions.reimbursable = 1` on an **expense** transaction. These are the eligible targets for reimbursement allocation and show up in the review dashboard.
 
-### Recording a reimbursement
-`recordReimbursement(expenseId, date, amount, claimedDate)`:
-1. Creates a new **income** transaction for the reimbursement amount.
-2. Sets `transactions.reimbursementTxId` on the expense to the new income transaction's ID.
-3. Sets `transactions.claimedDate` on the expense to the date the reimbursement was received.
+### Reimbursement income
+Reimbursement income is a normal **income** transaction, but only rows in the category named **`Remboursements`** (kind `income`) are treated as reimbursement incomes for mapping.
 
-### Deleting a reimbursement
-`deleteReimbursement(expenseId)`:
-1. Deletes the linked income transaction.
-2. Clears `reimbursementTxId` and `claimedDate` on the expense (the expense remains; it goes back to "pending reimbursement" state).
+### Allocation rows (mapping)
+Mappings are stored in `reimbursement_allocations`:
+
+| Field | Meaning |
+|---|---|
+| `reimbursementTxId` | The reimbursement **income** transaction id |
+| `expenseTxId` | The reimbursable **expense** transaction id |
+| `amount` | The amount of this income allocated to this expense |
+
+The pair `(reimbursementTxId, expenseTxId)` is unique.
+
+Saving a mapping replaces all allocation rows for that income (it deletes and reinserts).
+
+### Manual settlement
+`transactions.manualSettlementAt` can be set on reimbursable expenses. When set, the expense status becomes **manually settled** regardless of expected/allocated amounts (it can still remain mapped for audit/history).
 
 ## Reimbursement rates
 
@@ -43,22 +57,23 @@ Rates are stored in the `reimbursementRates` table as time-versioned percentages
 | `percent` | Real number, e.g. `75` means 75% |
 | `startDate` | ISO date; the rate applies from this date onward |
 
-`getApplicableRate(expenseDate)` returns the `percent` from the rate record whose `startDate` is closest to and not after the expense date. Returns `null` if no rate is defined.
+`getApplicableReimbursementRate(rates, expenseDate)` returns the rate whose `startDate` is closest to and not after the expense date. If no rate applies, the expense is in the **no rate** state and cannot be allocated.
 
-The UI uses the applicable rate to suggest a reimbursement amount when the user opens the reimbursement sheet: `suggested = expense.amount × (rate / 100)`.
+Expected reimbursement is derived from the current applicable rate for the expense date and rounded to the nearest euro:
+
+`expected = round(expense.amount × rate.percent / 100)`
 
 ### Adding and editing rates
 Rates can be added, edited, and deleted from the rate management section of the page. Deleting a rate does not affect already-recorded reimbursements.
 
-## Pension alimentaire
-
-Transactions in a category flagged with `isPensionAlimentaire = 1` are displayed in a dedicated section on the reimbursements page. These are standard income transactions; the flag on the category is what surfaces them here.
-
-Only one category should have `isPensionAlimentaire = 1` at a time (not enforced by a DB constraint, but assumed by the UI).
-
 ## Business rules
 
-- An expense can have at most one reimbursement income transaction linked to it (enforced by the `reimbursementTxId` FK).
-- The income transaction created by `recordReimbursement` is a full transaction in the ledger and appears on the Transactions page. Deleting it from the Transactions page directly will orphan the `reimbursementTxId` reference on the expense — use `deleteReimbursement` instead.
-- `claimedDate` records when the reimbursement was actually received, which may differ from the income transaction date.
-- The reimbursement amount does not have to match the suggested rate — the user can enter any amount.
+- A reimbursement income can map to **multiple** expenses; an expense can receive allocations from **multiple** incomes.
+- A reimbursement income can only be mapped if it is an income in the `Remboursements` income category.
+- Selected expenses must be reimbursable expenses and must be dated **on or before** the reimbursement income date.
+- Allocation is **oldest-first** and never exceeds each expense’s remaining expected amount (after allocations from other incomes).
+- Zero-allocation rows are still stored so the user’s selection is preserved (“Selected · no allocation”).
+
+## Legacy fields
+
+The schema still includes `transactions.reimbursementTxId` and `transactions.claimedDate`, and `lib/actions/reimbursements.ts` still contains `recordReimbursement`/`deleteReimbursement`. These are legacy helpers from the previous expense-driven flow and are not the primary workflow anymore.
