@@ -5,7 +5,8 @@ import { db } from '../db'
 import { recurring, recurringAmounts, transactions } from '../schema'
 import { nanoid } from '../utils'
 import { eq, and, isNull, inArray } from 'drizzle-orm'
-import { effectiveAmount } from '../derive'
+import { effectiveAmount, resolvedDayOfMonth } from '../derive'
+import { defaultPaymentMethodForKind, type PaymentMethod } from '../payment-method'
 
 export async function addRecurring(data: {
   name: string
@@ -18,10 +19,17 @@ export async function addRecurring(data: {
   dayOfWeek?: number | null
   startDate: string
   endDate?: string | null
+  method?: PaymentMethod
 }) {
   const id = nanoid()
+  const method = data.method ?? defaultPaymentMethodForKind(data.kind)
   await db.transaction(async (tx) => {
-    await tx.insert(recurring).values({ id, ...data, merchantId: data.merchantId ?? null })
+    await tx.insert(recurring).values({
+      id,
+      ...data,
+      method,
+      merchantId: data.merchantId ?? null,
+    })
     await tx.insert(recurringAmounts).values({
       id: nanoid(),
       recurringId: id,
@@ -38,6 +46,7 @@ export async function updateRecurring(
     name: string
     amount: number
     kind: 'expense' | 'income'
+    method: PaymentMethod
     categoryId: string | null
     merchantId: string | null
     cadence: 'weekly' | 'monthly' | 'yearly'
@@ -54,8 +63,27 @@ export async function updateRecurring(
     if (!current) return
 
     const { amount, ...rest } = data
-    if (Object.keys(rest).length > 0) {
-      await tx.update(recurring).set(rest).where(eq(recurring.id, id))
+    const nextKind = (data.kind ?? current.kind) as 'expense' | 'income'
+
+    let nextMethod: PaymentMethod | undefined
+    if (data.method) nextMethod = data.method
+    else if (data.kind && data.kind !== current.kind) {
+      const wasImplicitDefault = (current.method as PaymentMethod) === defaultPaymentMethodForKind(current.kind)
+      nextMethod = wasImplicitDefault ? defaultPaymentMethodForKind(nextKind) : (current.method as PaymentMethod)
+    }
+
+    const nextRest: typeof rest & { method?: PaymentMethod } = { ...rest }
+    if (nextMethod) nextRest.method = nextMethod
+
+    if (Object.keys(nextRest).length > 0) {
+      await tx.update(recurring).set(nextRest).where(eq(recurring.id, id))
+    }
+
+    if (nextMethod) {
+      await tx.update(transactions).set({ method: nextMethod }).where(eq(transactions.recurringId, id))
+      if (nextKind === 'expense' && nextMethod === 'cash') {
+        await tx.update(transactions).set({ cleared: 1 }).where(eq(transactions.recurringId, id))
+      }
     }
 
     if (typeof amount === 'number' && Math.abs(amount - current.amount) > 0.005) {
@@ -123,6 +151,7 @@ export async function promoteToRecurring(
     kind: 'expense' | 'income'
     categoryId: string | null
     merchantId: string | null
+    method?: PaymentMethod
     cadence: 'weekly' | 'monthly' | 'yearly'
     dayOfMonth: number | null
     dayOfWeek: number | null
@@ -130,9 +159,10 @@ export async function promoteToRecurring(
   },
 ): Promise<{ recurringId: string; linkedCount: number }> {
   const newId = nanoid()
+  const method = data.method ?? defaultPaymentMethodForKind(data.kind)
 
   const linkedCount = await db.transaction(async (tx) => {
-    await tx.insert(recurring).values({ id: newId, ...data })
+    await tx.insert(recurring).values({ id: newId, ...data, method })
     await tx.insert(recurringAmounts).values({
       id: nanoid(),
       recurringId: newId,
@@ -150,7 +180,8 @@ export async function promoteToRecurring(
         if (Math.abs(Number(t.amount) - data.amount) > 0.005) return false
         const d = new Date(t.date + 'T12:00:00')
         if (data.cadence === 'monthly') {
-          return Math.abs(d.getDate() - (data.dayOfMonth ?? 1)) <= 5
+          const target = resolvedDayOfMonth(data.dayOfMonth ?? 1, d)
+          return Math.abs(d.getDate() - target) <= 5
         }
         if (data.cadence === 'weekly') {
           return d.getDay() === (data.dayOfWeek ?? 1)
@@ -167,7 +198,12 @@ export async function promoteToRecurring(
 
     await tx
       .update(transactions)
-      .set({ recurringId: newId, ...(data.categoryId ? { categoryId: data.categoryId } : {}) })
+      .set({
+        recurringId: newId,
+        method,
+        ...(data.categoryId ? { categoryId: data.categoryId } : {}),
+        ...(data.kind === 'expense' && method === 'cash' ? { cleared: 1 } : {}),
+      })
       .where(inArray(transactions.id, matchingIds))
 
     return matchingIds.length
@@ -185,6 +221,7 @@ export async function bulkPromoteToRecurring(
     kind: 'expense' | 'income'
     categoryId: string | null
     merchantId: string | null
+    method?: PaymentMethod
     cadence: 'weekly' | 'monthly' | 'yearly'
     dayOfMonth: number | null
     dayOfWeek: number | null
@@ -193,9 +230,10 @@ export async function bulkPromoteToRecurring(
 ): Promise<{ recurringId: string; linkedCount: number }> {
   if (txnIds.length === 0) throw new Error('No transactions provided')
   const newId = nanoid()
+  const method = data.method ?? defaultPaymentMethodForKind(data.kind)
 
   await db.transaction(async (tx) => {
-    await tx.insert(recurring).values({ id: newId, ...data })
+    await tx.insert(recurring).values({ id: newId, ...data, method })
     await tx.insert(recurringAmounts).values({
       id: nanoid(),
       recurringId: newId,
@@ -204,7 +242,12 @@ export async function bulkPromoteToRecurring(
     })
     await tx
       .update(transactions)
-      .set({ recurringId: newId, ...(data.categoryId ? { categoryId: data.categoryId } : {}) })
+      .set({
+        recurringId: newId,
+        method,
+        ...(data.categoryId ? { categoryId: data.categoryId } : {}),
+        ...(data.kind === 'expense' && method === 'cash' ? { cleared: 1 } : {}),
+      })
       .where(inArray(transactions.id, txnIds))
   })
 

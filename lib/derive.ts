@@ -73,10 +73,19 @@ export function spendingByCategory(
 
 // ---- recurring ----
 
+function lastDayOf(d: Date): number {
+  return new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()
+}
+
+export function resolvedDayOfMonth(dayOfMonth: number, d: Date): number {
+  if (dayOfMonth >= 1) return dayOfMonth
+  return lastDayOf(d) + dayOfMonth + 1
+}
+
 function matchesCadence(d: Date, r: Recurring): boolean {
   const dow = d.getDay()
   const dom = d.getDate()
-  if (r.cadence === 'monthly') return dom === (r.dayOfMonth || 1)
+  if (r.cadence === 'monthly') return dom === resolvedDayOfMonth(r.dayOfMonth || 1, d)
   if (r.cadence === 'weekly') return dow === (r.dayOfWeek ?? 1)
   if (r.cadence === 'yearly') {
     const s = new Date(r.startDate)
@@ -124,12 +133,12 @@ export function thisMonthRecurring(
   return out.sort((a, b) => a.date.getTime() - b.date.getTime())
 }
 
-export function allOccurrencesInRange(
-  items: Recurring[],
+export function allOccurrencesInRange<T extends Recurring>(
+  items: T[],
   from: Date,
   to: Date,
-): (Recurring & { date: Date })[] {
-  const out: (Recurring & { date: Date })[] = []
+): (T & { date: Date })[] {
+  const out: (T & { date: Date })[] = []
   items.forEach((r) => {
     const itemStart = new Date(r.startDate)
     const itemEnd = r.endDate ? new Date(r.endDate) : to

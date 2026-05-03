@@ -17,6 +17,7 @@ import { SearchableSelect } from '../searchable-select'
 import { fmt, type Category, type Transaction, type Recurring } from '@/lib/derive'
 import { promoteToRecurring } from '@/lib/actions/recurring'
 import { linkTransactionToRecurring } from '@/lib/actions/transactions'
+import { PAYMENT_METHODS, paymentMethodLabel } from '@/lib/payment-method'
 
 const CADENCES = [
   { value: 'weekly', label: 'Weekly' },
@@ -28,6 +29,7 @@ const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 const createSchema = z.object({
   name: z.string().min(1, 'Name is required'),
+  method: z.enum(PAYMENT_METHODS),
   cadence: z.enum(['weekly', 'monthly', 'yearly']),
   dayOfMonth: z.number().min(1).max(28).nullable(),
   dayOfWeek: z.number().min(0).max(6).nullable(),
@@ -116,6 +118,7 @@ export function RecurringLinkSheet({
         kind: transaction.kind,
         categoryId: data.categoryId,
         merchantId: transaction.merchantId ?? null,
+        method: data.method,
         cadence: data.cadence,
         dayOfMonth: data.cadence === 'monthly' ? (data.dayOfMonth ?? txnDate.getDate()) : null,
         dayOfWeek: data.cadence === 'weekly' ? (data.dayOfWeek ?? txnDate.getDay()) : null,
@@ -185,8 +188,8 @@ export function RecurringLinkSheet({
                   {linkedRecurring && (
                     <div style={{ fontSize: 12, color: 'var(--ink-faint)', marginTop: 2, textTransform: 'capitalize' }}>
                       {linkedRecurring.cadence}
-                      {linkedRecurring.cadence === 'monthly' && linkedRecurring.dayOfMonth
-                        ? ` · day ${linkedRecurring.dayOfMonth}`
+                      {linkedRecurring.cadence === 'monthly' && linkedRecurring.dayOfMonth != null
+                        ? ` · ${linkedRecurring.dayOfMonth === -1 ? 'last day' : linkedRecurring.dayOfMonth === -2 ? '2nd to last' : `day ${linkedRecurring.dayOfMonth}`}`
                         : ''}
                     </div>
                   )}
@@ -254,6 +257,27 @@ export function RecurringLinkSheet({
                       />
                       {showErr('name') && <FieldError>{errors.name?.message}</FieldError>}
                     </Field>
+
+                    <div>
+                      <label className="fern-field-label">How</label>
+                      <Controller
+                        control={control}
+                        name="method"
+                        render={({ field }) => (
+                          <select
+                            className="fern-input"
+                            value={field.value}
+                            onChange={(e) => field.onChange(e.target.value)}
+                          >
+                            {PAYMENT_METHODS.map((m) => (
+                              <option key={m} value={m}>
+                                {paymentMethodLabel(m)}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                      />
+                    </div>
 
                     <div>
                       <label className="fern-field-label wide">How often</label>
@@ -385,6 +409,7 @@ function getDefaults(transaction: Transaction): CreateFormValues {
   const d = new Date(transaction.date + 'T12:00:00')
   return {
     name: transaction.note ?? '',
+    method: transaction.method,
     cadence: 'monthly',
     dayOfMonth: d.getDate(),
     dayOfWeek: d.getDay(),

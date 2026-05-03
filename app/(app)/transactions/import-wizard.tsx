@@ -10,14 +10,14 @@ import {
 import { SearchableSelect } from '@/components/fern/searchable-select'
 import { Icon } from '@/components/fern/icon'
 import { importTransactions, type MerchantMappingPayload, type ImportRow } from '@/lib/actions/import'
-import type { Recurring } from '@/lib/derive'
+import type { RecurringWithAmounts } from '@/lib/derive'
 import type { Merchant } from '@/lib/db-types'
 
 interface ImportWizardProps {
   open: boolean
   onClose: () => void
   merchants: Merchant[]
-  recurring: Recurring[]
+  recurring: RecurringWithAmounts[]
 }
 
 // ─── CSV parsing ───────────────────────────────────────────────────────────
@@ -113,7 +113,7 @@ function buildMerchantStates(
   })
 }
 
-function autoSuggestRecurring(csvName: string, recurring: Recurring[]): string | null {
+function autoSuggestRecurring(csvName: string, recurring: RecurringWithAmounts[]): string | null {
   const lower = csvName.toLowerCase()
   const match = recurring.find(
     (r) =>

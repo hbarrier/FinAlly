@@ -17,6 +17,7 @@ import { SearchableSelect } from '../searchable-select'
 import { fmt, type Category, type Transaction, type Recurring } from '@/lib/derive'
 import { bulkPromoteToRecurring } from '@/lib/actions/recurring'
 import { bulkLinkTransactionsToRecurring } from '@/lib/actions/transactions'
+import { PAYMENT_METHODS, paymentMethodLabel } from '@/lib/payment-method'
 
 const CADENCES = [
   { value: 'weekly', label: 'Weekly' },
@@ -28,6 +29,7 @@ const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 const createSchema = z.object({
   name: z.string().min(1, 'Name is required'),
+  method: z.enum(PAYMENT_METHODS),
   cadence: z.enum(['weekly', 'monthly', 'yearly']),
   dayOfMonth: z.number().min(1).max(28).nullable(),
   dayOfWeek: z.number().min(0).max(6).nullable(),
@@ -143,6 +145,7 @@ export function BulkRecurringLinkSheet({
           kind: firstTxn.kind,
           categoryId: data.categoryId,
           merchantId: firstTxn.merchantId ?? null,
+          method: data.method,
           cadence: data.cadence,
           dayOfMonth:
             data.cadence === 'monthly'
@@ -312,6 +315,27 @@ export function BulkRecurringLinkSheet({
                 </Field>
 
                 <div>
+                  <label className="fern-field-label">How</label>
+                  <Controller
+                    control={control}
+                    name="method"
+                    render={({ field }) => (
+                      <select
+                        className="fern-input"
+                        value={field.value}
+                        onChange={(e) => field.onChange(e.target.value)}
+                      >
+                        {PAYMENT_METHODS.map((m) => (
+                          <option key={m} value={m}>
+                            {paymentMethodLabel(m)}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  />
+                </div>
+
+                <div>
                   <label className="fern-field-label wide">How often</label>
                   <Controller
                     control={control}
@@ -450,6 +474,7 @@ function getDefaults(transaction: Transaction): CreateFormValues {
   const d = new Date(transaction.date + 'T12:00:00')
   return {
     name: transaction.note ?? '',
+    method: transaction.method,
     cadence: 'monthly',
     dayOfMonth: d.getDate(),
     dayOfWeek: d.getDay(),
@@ -460,6 +485,7 @@ function getDefaults(transaction: Transaction): CreateFormValues {
 function emptyDefaults(): CreateFormValues {
   return {
     name: '',
+    method: 'card',
     cadence: 'monthly',
     dayOfMonth: null,
     dayOfWeek: null,

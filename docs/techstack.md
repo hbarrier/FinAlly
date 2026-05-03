@@ -61,10 +61,19 @@ components/
     sheets/       # CRUD sheet modals
     ui/           # Shared primitives (shadcn-based)
 lib/
-  schema.ts       # Drizzle table definitions
-  derive.ts       # Pure computation helpers
-  db.ts           # DB client singleton
-  actions/        # Server Actions (one file per domain)
+  schema.ts             # Drizzle table definitions
+  derive.ts             # Pure computation helpers
+  db.ts                 # DB client singleton
+  db-types.ts           # TypeScript types derived from the schema
+  payment-method.ts     # PaymentMethod enum, labels, defaults
+  recurring-amounts.ts  # Amount versioning helpers (pick/upsert/sync)
+  reimbursement-mapping.ts  # Allocation + status logic
+  actions/              # Server Actions (one file per domain)
+  queries/              # Reusable cached read queries
+    opening-balance.ts          # Month opening balance (explicit or derived)
+    reimbursement-allocations.ts  # Index allocations by tx id
+    transactions-search.ts      # FTS5 full-text search over transactions
+    transactions-summary.ts     # Paginated movements + year/facet aggregates
 drizzle/          # Migration SQL + snapshots
 finance.db        # Local SQLite database
 ```

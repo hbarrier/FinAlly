@@ -21,7 +21,7 @@ export default async function AppLayout({
             f
           </div>
           <span className={styles.logoType}>
-            Fern
+            FinAlly
           </span>
         </div>
 

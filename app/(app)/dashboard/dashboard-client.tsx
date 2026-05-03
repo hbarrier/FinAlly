@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState, useTransition } from 'react'
+import { useEffect, useMemo, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { Icon } from '@/components/fern/icon'
 import { CatSwatch } from '@/components/fern/cat-swatch'
@@ -30,93 +30,162 @@ import {
   deleteTransaction,
 } from '@/lib/actions/transactions'
 import { upsertMonthlyOpeningBalance } from '@/lib/actions/monthly-opening-balances'
-
 import type { Merchant, UserSettings as Settings } from '@/lib/db-types'
+
+type RangeKey = 'ytd' | '1m' | '6m' | '1y' | '2y' | '5y'
+
+const RANGES: { key: RangeKey; label: string }[] = [
+  { key: 'ytd', label: 'YTD' },
+  { key: '1m', label: '1M' },
+  { key: '6m', label: '6M' },
+  { key: '1y', label: '1Y' },
+  { key: '2y', label: '2Y' },
+  { key: '5y', label: '5Y' },
+]
+
+const RANGE_LABELS: Record<RangeKey, string> = {
+  ytd: 'Year to date',
+  '1m': 'Last month',
+  '6m': 'Last 6 months',
+  '1y': 'Last year',
+  '2y': 'Last 2 years',
+  '5y': 'Last 5 years',
+}
 
 interface DashboardClientProps {
   settings: Settings
-  monthTransactions: Transaction[]
+  allTransactions: Transaction[]
   monthKey: string
   monthStart: string
   openingBalance: number
   openingBalanceIsExplicit: boolean
+  histStartDate: string
+  histOpeningBalance: number
   recurring: Recurring[]
   categories: Category[]
   merchants: Merchant[]
 }
 
 export function DashboardClient({
-  settings,
-  monthTransactions: monthTxns,
+  allTransactions,
   monthKey,
   monthStart,
   openingBalance,
   openingBalanceIsExplicit,
+  histStartDate,
+  histOpeningBalance,
   recurring,
   categories,
   merchants,
 }: DashboardClientProps) {
+  const [showScrollTop, setShowScrollTop] = useState(false)
   const [sheetOpen, setSheetOpen] = useState(false)
   const [editingTxn, setEditingTxn] = useState<Transaction | null>(null)
-  const [clearedOnly, setClearedOnly] = useState(false)
+  const [rangeKey, setRangeKey] = useState<RangeKey>('ytd')
   const [, startTransition] = useTransition()
+
+  useEffect(() => {
+    const onScroll = () => setShowScrollTop(window.scrollY > 600)
+    onScroll()
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
 
   const today = useMemo(() => new Date(), [])
   const todayIso = today.toISOString().slice(0, 10)
   const monthEndDay = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate()
   const monthEndIso = `${monthKey}-${String(monthEndDay).padStart(2, '0')}`
 
-  const filteredMonthTxns = useMemo(
-    () => (clearedOnly ? monthTxns.filter((t) => t.cleared === 1) : monthTxns),
-    [monthTxns, clearedOnly],
+  const monthTxns = useMemo(
+    () => allTransactions.filter((t) => t.date.startsWith(monthKey + '-')),
+    [allTransactions, monthKey],
   )
 
-  const series = useMemo(() => {
-    const txns = [...filteredMonthTxns].sort((a, b) => a.date.localeCompare(b.date))
-    const out: number[] = []
-    let bal = openingBalance
+  // For chart: exclude uncleared recurring-linked transactions (auto-generated, unrecognized)
+  const chartTxns = useMemo(
+    () => allTransactions.filter((t) => !t.recurringId || t.cleared === 1),
+    [allTransactions],
+  )
+
+  // Precompute end-of-day running balance from histStart to today
+  const dailyBalances = useMemo(() => {
+    const sorted = [...chartTxns].sort((a, b) => a.date.localeCompare(b.date))
+    const result: { date: string; balance: number }[] = []
+    let bal = histOpeningBalance
     let idx = 0
-    for (let day = 1; day <= monthEndDay; day++) {
-      const iso = `${monthKey}-${String(day).padStart(2, '0')}`
-      while (idx < txns.length && txns[idx].date <= iso) {
-        const t = txns[idx]
+
+    const end = new Date(todayIso + 'T00:00:00Z')
+    const cursor = new Date(histStartDate + 'T00:00:00Z')
+    while (cursor <= end) {
+      const iso = cursor.toISOString().slice(0, 10)
+      while (idx < sorted.length && sorted[idx].date <= iso) {
+        const t = sorted[idx]
         bal += (t.kind === 'income' ? 1 : -1) * Number(t.amount || 0)
         idx++
       }
-      out.push(bal)
+      result.push({ date: iso, balance: bal })
+      cursor.setUTCDate(cursor.getUTCDate() + 1)
     }
-    return out
-  }, [filteredMonthTxns, openingBalance, monthKey, monthEndDay])
+    return result
+  }, [chartTxns, histOpeningBalance, histStartDate, todayIso])
 
-  const balanceToday = useMemo(() => {
-    return (
+  const { rangeStart, rangeEnd } = useMemo(() => {
+    const y = today.getFullYear()
+    const m = today.getMonth()
+    const toISO = (d: Date) => d.toISOString().slice(0, 10)
+    switch (rangeKey) {
+      case 'ytd':
+        return { rangeStart: `${y}-01-01`, rangeEnd: todayIso }
+      case '1m':
+        return {
+          rangeStart: toISO(new Date(y, m - 1, 1)),
+          rangeEnd: toISO(new Date(y, m, 0)),
+        }
+      case '6m':
+        return { rangeStart: toISO(new Date(y, m - 5, 1)), rangeEnd: todayIso }
+      case '1y':
+        return { rangeStart: toISO(new Date(y - 1, m, 1)), rangeEnd: todayIso }
+      case '2y':
+        return { rangeStart: toISO(new Date(y - 2, m, 1)), rangeEnd: todayIso }
+      case '5y':
+        return { rangeStart: toISO(new Date(y - 5, m, 1)), rangeEnd: todayIso }
+    }
+  }, [rangeKey, today, todayIso])
+
+  const chartSeries = useMemo(
+    () => dailyBalances.filter((p) => p.date >= rangeStart && p.date <= rangeEnd),
+    [dailyBalances, rangeStart, rangeEnd],
+  )
+
+  const balanceToday = useMemo(
+    () =>
       openingBalance +
-      filteredMonthTxns
+      monthTxns
         .filter((t) => t.date >= monthStart && t.date <= todayIso)
-        .reduce((s, t) => s + (t.kind === 'income' ? 1 : -1) * Number(t.amount || 0), 0)
-    )
-  }, [openingBalance, filteredMonthTxns, monthStart, todayIso])
+        .reduce((s, t) => s + (t.kind === 'income' ? 1 : -1) * Number(t.amount || 0), 0),
+    [openingBalance, monthTxns, monthStart, todayIso],
+  )
 
-  const balanceProjected = useMemo(() => {
-    return (
+  const balanceProjected = useMemo(
+    () =>
       openingBalance +
-      filteredMonthTxns
+      monthTxns
         .filter((t) => t.date >= monthStart && t.date <= monthEndIso)
-        .reduce((s, t) => s + (t.kind === 'income' ? 1 : -1) * Number(t.amount || 0), 0)
-    )
-  }, [openingBalance, filteredMonthTxns, monthStart, monthEndIso])
+        .reduce((s, t) => s + (t.kind === 'income' ? 1 : -1) * Number(t.amount || 0), 0),
+    [openingBalance, monthTxns, monthStart, monthEndIso],
+  )
 
   const { income, expense, net, cats, upcoming } = useMemo(() => {
-    const inc = sumByKind(filteredMonthTxns, 'income')
-    const exp = sumByKind(filteredMonthTxns, 'expense')
+    const inc = sumByKind(monthTxns, 'income')
+    const exp = sumByKind(monthTxns, 'expense')
     return {
       income: inc,
       expense: exp,
       net: inc - exp,
-      cats: spendingByCategory(filteredMonthTxns, categories),
+      cats: spendingByCategory(monthTxns, categories),
       upcoming: thisMonthRecurring(recurring, today).slice(0, 6),
     }
-  }, [filteredMonthTxns, categories, recurring, today])
+  }, [monthTxns, categories, recurring, today])
 
   const categoryById = useMemo(
     () => new Map(categories.map((c) => [c.id, c])),
@@ -124,10 +193,9 @@ export function DashboardClient({
   )
 
   const monthName = today.toLocaleString('en-US', { month: 'long' })
-  const dayOfMonth = today.getDate()
-  const totalDays = monthEndDay
-
-  const hasData = monthTxns.length > 0 || recurring.length > 0
+  const hasData = allTransactions.length > 0 || recurring.length > 0
+  const chartStart = chartSeries[0]?.balance
+  const chartEnd = chartSeries[chartSeries.length - 1]?.balance
 
   const handleSave = async (data: Parameters<typeof addTransaction>[0]) => {
     startTransition(async () => {
@@ -154,7 +222,7 @@ export function DashboardClient({
     <div>
       <PageHeader
         kicker={formatDate(today.toISOString(), 'en-US', { weekday: 'long', day: 'numeric', month: 'long' })}
-        title={<>Hello, <em>{settings.name}</em>.</>}
+        title={<>Hello, <em>welcome to your</em> FinAlly <em>application</em>.</>}
         actions={
           <FernButton onClick={() => { setEditingTxn(null); setSheetOpen(true) }}>
             <Icon name="plus" size={16} /> Log something
@@ -209,39 +277,54 @@ export function DashboardClient({
           </div>
         </div>
 
-        {/* Cash flow card */}
+        {/* Balance evolution card */}
         <div className="fern-card">
-          <div style={{ marginBottom: 12, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+          <div style={{ marginBottom: 10, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
             <div>
               <div style={{ fontSize: 11, fontFamily: 'var(--mono-fern)', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--ink-faint)', marginBottom: 4 }}>
-                {monthName} · day {dayOfMonth}/{totalDays}
+                {RANGE_LABELS[rangeKey]}
               </div>
               <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: 'var(--ink)' }}>Balance evolution</h3>
             </div>
-            <div className="fern-type-toggle" style={{ marginTop: -2 }}>
-              <button
-                type="button"
-                className={clearedOnly ? '' : 'active income'}
-                onClick={() => setClearedOnly(false)}
-              >
-                All
-              </button>
-              <button
-                type="button"
-                className={clearedOnly ? 'active expense' : ''}
-                onClick={() => setClearedOnly(true)}
-              >
-                Cleared
-              </button>
+            <div style={{ display: 'flex', background: 'var(--bg-sunken)', borderRadius: 8, padding: 2, gap: 1, flexShrink: 0 }}>
+              {RANGES.map((r) => (
+                <button
+                  key={r.key}
+                  type="button"
+                  onClick={() => setRangeKey(r.key)}
+                  style={{
+                    padding: '3px 7px',
+                    borderRadius: 6,
+                    fontSize: 11,
+                    fontWeight: rangeKey === r.key ? 600 : 500,
+                    background: rangeKey === r.key ? 'var(--bg-elevated)' : 'none',
+                    color: rangeKey === r.key ? 'var(--ink)' : 'var(--ink-faint)',
+                    boxShadow: rangeKey === r.key ? 'var(--fern-shadow-sm)' : 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    fontFamily: 'var(--mono-fern)',
+                    transition: 'all 0.1s',
+                  }}
+                >
+                  {r.label}
+                </button>
+              ))}
             </div>
           </div>
-          {hasData ? (
+          {hasData && chartSeries.length >= 2 ? (
             <>
-              <BalanceEvolution series={series.length > 1 ? series : [openingBalance, openingBalance]} />
+              <BalanceEvolution series={chartSeries} />
               <div style={{ display: 'flex', gap: 16, marginTop: 8, fontSize: 12, flexWrap: 'wrap' }}>
-                <span style={{ color: 'var(--ink-faint)' }}>Start · <strong style={{ color: 'var(--ink)' }}>{fmt(openingBalance)}</strong></span>
-                <span style={{ color: 'var(--ink-faint)' }}>Now · <strong style={{ color: 'var(--ink)' }}>{fmt(balanceToday)}</strong></span>
-                <span style={{ color: 'var(--ink-faint)' }}>End · <strong style={{ color: 'var(--ink)' }}>{fmt(balanceProjected)}</strong></span>
+                {chartStart !== undefined && (
+                  <span style={{ color: 'var(--ink-faint)' }}>
+                    Start · <strong style={{ color: 'var(--ink)' }}>{fmt(chartStart)}</strong>
+                  </span>
+                )}
+                {chartEnd !== undefined && (
+                  <span style={{ color: 'var(--ink-faint)', marginLeft: 'auto' }}>
+                    {rangeKey === '1m' ? 'End' : 'Now'} · <strong style={{ color: 'var(--ink)' }}>{fmt(chartEnd)}</strong>
+                  </span>
+                )}
               </div>
             </>
           ) : (
@@ -338,10 +421,18 @@ export function DashboardClient({
         </div>
       </div>
 
-      <Fab
-        onClick={() => { setEditingTxn(null); setSheetOpen(true) }}
-        label="Log something"
-      />
+      {showScrollTop && (
+        <button
+          type="button"
+          className="fern-fab fern-fab-top"
+          aria-label="Scroll to top"
+          onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+        >
+          <Icon name="arrowUp" size={22} />
+        </button>
+      )}
+
+      <Fab onClick={() => { setEditingTxn(null); setSheetOpen(true) }} label="Log something" />
 
       <TransactionSheet
         open={sheetOpen}

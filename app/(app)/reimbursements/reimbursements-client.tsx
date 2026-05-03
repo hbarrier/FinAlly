@@ -25,7 +25,7 @@ type ExpenseStatus =
   | 'manually_settled'
   | 'no_rate'
 
-type IncomeReviewItem = Pick<Transaction, 'id' | 'date' | 'amount' | 'note'> & {
+type IncomeReviewItem = Pick<Transaction, 'id' | 'date' | 'amount' | 'note' | 'method' | 'createdAt'> & {
   allocatedAmount: number
   unallocatedAmount: number
   status: IncomeStatus
@@ -297,16 +297,18 @@ export function ReimbursementsClient({ incomes, expenses, mappingExpenses, rates
             date: mappingIncome.date,
             amount: mappingIncome.amount,
             kind: 'income',
+            method: mappingIncome.method,
             categoryId: null,
             merchantId: null,
             note: mappingIncome.note,
             recurringId: null,
+            recurringAmountId: null,
             reimbursable: 0,
             reimbursementTxId: null,
             cleared: 0,
             claimedDate: null,
             manualSettlementAt: null,
-            createdAt: '',
+            createdAt: mappingIncome.createdAt ?? '',
           }}
           expenses={mappingExpenses}
           onSave={handleSaveMapping}

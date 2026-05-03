@@ -145,7 +145,11 @@ function RecurringSection({
         items.map((r) => {
           const cat = r.categoryId ? categoryById.get(r.categoryId) : undefined
           const cadenceLabel = (() => {
-            if (r.cadence === 'monthly') return `Monthly · day ${r.dayOfMonth ?? 1}`
+            if (r.cadence === 'monthly') {
+              const dom = r.dayOfMonth ?? 1
+              const domLabel = dom === -1 ? 'last day' : dom === -2 ? '2nd to last' : `day ${dom}`
+              return `Monthly · ${domLabel}`
+            }
             if (r.cadence === 'weekly') return `Weekly · ${DOW[r.dayOfWeek ?? 1]}`
             if (r.cadence === 'yearly') {
               const d = new Date(r.startDate)

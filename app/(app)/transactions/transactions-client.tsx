@@ -8,18 +8,23 @@ import { CatSwatch } from '@/components/fern/cat-swatch'
 import { Chip } from '@/components/fern/chip'
 import { SegmentedControl } from '@/components/fern/segmented-control'
 import { TransactionSheet } from '@/components/fern/sheets/transaction-sheet'
-import { fmt, allOccurrencesInRange, formatDate, type Category, type Transaction, type Recurring } from '@/lib/derive'
+import { fmt, allOccurrencesInRange, formatDate, type Category, type Transaction, type RecurringWithAmounts } from '@/lib/derive'
+import { pickEffectiveRecurringAmountEntry, type RecurringAmountEntry } from '@/lib/recurring-amounts'
 import { PageHeader } from '@/components/fern/page-header'
 import { FernButton } from '@/components/fern/button'
 import { EmptyState } from '@/components/fern/empty-state'
 import { Fab } from '@/components/fern/fab'
+import { SearchableSelect, type SelectOption } from '@/components/fern/searchable-select'
+import { PAYMENT_METHODS, paymentMethodLabel, type PaymentMethod } from '@/lib/payment-method'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
 import {
   ReimbursementMappingSheet,
   type ReimbursementMappingExpense,
 } from '@/components/fern/sheets/reimbursement-mapping-sheet'
 import {
   addTransaction,
-  updateTransaction,
+  updateTransactionWithRecurringAmountOption,
   deleteTransaction,
   clearTransaction,
   detachTransactionFromRecurring,
@@ -42,7 +47,9 @@ type VirtualEntry = {
   id: string
   date: string
   amount: number
+  recurringAmountId: string | null
   kind: 'expense' | 'income'
+  method: PaymentMethod
   categoryId: string | null
   merchantId: string | null
   recurringId: string
@@ -54,6 +61,7 @@ type Movement = Transaction | VirtualEntry
 type ReimbursementFilter =
   | 'all'
   | 'unresolved'
+  | 'resolved'
   | 'expense:not_reimbursed'
   | 'expense:partially_reimbursed'
   | 'expense:reimbursed'
@@ -64,6 +72,23 @@ type ReimbursementFilter =
 
 function isVirtual(m: Movement): m is VirtualEntry {
   return '_virtual' in m
+}
+
+function paymentMethodIcon(method: PaymentMethod): string {
+  switch (method) {
+    case 'card':
+      return 'wallet'
+    case 'transfer':
+      return 'bank'
+    case 'cash':
+      return 'sparkle'
+    case 'check':
+      return 'fileText'
+    case 'debit':
+      return 'bank'
+    case 'paypal':
+      return 'wallet'
+  }
 }
 
 function isUnresolvedReimbursementStatus(status: string) {
@@ -80,13 +105,23 @@ interface TransactionsClientProps {
   transactions: Transaction[]
   categories: Category[]
   merchants: Merchant[]
-  recurring: Recurring[]
+  recurring: RecurringWithAmounts[]
   eligibleReimbursementExpenses: ReimbursementMappingExpense[]
   reimbursementSummaries: Record<string, { status: string; label: string }>
   reimbursementMappingCounts: Record<string, number>
   initialMerchantId?: string
   selectedYear: number
   years: string[]
+  initialMonths?: number
+}
+
+function toRecurringAmountEntries(recurringId: string, raw: RecurringWithAmounts['amounts']): RecurringAmountEntry[] {
+  return raw.map((a) => ({
+    id: a.id,
+    recurringId,
+    amount: a.amount,
+    startDate: a.startDate,
+  }))
 }
 
 export function TransactionsClient({
@@ -100,13 +135,16 @@ export function TransactionsClient({
   initialMerchantId = 'all',
   selectedYear,
   years,
+  initialMonths = 2,
 }: TransactionsClientProps) {
   const router = useRouter()
   const [q, setQ] = useState('')
   const [kindFilter, setKindFilter] = useState('all')
   const [catFilter, setCatFilter] = useState('all')
-  const [merchantFilter, setMerchantFilter] = useState(initialMerchantId)
+  const merchantFilter = initialMerchantId
   const [clearedFilter, setClearedFilter] = useState<'all' | 'cleared' | 'uncleared'>('all')
+  const [methodFilter, setMethodFilter] = useState<Set<PaymentMethod>>(new Set())
+  const [methodFilterOpen, setMethodFilterOpen] = useState(false)
   const [reimbursementFilter, setReimbursementFilter] = useState<ReimbursementFilter>('all')
   const [importOpen, setImportOpen] = useState(false)
   const [sheetOpen, setSheetOpen] = useState(false)
@@ -116,21 +154,25 @@ export function TransactionsClient({
   const [mappingSheetOpen, setMappingSheetOpen] = useState(false)
   const [mappingIncome, setMappingIncome] = useState<Transaction | null>(null)
   const [prefillData, setPrefillData] = useState<{
-    date: string; amount: number; kind: 'expense' | 'income'
+    date: string; amount: number; kind: 'expense' | 'income'; method: PaymentMethod
     categoryId: string | null; merchantId: string | null; note: string; recurringId: string
+    recurringAmountId: string | null
   } | null>(null)
   const [visibleMonthsByYear, setVisibleMonthsByYear] = useState<Record<number, number>>({})
+  const [pendingScrollMonth, setPendingScrollMonth] = useState<string | null>(null)
+  const [showScrollTop, setShowScrollTop] = useState(false)
+  const topSentinelRef = useRef<HTMLDivElement | null>(null)
   const [selectionMode, setSelectionMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [bulkSheetOpen, setBulkSheetOpen] = useState(false)
   const [, startTransition] = useTransition()
   const clearSheetStateTimer = useRef<number | null>(null)
 
-  const visibleMonths = visibleMonthsByYear[selectedYear] ?? 2
+  const visibleMonths = visibleMonthsByYear[selectedYear] ?? initialMonths
   const setVisibleMonths = (updater: (current: number) => number) => {
     setVisibleMonthsByYear((prev) => ({
       ...prev,
-      [selectedYear]: updater(prev[selectedYear] ?? 2),
+      [selectedYear]: updater(prev[selectedYear] ?? initialMonths),
     }))
   }
 
@@ -138,11 +180,18 @@ export function TransactionsClient({
   const virtualEntries = useMemo(() => {
     if (!recurring.length) return []
     const yearStart = new Date(`${selectedYear}-01-01T00:00:00`)
-    const rangeEnd = new Date(Math.min(
-      new Date(`${selectedYear}-12-31T23:59:59`).getTime(),
-      new Date().getTime(),
-    ))
-    rangeEnd.setHours(23, 59, 59, 999)
+    const now = new Date()
+    const yearEnd = new Date(`${selectedYear}-12-31T23:59:59`)
+    // For the current year, extend to end of current month so all this month's
+    // recurring items are visible from the 1st (not just those due today or earlier).
+    // For past years, show everything through year-end.
+    const rangeEnd =
+      selectedYear === now.getFullYear()
+        ? new Date(Math.min(
+            yearEnd.getTime(),
+            new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999).getTime(),
+          ))
+        : new Date(Math.min(yearEnd.getTime(), now.getTime()))
 
     // Format a Date as YYYY-MM-DD in local time (not UTC) to avoid off-by-one
     // when local midnight is behind UTC (e.g. France UTC+1/+2).
@@ -173,17 +222,24 @@ export function TransactionsClient({
 
     return allOccurrencesInRange(recurring, yearStart, rangeEnd)
       .filter((o) => !loggedPeriods.has(`${o.id}:${periodKey(localDateStr(o.date), o.cadence)}`))
-      .map((o) => ({
-        _virtual: true as const,
-        id: `virtual:${o.id}:${localDateStr(o.date)}`,
-        date: localDateStr(o.date),
-        amount: o.amount,
-        kind: o.kind,
-        categoryId: o.categoryId,
-        merchantId: o.merchantId ?? null,
-        recurringId: o.id,
-        name: o.name,
-      }))
+      .map((o) => {
+        const iso = localDateStr(o.date)
+        const entry = pickEffectiveRecurringAmountEntry(toRecurringAmountEntries(o.id, o.amounts ?? []), iso)
+        const amt = entry?.amount ?? o.amount
+        return {
+          _virtual: true as const,
+          id: `virtual:${o.id}:${iso}`,
+          date: iso,
+          amount: amt,
+          recurringAmountId: entry?.id ?? null,
+          kind: o.kind,
+          method: o.method,
+          categoryId: o.categoryId,
+          merchantId: o.merchantId ?? null,
+          recurringId: o.id,
+          name: o.name,
+        }
+      })
   }, [recurring, txns, selectedYear])
 
   const categoryById = useMemo(
@@ -200,6 +256,30 @@ export function TransactionsClient({
     () => [...merchants].sort((a, b) => a.name.localeCompare(b.name)),
     [merchants],
   )
+
+  const categoryFilterOptions = useMemo<SelectOption[]>(
+    () => [
+      { value: 'all', label: 'All categories' },
+      ...categories.map((c) => ({ value: c.id, label: c.name })),
+    ],
+    [categories],
+  )
+
+  const merchantFilterOptions = useMemo<SelectOption[]>(
+    () => [
+      { value: 'all', label: 'All merchants' },
+      ...merchantsSortedByName.map((m) => ({ value: m.id, label: m.name })),
+    ],
+    [merchantsSortedByName],
+  )
+
+  const methodFilterLabel = useMemo(() => {
+    if (methodFilter.size === 0) return 'All payment types'
+    return [...methodFilter]
+      .map((m) => paymentMethodLabel(m))
+      .sort((a, b) => a.localeCompare(b))
+      .join(', ')
+  }, [methodFilter])
 
   const filtered = useMemo(() => {
     const all: Movement[] = [...txns, ...virtualEntries]
@@ -220,6 +300,7 @@ export function TransactionsClient({
           if (clearedFilter === 'uncleared' && isCleared) return false
         }
       }
+      if (methodFilter.size > 0 && !methodFilter.has(m.method)) return false
       if (reimbursementFilter !== 'all') {
         if (isVirtual(m)) return false
 
@@ -228,6 +309,8 @@ export function TransactionsClient({
 
         if (reimbursementFilter === 'unresolved') {
           if (!isUnresolvedReimbursementStatus(summary.status)) return false
+        } else if (reimbursementFilter === 'resolved') {
+          if (isUnresolvedReimbursementStatus(summary.status)) return false
         } else {
           const [scope, status] = reimbursementFilter.split(':')
           if (summary.status !== status) return false
@@ -237,9 +320,12 @@ export function TransactionsClient({
       }
       if (q) {
         const cat = m.categoryId ? categoryById.get(m.categoryId) : undefined
+        const merchant = !isVirtual(m) && (m as Transaction).merchantId
+          ? merchantById.get((m as Transaction).merchantId!)
+          : undefined
         const hay = isVirtual(m)
           ? `${m.name} ${cat?.name ?? ''}`.toLowerCase()
-          : `${(m as Transaction).note ?? ''} ${cat?.name ?? ''}`.toLowerCase()
+          : `${(m as Transaction).note ?? ''} ${cat?.name ?? ''} ${merchant?.name ?? ''}`.toLowerCase()
         if (!hay.includes(needle)) return false
       }
       return true
@@ -251,10 +337,12 @@ export function TransactionsClient({
     catFilter,
     merchantFilter,
     clearedFilter,
+    methodFilter,
     reimbursementFilter,
     reimbursementSummaries,
     q,
     categoryById,
+    merchantById,
   ])
 
   // All months in the filtered data, sorted newest-first
@@ -269,10 +357,106 @@ export function TransactionsClient({
     [allMonths, visibleMonths],
   )
 
+  useEffect(() => {
+    // Allow deep-linking / post-navigation scroll with `scrollTo=YYYY-MM`.
+    const params = new URLSearchParams(window.location.search)
+    const month = params.get('scrollTo')
+    if (month && /^\d{4}-\d{2}$/.test(month)) {
+      setPendingScrollMonth(month)
+    }
+  }, [])
+
+  useEffect(() => {
+    const el = topSentinelRef.current
+    if (!el) return
+    const obs = new IntersectionObserver(
+      ([entry]) => {
+        // If the top is no longer visible, offer a quick way back.
+        setShowScrollTop(!entry.isIntersecting)
+      },
+      { threshold: 0 },
+    )
+    obs.observe(el)
+    return () => obs.disconnect()
+  }, [])
+
+  useEffect(() => {
+    if (!pendingScrollMonth) return
+    if (!visibleMonthSet.has(pendingScrollMonth)) return
+    const el = document.getElementById(`month-${pendingScrollMonth}`)
+    if (!el) return
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    setPendingScrollMonth(null)
+    // Clean up the scrollTo param so refreshes don't keep jumping.
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('scrollTo') === pendingScrollMonth) {
+      params.delete('scrollTo')
+      const next = params.toString()
+      window.history.replaceState(null, '', next ? `?${next}` : window.location.pathname)
+    }
+  }, [pendingScrollMonth, visibleMonthSet])
+
+  const monthJumpOptions = useMemo(() => {
+    const out: { value: string; label: string }[] = []
+    for (let m = 1; m <= 12; m++) {
+      const month = `${selectedYear}-${String(m).padStart(2, '0')}`
+      out.push({
+        value: month,
+        label: formatDate(month + '-15T12:00:00', 'en-US', { month: 'short' }),
+      })
+    }
+    return out
+  }, [selectedYear])
+
+  const jumpToMonth = (month: string) => {
+    const idx = allMonths.indexOf(month)
+    if (idx === -1) {
+      // If the month isn't loaded yet, request enough months from the server to include it.
+      const now = new Date()
+      const currentYear = now.getFullYear()
+      const endMonth = selectedYear < currentYear ? `${selectedYear}-12` : now.toISOString().slice(0, 7)
+      const [ey, em] = endMonth.split('-').map(Number)
+      const [ty, tm] = month.split('-').map(Number)
+      const monthsNeeded = Math.max(1, (ey - ty) * 12 + (em - tm) + 1)
+      const params = new URLSearchParams(window.location.search)
+      params.set('view', 'timeline')
+      params.set('year', String(selectedYear))
+      params.set('months', String(monthsNeeded))
+      params.set('scrollTo', month)
+      router.push(`?${params.toString()}`)
+      return
+    }
+
+    const nextVisible = idx + 1
+    setPendingScrollMonth(month)
+    setVisibleMonths(() => nextVisible)
+    const params = new URLSearchParams(window.location.search)
+    params.set('view', 'timeline')
+    params.set('year', String(selectedYear))
+    params.set('months', String(nextVisible))
+    router.push(`?${params.toString()}`)
+  }
+
   const visibleEntries = useMemo(
     () => filtered.filter((m) => visibleMonthSet.has(m.date.slice(0, 7))),
     [filtered, visibleMonthSet],
   )
+
+  const cbExpensesByMonth = useMemo(() => {
+    const out: Record<string, { cleared: number; total: number }> = {}
+    for (const m of visibleEntries) {
+      if (isVirtual(m)) continue
+      if (m.kind !== 'expense') continue
+      if (m.method !== 'card') continue
+
+      const month = m.date.slice(0, 7)
+      const amountAbs = Math.abs(Number(m.amount ?? 0))
+      out[month] = out[month] ?? { cleared: 0, total: 0 }
+      out[month].total += amountAbs
+      if (m.cleared === 1) out[month].cleared += amountAbs
+    }
+    return out
+  }, [visibleEntries])
 
   const visibleRealIds = useMemo(
     () => visibleEntries.filter((m) => !isVirtual(m)).map((m) => m.id),
@@ -370,9 +554,44 @@ export function TransactionsClient({
 
     startTransition(async () => {
       if (editingTxn) {
-        await updateTransaction(editingTxn.id, data)
+        let propagateRecurringAmount = false
+        const amountChanged =
+          typeof data.amount === 'number' && Math.abs(Number(data.amount) - Number(editingTxn.amount)) > 0.005
+
+        if (editingTxn.recurringId && amountChanged) {
+          const now = new Date()
+          const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+          const isInCurrentMonth = editingTxn.date.startsWith(monthKey)
+          if (isInCurrentMonth) {
+            const candidates = txns
+              .filter((t) => t.recurringId === editingTxn.recurringId && t.date.startsWith(monthKey))
+              .slice()
+              .sort((a, b) => {
+                if (a.date !== b.date) return a.date.localeCompare(b.date)
+                if (a.createdAt !== b.createdAt) return a.createdAt.localeCompare(b.createdAt)
+                return a.id.localeCompare(b.id)
+              })
+            const latest = candidates[candidates.length - 1]
+            const isLatestThisMonth = latest?.id === editingTxn.id
+            if (isLatestThisMonth) {
+              propagateRecurringAmount = window.confirm(
+                'This is the latest instance of this recurring item this month.\n\nPush this amount to the recurring template going forward?',
+              )
+            }
+          }
+        }
+
+        await updateTransactionWithRecurringAmountOption(
+          editingTxn.id,
+          data,
+          { propagateRecurringAmount },
+        )
       } else {
-        await addTransaction({ ...data, recurringId: prefillData?.recurringId ?? null })
+        await addTransaction({
+          ...data,
+          recurringId: prefillData?.recurringId ?? null,
+          recurringAmountId: prefillData?.recurringAmountId ?? null,
+        })
       }
     })
     closeSheet()
@@ -429,10 +648,12 @@ export function TransactionsClient({
       date: entry.date,
       amount: entry.amount,
       kind: entry.kind,
+      method: entry.method,
       categoryId: entry.categoryId,
       merchantId: entry.merchantId,
       note: entry.name,
       recurringId: entry.recurringId,
+      recurringAmountId: entry.recurringAmountId,
     })
     setEditingTxn(null)
     setSheetOpen(true)
@@ -460,13 +681,14 @@ export function TransactionsClient({
 
   return (
     <div>
+      <div ref={topSentinelRef} />
       <PageHeader
         kicker="All history"
         title={<>Your <em>movements</em></>}
         actions={
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: 11, fontFamily: 'var(--mono-fern)', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--ink-faint)' }}>
-              {filteredActual} of {txns.length}
+              {filteredActual} of {txns.length} in view
               {filteredScheduled > 0 && <> · <span style={{ color: 'var(--butter-ink)' }}>{filteredScheduled} scheduled</span></>}
             </span>
             {!selectionMode && (
@@ -494,7 +716,11 @@ export function TransactionsClient({
               key={y}
               type="button"
               className={String(selectedYear) === y ? 'active' : ''}
-              onClick={() => router.push(`?year=${y}`)}
+              onClick={() => {
+                const params = new URLSearchParams(window.location.search)
+                params.set('year', y)
+                router.push(`?${params.toString()}`)
+              }}
             >
               {y}
             </button>
@@ -504,6 +730,23 @@ export function TransactionsClient({
 
       {/* Filters */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
+        <select
+          className="fern-select"
+          style={{ maxWidth: 160 }}
+          defaultValue=""
+          onChange={(e) => {
+            const v = e.target.value
+            if (v) jumpToMonth(v)
+            e.currentTarget.value = ''
+          }}
+        >
+          <option value="" disabled>Jump to month…</option>
+          {monthJumpOptions.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: 220, background: 'var(--bg-elevated)', borderRadius: 10, padding: '0 12px', border: '1.5px solid var(--line)', flexShrink: 0 }}>
           <Icon name="search" size={16} style={{ color: 'var(--ink-faint)', flexShrink: 0 }} />
           <input
@@ -528,28 +771,95 @@ export function TransactionsClient({
           onChange={(v) => setClearedFilter(v as 'all' | 'cleared' | 'uncleared')}
           options={[{ value: 'all', label: 'All' }, { value: 'cleared', label: 'Cleared' }, { value: 'uncleared', label: 'Pending' }]}
         />
-        <select
-          className="fern-select"
-          style={{ maxWidth: 180 }}
-          value={catFilter}
-          onChange={(e) => setCatFilter(e.target.value)}
-        >
-          <option value="all">All categories</option>
-          {categories.map((c) => (
-            <option key={c.id} value={c.id}>{c.name}</option>
-          ))}
-        </select>
-        <select
-          className="fern-select"
-          style={{ maxWidth: 180 }}
-          value={merchantFilter}
-          onChange={(e) => setMerchantFilter(e.target.value)}
-        >
-          <option value="all">All merchants</option>
-          {merchantsSortedByName.map((m) => (
-            <option key={m.id} value={m.id}>{m.name}</option>
-          ))}
-        </select>
+        <Popover open={methodFilterOpen} onOpenChange={setMethodFilterOpen}>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              className="fern-select"
+              style={{ maxWidth: 260, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}
+              aria-label="Filter by payment type"
+            >
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {methodFilterLabel}
+              </span>
+              {methodFilter.size > 0 && (
+                <span style={{ fontSize: 12, color: 'var(--ink-faint)', flexShrink: 0 }}>
+                  {methodFilter.size}
+                </span>
+              )}
+            </button>
+          </PopoverTrigger>
+          {methodFilterOpen && (
+            <PopoverContent style={{ padding: 0, width: 260 }} align="start">
+              <Command>
+                <CommandInput placeholder="Search payment types…" />
+                <CommandList>
+                  <CommandEmpty>No results</CommandEmpty>
+                  <CommandGroup heading="Payment types">
+                    {PAYMENT_METHODS.map((m) => {
+                      const checked = methodFilter.has(m)
+                      return (
+                        <CommandItem
+                          key={m}
+                          value={paymentMethodLabel(m)}
+                          data-checked={checked ? 'true' : 'false'}
+                          onSelect={() => {
+                            setMethodFilter((prev) => {
+                              const next = new Set(prev)
+                              if (next.has(m)) next.delete(m)
+                              else next.add(m)
+                              return next
+                            })
+                          }}
+                        >
+                          <Icon name={paymentMethodIcon(m)} size={14} style={{ color: 'var(--ink-faint)' }} />
+                          {paymentMethodLabel(m)}
+                        </CommandItem>
+                      )
+                    })}
+                  </CommandGroup>
+                  {methodFilter.size > 0 && (
+                    <CommandGroup>
+                      <CommandItem
+                        value="Clear payment types"
+                        onSelect={() => setMethodFilter(new Set())}
+                      >
+                        Clear
+                      </CommandItem>
+                    </CommandGroup>
+                  )}
+                </CommandList>
+              </Command>
+            </PopoverContent>
+          )}
+        </Popover>
+        <div style={{ width: 180, maxWidth: 180, flexShrink: 0 }}>
+          <SearchableSelect
+            value={catFilter}
+            onChange={(v) => setCatFilter(v ?? 'all')}
+            options={categoryFilterOptions}
+            searchPlaceholder="Search categories…"
+          />
+        </div>
+        <div style={{ flex: 1, minWidth: 260, maxWidth: 520 }}>
+          <SearchableSelect
+            value={merchantFilter}
+            onChange={(v) => {
+              const val = v ?? 'all'
+              const params = new URLSearchParams(window.location.search)
+              if (val !== 'all') {
+                params.set('merchant', val)
+              } else {
+                params.delete('merchant')
+              }
+              params.set('year', String(selectedYear))
+              params.delete('months')
+              router.push(`?${params.toString()}`)
+            }}
+            options={merchantFilterOptions}
+            searchPlaceholder="Search merchants…"
+          />
+        </div>
         <select
           className="fern-select"
           style={{ maxWidth: 240 }}
@@ -557,14 +867,19 @@ export function TransactionsClient({
           onChange={(e) => setReimbursementFilter(e.target.value as ReimbursementFilter)}
         >
           <option value="all">All reimbursement states</option>
-          <option value="unresolved">Unresolved reimbursement work</option>
-          <option value="expense:not_reimbursed">Expenses: not reimbursed</option>
-          <option value="expense:partially_reimbursed">Expenses: partially reimbursed</option>
-          <option value="expense:reimbursed">Expenses: reimbursed</option>
-          <option value="expense:manually_settled">Expenses: manually settled</option>
-          <option value="income:unmapped">Income: unmapped</option>
-          <option value="income:partially_allocated">Income: partially allocated</option>
-          <option value="income:fully_allocated">Income: fully allocated</option>
+          <option value="unresolved">Open work</option>
+          <option value="resolved">Fully resolved</option>
+          <optgroup label="Expenses">
+            <option value="expense:not_reimbursed">Not reimbursed</option>
+            <option value="expense:partially_reimbursed">Partially reimbursed</option>
+            <option value="expense:reimbursed">Reimbursed</option>
+            <option value="expense:manually_settled">Manually settled</option>
+          </optgroup>
+          <optgroup label="Income">
+            <option value="income:unmapped">Unmapped</option>
+            <option value="income:partially_allocated">Partially allocated</option>
+            <option value="income:fully_allocated">Fully allocated</option>
+          </optgroup>
         </select>
       </div>
 
@@ -597,10 +912,25 @@ export function TransactionsClient({
         <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
           {monthGroups.map(([month, dgs]) => {
             const monthLabel = formatDate(month + '-15T12:00:00', 'en-US', { month: 'long', year: 'numeric' })
+            const cb = cbExpensesByMonth[month] ?? { cleared: 0, total: 0 }
             return (
-              <div key={month}>
+              <div key={month} id={`month-${month}`}>
                 <div style={{ display: 'flex', alignItems: 'center', marginBottom: 10 }}>
                   <h2 style={{ margin: 0, flex: 1, fontSize: 13, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--ink-faint)', fontFamily: 'var(--mono-fern)' }}>{monthLabel}</h2>
+
+                  {/* CB monthly KPI: cleared / total (amount sums, expenses only). */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                    <Icon name={paymentMethodIcon('card')} size={10} style={{ color: 'var(--ink-faint)' }} />
+                    <span style={{ fontFamily: 'var(--mono-fern)', fontSize: 12, color: 'var(--ink-faint)' }}>
+                      CB:{' '}
+                      <span style={{ color: 'var(--ink)' }}>
+                        {fmt(cb.cleared)} / {fmt(cb.total)}
+                      </span>
+                    </span>
+                  </div>
+
+                  {/* Reserve space for the right-side action buttons in transaction rows. */}
+                  {!selectionMode && <div style={{ width: 64, flexShrink: 0 }} />}
                   {selectionMode && (
                     <button
                       type="button"
@@ -640,6 +970,9 @@ export function TransactionsClient({
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
                               <span style={{ fontSize: 12, color: 'var(--ink-faint)' }}>{cat?.name ?? 'Uncategorized'}</span>
+                              <Chip tone="scheduled">
+                                <Icon name={paymentMethodIcon(m.method)} size={10} /> {paymentMethodLabel(m.method)}
+                              </Chip>
                               <Chip tone="scheduled"><Icon name="repeat" size={10} /> scheduled</Chip>
                             </div>
                           </div>
@@ -655,10 +988,12 @@ export function TransactionsClient({
                                   date: m.date,
                                   amount: m.amount,
                                   kind: m.kind,
+                                  method: m.method,
                                   categoryId: m.categoryId,
                                   merchantId: m.merchantId,
                                   note: m.name,
                                   recurringId: m.recurringId,
+                                  recurringAmountId: m.recurringAmountId,
                                   cleared: 1,
                                 })
                               })
@@ -727,6 +1062,9 @@ export function TransactionsClient({
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
                             <span style={{ fontSize: 12, color: 'var(--ink-faint)' }}>{cat?.name ?? 'Uncategorized'}</span>
                             {merchant && <span style={{ fontSize: 11, color: 'var(--ink-faint)' }}>· {merchant.name}</span>}
+                            <Chip tone="scheduled">
+                              <Icon name={paymentMethodIcon(t.method)} size={10} /> {paymentMethodLabel(t.method)}
+                            </Chip>
                             {t.recurringId && <Chip tone="recurring"><Icon name="repeat" size={10} /> recurring</Chip>}
                             {reimbursementSummary && (
                               <Chip tone={reimbursementSummary.status === 'reimbursed' || reimbursementSummary.status === 'fully_allocated' || reimbursementSummary.status === 'manually_settled' ? 'recurring' : 'scheduled'}>
@@ -842,7 +1180,18 @@ export function TransactionsClient({
 
           {visibleMonths < allMonths.length && (
             <div style={{ textAlign: 'center', marginTop: 8 }}>
-              <FernButton tone="outline" onClick={() => setVisibleMonths((n) => n + 1)}>
+              <FernButton
+                tone="outline"
+                onClick={() => {
+                  const next = visibleMonths + 1
+                  setVisibleMonths(() => next)
+                  const params = new URLSearchParams(window.location.search)
+                  params.set('view', 'timeline')
+                  params.set('year', String(selectedYear))
+                  params.set('months', String(next))
+                  router.push(`?${params.toString()}`)
+                }}
+              >
                 Load more
               </FernButton>
             </div>
@@ -851,10 +1200,22 @@ export function TransactionsClient({
       )}
 
       {!selectionMode && (
-        <Fab
-          onClick={() => { setEditingTxn(null); setPrefillData(null); setSheetOpen(true) }}
-          label="Log something"
-        />
+        <>
+          {showScrollTop && (
+            <button
+              type="button"
+              className="fern-fab fern-fab-top"
+              aria-label="Scroll to top"
+              onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+            >
+              <Icon name="arrowUp" size={22} />
+            </button>
+          )}
+          <Fab
+            onClick={() => { setEditingTxn(null); setPrefillData(null); setSheetOpen(true) }}
+            label="Log something"
+          />
+        </>
       )}
 
       {selectionMode && selectedIds.size > 0 && (
@@ -900,6 +1261,7 @@ export function TransactionsClient({
           date: prefillData.date,
           amount: prefillData.amount,
           kind: prefillData.kind,
+          method: prefillData.method,
           categoryId: prefillData.categoryId,
           merchantId: prefillData.merchantId,
           note: prefillData.note,

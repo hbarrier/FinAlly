@@ -11,11 +11,13 @@ import { SearchableSelect } from '../searchable-select'
 import { SheetShell } from '../sheet-shell'
 import type { Category, Transaction } from '@/lib/derive'
 import type { Merchant } from '@/lib/db-types'
+import { PAYMENT_METHODS, paymentMethodLabel, type PaymentMethod, defaultPaymentMethodForKind } from '@/lib/payment-method'
 
 const parseDecimal = (v: string) => Number(v.replace(',', '.'))
 
 const transactionSchema = z.object({
   kind: z.enum(['expense', 'income']),
+  method: z.enum(PAYMENT_METHODS),
   amount: z.string()
     .min(1, 'Amount is required')
     .refine((v) => !isNaN(parseDecimal(v)) && parseDecimal(v) > 0, 'Enter a valid positive amount'),
@@ -32,14 +34,17 @@ type PrefillValues = {
   date?: string
   amount?: number
   kind?: 'expense' | 'income'
+  method?: PaymentMethod
   categoryId?: string | null
   merchantId?: string | null
   note?: string
 }
 
 function getDefaultValues(item?: Transaction | null, prefill?: PrefillValues | null): TransactionFormValues {
+  const kind = item?.kind ?? prefill?.kind ?? 'expense'
   return {
-    kind: item?.kind ?? prefill?.kind ?? 'expense',
+    kind,
+    method: item?.method ?? prefill?.method ?? defaultPaymentMethodForKind(kind),
     amount: item?.amount ? String(item.amount) : (prefill?.amount ? String(prefill.amount) : ''),
     date: item?.date ?? prefill?.date ?? new Date().toISOString().slice(0, 10),
     categoryId: item?.categoryId ?? prefill?.categoryId ?? '',
@@ -55,11 +60,12 @@ interface TransactionSheetProps {
   categories: Category[]
   merchants: Merchant[]
   item?: Transaction | null
-  prefill?: PrefillValues | null
+  prefill?: (PrefillValues & { method?: PaymentMethod }) | null
   onSave: (data: {
     date: string
     amount: number
     kind: 'expense' | 'income'
+    method: PaymentMethod
     categoryId: string | null
     merchantId: string | null
     note: string | null
@@ -106,6 +112,7 @@ export function TransactionSheet({
     !!(errors[field] && (dirtyFields[field] || isSubmitted))
 
   const watchedKind = watch('kind')
+  const watchedMethod = watch('method')
   const filteredCatsSorted = useMemo(() => {
     return categories
       .filter((c) => c.kind === watchedKind)
@@ -125,6 +132,7 @@ export function TransactionSheet({
       date: data.date,
       amount: parseDecimal(data.amount),
       kind: data.kind,
+      method: data.method,
       categoryId: data.categoryId,
       merchantId: data.merchantId,
       note: data.note.trim() || null,
@@ -166,6 +174,10 @@ export function TransactionSheet({
               className={field.value === 'expense' ? 'active expense' : ''}
               onClick={() => {
                 field.onChange('expense')
+                const currentMethod = getValues('method')
+                if (currentMethod === defaultPaymentMethodForKind('income')) {
+                  setValue('method', defaultPaymentMethodForKind('expense'), { shouldValidate: true, shouldDirty: true })
+                }
                 const current = getValues('categoryId')
                 const stillValid = categories.find((c) => c.kind === 'expense' && c.id === current)
                 if (!stillValid) setValue('categoryId', '', { shouldValidate: true, shouldDirty: true })
@@ -178,6 +190,10 @@ export function TransactionSheet({
               className={field.value === 'income' ? 'active income' : ''}
               onClick={() => {
                 field.onChange('income')
+                const currentMethod = getValues('method')
+                if (currentMethod === defaultPaymentMethodForKind('expense')) {
+                  setValue('method', defaultPaymentMethodForKind('income'), { shouldValidate: true, shouldDirty: true })
+                }
                 const current = getValues('categoryId')
                 const stillValid = categories.find((c) => c.kind === 'income' && c.id === current)
                 if (!stillValid) setValue('categoryId', '', { shouldValidate: true, shouldDirty: true })
@@ -188,6 +204,41 @@ export function TransactionSheet({
           </div>
         )}
       />
+
+      <Field>
+        <label className="fern-field-label">How</label>
+        <Controller
+          control={control}
+          name="method"
+          render={({ field }) => {
+            const locked = !!item?.recurringId
+            return (
+              <select
+                className="fern-input"
+                value={field.value}
+                disabled={locked}
+                onChange={(e) => field.onChange(e.target.value as PaymentMethod)}
+              >
+                {PAYMENT_METHODS.map((m) => (
+                  <option key={m} value={m}>
+                    {paymentMethodLabel(m)}
+                  </option>
+                ))}
+              </select>
+            )
+          }}
+        />
+        {item?.recurringId && (
+          <div style={{ marginTop: 6, fontSize: 11, color: 'var(--ink-faint)' }}>
+            Controlled by recurring.
+          </div>
+        )}
+        {watchedKind === 'expense' && watchedMethod === 'cash' && (
+          <div style={{ marginTop: 6, fontSize: 11, color: 'var(--ink-faint)' }}>
+            Cash expenses are automatically marked as cleared.
+          </div>
+        )}
+      </Field>
 
       <Field data-invalid={showErr('amount')}>
         <div style={{ position: 'relative' }}>

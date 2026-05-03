@@ -423,6 +423,13 @@
   box-shadow: 0 4px 8px oklch(20% 0.02 60 / 0.08), 0 16px 40px oklch(20% 0.02 60 / 0.15);
 }
 
+.fern-fab-top {
+  bottom: 92px;
+  background: var(--bg-elevated);
+  color: var(--ink);
+  border: 1.5px solid var(--line);
+}
+
 /* ---------- Type toggle (expense / income) ---------- */
 .fern-type-toggle {
   display: flex;

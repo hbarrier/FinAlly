@@ -26,13 +26,13 @@ A recurring item can be linked to individual transactions after the fact, giving
 | `name` | Display label |
 | `amount` | Current effective amount (kept in sync with `recurringAmounts`) |
 | `kind` | `'expense'` or `'income'` |
+| `method` | Payment method enum (same as transactions): `card`, `transfer`, `cash`, `check`, `debit`, `paypal`. Defaults to `card` for expenses, `transfer` for income. Propagated to linked transactions when changed. |
 | `categoryId` | Optional |
 | `merchantId` | Optional |
 | `cadence` | `'weekly'`, `'monthly'`, or `'yearly'` |
 | `dayOfMonth` | 1–31; used for monthly cadence |
 | `dayOfWeek` | 0–6 (Sun–Sat); used for weekly cadence |
-| `monthOfYear` | Used with `dayOfMonth` for yearly cadence |
-| `startDate` | ISO date; item does not occur before this date |
+| `startDate` | ISO date; item does not occur before this date. For yearly cadence, occurrences fire on the same month+day as `startDate` each year. |
 | `endDate` | ISO date (optional); item does not occur after this date |
 
 ## Business rules

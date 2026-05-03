@@ -2,9 +2,10 @@
 
 import { revalidateApp } from './_shared'
 import { db } from '../db'
-import { merchants, transactions } from '../schema'
+import { merchants, recurring, transactions } from '../schema'
 import { nanoid } from '../utils'
 import { inArray } from 'drizzle-orm'
+import { defaultPaymentMethodForKind, type PaymentMethod } from '../payment-method'
 
 export type MerchantMappingPayload = {
   csvName: string
@@ -65,6 +66,16 @@ export async function importTransactions(payload: {
     }
   }
 
+  const recurringIdsToLookup = [...new Set(merchantMappings.map((m) => m.recurringId).filter(Boolean))] as string[]
+  const recurringMethodById = new Map<string, PaymentMethod>()
+  if (recurringIdsToLookup.length > 0) {
+    const found = await db
+      .select({ id: recurring.id, method: recurring.method })
+      .from(recurring)
+      .where(inArray(recurring.id, recurringIdsToLookup))
+    for (const r of found) recurringMethodById.set(r.id, r.method as PaymentMethod)
+  }
+
   await db.transaction(async (tx) => {
     if (newMerchantInserts.length > 0) {
       await tx.insert(merchants).values(newMerchantInserts)
@@ -74,6 +85,9 @@ export async function importTransactions(payload: {
       await tx.insert(transactions).values(
         rows.map((row) => {
           const res = resolved.get(row.merchantCsvName)
+          const method =
+            (res?.recurringId ? recurringMethodById.get(res.recurringId) : undefined) ??
+            defaultPaymentMethodForKind('expense')
           return {
             id: nanoid(),
             date: row.date,
@@ -82,6 +96,7 @@ export async function importTransactions(payload: {
             merchantId: res?.merchantId ?? null,
             categoryId: res?.categoryId ?? null,
             recurringId: res?.recurringId ?? null,
+            method,
             cleared: 1,
           }
         }),

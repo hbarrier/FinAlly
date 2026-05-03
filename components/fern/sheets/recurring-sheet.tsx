@@ -13,6 +13,7 @@ import { SheetShell } from '../sheet-shell'
 import { fmt, type Category, type Recurring, type RecurringAmount } from '@/lib/derive'
 import { addRecurringAmount, deleteRecurringAmount } from '@/lib/actions/recurring'
 import type { Merchant } from '@/lib/db-types'
+import { PAYMENT_METHODS, paymentMethodLabel, defaultPaymentMethodForKind, type PaymentMethod } from '@/lib/payment-method'
 
 const parseDecimal = (v: string) => Number(v.replace(',', '.'))
 
@@ -31,6 +32,7 @@ const MONTHS = [
 
 const recurringSchema = z.object({
   kind: z.enum(['expense', 'income']),
+  method: z.enum(PAYMENT_METHODS),
   amount: z.string()
     .min(1, 'Amount is required')
     .refine((v) => !isNaN(parseDecimal(v)) && parseDecimal(v) > 0, 'Enter a valid positive amount'),
@@ -38,7 +40,7 @@ const recurringSchema = z.object({
   categoryId: z.string().min(1, 'Pick a category'),
   merchantId: z.string().nullable(),
   cadence: z.enum(['weekly', 'monthly', 'yearly']),
-  dayOfMonth: z.number().min(1).max(31).nullable(),
+  dayOfMonth: z.number().min(-2).max(31).nullable(),
   monthOfYear: z.number().min(1).max(12).nullable(),
   dayOfWeek: z.number().min(0).max(6).nullable(),
   startDate: z.string().min(1, 'Start date is required'),
@@ -59,8 +61,10 @@ function getDefaultValues(item?: Recurring | null): RecurringFormValues {
   const startDate = item?.startDate ?? new Date().toISOString().slice(0, 10)
   const d = new Date(startDate)
   const cadence = item?.cadence ?? 'monthly'
+  const kind = item?.kind ?? 'expense'
   return {
-    kind: item?.kind ?? 'expense',
+    kind,
+    method: item?.method ?? defaultPaymentMethodForKind(kind),
     amount: item?.amount ? String(item.amount) : '',
     name: item?.name ?? '',
     categoryId: item?.categoryId ?? '',
@@ -86,6 +90,7 @@ interface RecurringSheetProps {
     name: string
     amount: number
     kind: 'expense' | 'income'
+    method: PaymentMethod
     categoryId: string | null
     merchantId: string | null
     cadence: 'weekly' | 'monthly' | 'yearly'
@@ -123,6 +128,7 @@ export function RecurringSheet({ open, onClose, categories, merchants, item, amo
     !!(errors[field] && (dirtyFields[field] || isSubmitted))
 
   const watchedKind = watch('kind')
+  const watchedMethod = watch('method')
   const watchedCadence = watch('cadence')
 
   const categoryOptions = useMemo(
@@ -152,6 +158,7 @@ export function RecurringSheet({ open, onClose, categories, merchants, item, amo
       name: data.name.trim(),
       amount: parseDecimal(data.amount),
       kind: data.kind,
+      method: data.method,
       categoryId: data.categoryId,
       merchantId: data.merchantId,
       cadence: data.cadence,
@@ -187,6 +194,10 @@ export function RecurringSheet({ open, onClose, categories, merchants, item, amo
               className={field.value === 'expense' ? 'active expense' : ''}
               onClick={() => {
                 field.onChange('expense')
+                const currentMethod = watch('method')
+                if (currentMethod === defaultPaymentMethodForKind('income')) {
+                  setValue('method', defaultPaymentMethodForKind('expense'))
+                }
                 const current = watch('categoryId')
                 const stillValid = categories.find((c) => c.kind === 'expense' && c.id === current)
                 if (!stillValid) setValue('categoryId', '')
@@ -199,6 +210,10 @@ export function RecurringSheet({ open, onClose, categories, merchants, item, amo
               className={field.value === 'income' ? 'active income' : ''}
               onClick={() => {
                 field.onChange('income')
+                const currentMethod = watch('method')
+                if (currentMethod === defaultPaymentMethodForKind('expense')) {
+                  setValue('method', defaultPaymentMethodForKind('income'))
+                }
                 const current = watch('categoryId')
                 const stillValid = categories.find((c) => c.kind === 'income' && c.id === current)
                 if (!stillValid) setValue('categoryId', '')
@@ -209,6 +224,32 @@ export function RecurringSheet({ open, onClose, categories, merchants, item, amo
           </div>
         )}
       />
+
+      <Field>
+        <label className="fern-field-label">How</label>
+        <Controller
+          control={control}
+          name="method"
+          render={({ field }) => (
+            <select
+              className="fern-input"
+              value={field.value}
+              onChange={(e) => field.onChange(e.target.value)}
+            >
+              {PAYMENT_METHODS.map((m) => (
+                <option key={m} value={m}>
+                  {paymentMethodLabel(m)}
+                </option>
+              ))}
+            </select>
+          )}
+        />
+        {watchedKind === 'expense' && watchedMethod === 'cash' && (
+          <div style={{ marginTop: 6, fontSize: 11, color: 'var(--ink-faint)' }}>
+            Cash expenses are automatically marked as cleared.
+          </div>
+        )}
+      </Field>
 
       <Field data-invalid={showErr('amount')}>
         <div style={{ position: 'relative' }}>
@@ -282,7 +323,23 @@ export function RecurringSheet({ open, onClose, categories, merchants, item, amo
       {watchedCadence === 'monthly' && (
         <div>
           <label className="fern-field-label">Day of month</label>
-          <input className="fern-input" type="number" min="1" max="28" {...register('dayOfMonth', { valueAsNumber: true })} />
+          <Controller
+            control={control}
+            name="dayOfMonth"
+            render={({ field }) => (
+              <select
+                className="fern-input"
+                value={field.value ?? 1}
+                onChange={(e) => field.onChange(Number(e.target.value))}
+              >
+                {Array.from({ length: 28 }, (_, i) => (
+                  <option key={i + 1} value={i + 1}>{i + 1}</option>
+                ))}
+                <option value={-2}>Day before last</option>
+                <option value={-1}>Last day</option>
+              </select>
+            )}
+          />
         </div>
       )}
 

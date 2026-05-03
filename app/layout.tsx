@@ -22,7 +22,7 @@ const jetbrainsMono = JetBrains_Mono({
 })
 
 export const metadata: Metadata = {
-  title: "Fern — personal finances",
+  title: "FinAlly — personal finances",
   description: "Your quiet place to look after your money.",
 }
 

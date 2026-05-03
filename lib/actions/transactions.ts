@@ -3,8 +3,15 @@
 import { db } from '../db'
 import { categories, reimbursementAllocations, transactions } from '../schema'
 import { nanoid } from '../utils'
-import { eq, inArray, or } from 'drizzle-orm'
+import { and, eq, inArray, or } from 'drizzle-orm'
 import { revalidateApp } from './_shared'
+import { defaultPaymentMethodForKind, type PaymentMethod } from '../payment-method'
+import {
+  loadRecurringAmountEntriesTx,
+  pickEffectiveRecurringAmountEntry,
+  syncRecurringEffectiveAmountTx,
+  upsertRecurringAmountEntryTx,
+} from '../recurring-amounts'
 
 export async function addTransaction(data: {
   date: string
@@ -14,10 +21,25 @@ export async function addTransaction(data: {
   merchantId?: string | null
   note?: string | null
   recurringId?: string | null
+  recurringAmountId?: string | null
   reimbursable?: number
   cleared?: number
+  method?: PaymentMethod
 }) {
-  await db.insert(transactions).values({ id: nanoid(), ...data })
+  const method = data.method ?? defaultPaymentMethodForKind(data.kind)
+  const cleared =
+    typeof data.cleared === 'number'
+      ? data.cleared
+      : data.kind === 'expense' && method === 'cash'
+        ? 1
+        : undefined
+
+  await db.insert(transactions).values({
+    id: nanoid(),
+    ...data,
+    method,
+    ...(cleared === undefined ? {} : { cleared }),
+  })
   revalidateApp()
 }
 
@@ -31,13 +53,18 @@ export async function updateTransaction(
     merchantId?: string | null
     note?: string | null
     reimbursable?: number
+    method?: PaymentMethod
   },
 ) {
   await db.transaction(async (tx) => {
     const [existing] = await tx
       .select({
         id: transactions.id,
+        date: transactions.date,
+        amount: transactions.amount,
         kind: transactions.kind,
+        method: transactions.method,
+        recurringId: transactions.recurringId,
         categoryId: transactions.categoryId,
         categoryName: categories.name,
         categoryKind: categories.kind,
@@ -53,6 +80,20 @@ export async function updateTransaction(
     const nextKind = data.kind ?? existing.kind
     const nextCategoryId = data.categoryId === undefined ? existing.categoryId : data.categoryId
     const nextReimbursable = data.reimbursable === undefined ? existing.reimbursable : data.reimbursable
+
+    let nextMethod: PaymentMethod | undefined
+    if (existing.recurringId) {
+      const r = await tx.query.recurring.findFirst({
+        where: (rr, { eq }) => eq(rr.id, existing.recurringId!),
+        columns: { method: true },
+      })
+      nextMethod = (r?.method as PaymentMethod | undefined) ?? defaultPaymentMethodForKind(nextKind)
+    } else if (data.method) {
+      nextMethod = data.method
+    } else if (data.kind && data.kind !== existing.kind) {
+      const wasImplicitDefault = existing.method === defaultPaymentMethodForKind(existing.kind)
+      nextMethod = wasImplicitDefault ? defaultPaymentMethodForKind(nextKind) : existing.method
+    }
 
     const nextCategory = nextCategoryId
       ? await tx
@@ -80,7 +121,11 @@ export async function updateTransaction(
         .where(eq(reimbursementAllocations.reimbursementTxId, id))
     }
 
-    const updateData: typeof data & { manualSettlementAt?: string | null } = { ...data }
+    const updateData: typeof data & { manualSettlementAt?: string | null; cleared?: number; method?: PaymentMethod } = { ...data }
+    if (nextMethod) updateData.method = nextMethod
+    if (nextKind === 'expense' && nextMethod === 'cash') {
+      updateData.cleared = 1
+    }
     if (wasReimbursableExpense && !willBeReimbursableExpense) {
       await tx
         .delete(reimbursementAllocations)
@@ -90,6 +135,137 @@ export async function updateTransaction(
 
     await tx.update(transactions).set(updateData).where(eq(transactions.id, id))
   })
+  revalidateApp()
+}
+
+export async function updateTransactionWithRecurringAmountOption(
+  id: string,
+  data: {
+    date?: string
+    amount?: number
+    kind?: 'expense' | 'income'
+    categoryId?: string | null
+    merchantId?: string | null
+    note?: string | null
+    reimbursable?: number
+    method?: PaymentMethod
+  },
+  opts: {
+    propagateRecurringAmount?: boolean
+  },
+) {
+  await db.transaction(async (tx) => {
+    const [existing] = await tx
+      .select({
+        id: transactions.id,
+        date: transactions.date,
+        amount: transactions.amount,
+        kind: transactions.kind,
+        method: transactions.method,
+        recurringId: transactions.recurringId,
+        categoryId: transactions.categoryId,
+        categoryName: categories.name,
+        categoryKind: categories.kind,
+        reimbursable: transactions.reimbursable,
+      })
+      .from(transactions)
+      .leftJoin(categories, eq(transactions.categoryId, categories.id))
+      .where(eq(transactions.id, id))
+      .limit(1)
+
+    if (!existing) return
+
+    const nextDate = data.date ?? existing.date
+    const nextAmount = data.amount ?? existing.amount
+
+    const nextKind = data.kind ?? existing.kind
+    const nextCategoryId = data.categoryId === undefined ? existing.categoryId : data.categoryId
+    const nextReimbursable = data.reimbursable === undefined ? existing.reimbursable : data.reimbursable
+
+    let nextMethod: PaymentMethod | undefined
+    if (existing.recurringId) {
+      const r = await tx.query.recurring.findFirst({
+        where: (rr, { eq }) => eq(rr.id, existing.recurringId!),
+        columns: { method: true },
+      })
+      nextMethod = (r?.method as PaymentMethod | undefined) ?? defaultPaymentMethodForKind(nextKind)
+    } else if (data.method) {
+      nextMethod = data.method
+    } else if (data.kind && data.kind !== existing.kind) {
+      const wasImplicitDefault = existing.method === defaultPaymentMethodForKind(existing.kind)
+      nextMethod = wasImplicitDefault ? defaultPaymentMethodForKind(nextKind) : existing.method
+    }
+
+    const nextCategory = nextCategoryId
+      ? await tx
+          .select({ name: categories.name, kind: categories.kind })
+          .from(categories)
+          .where(eq(categories.id, nextCategoryId))
+          .limit(1)
+      : []
+
+    const wasReimbursementIncome =
+      existing.kind === 'income' &&
+      existing.categoryKind === 'income' &&
+      existing.categoryName === 'Remboursements'
+    const willBeReimbursementIncome =
+      nextKind === 'income' &&
+      nextCategory[0]?.kind === 'income' &&
+      nextCategory[0]?.name === 'Remboursements'
+
+    const wasReimbursableExpense = existing.kind === 'expense' && existing.reimbursable === 1
+    const willBeReimbursableExpense = nextKind === 'expense' && nextReimbursable === 1
+
+    if (wasReimbursementIncome && !willBeReimbursementIncome) {
+      await tx
+        .delete(reimbursementAllocations)
+        .where(eq(reimbursementAllocations.reimbursementTxId, id))
+    }
+
+    const updateData: typeof data & {
+      manualSettlementAt?: string | null
+      cleared?: number
+      method?: PaymentMethod
+      recurringAmountId?: string | null
+    } = { ...data }
+    if (nextMethod) updateData.method = nextMethod
+    if (nextKind === 'expense' && nextMethod === 'cash') {
+      updateData.cleared = 1
+    }
+    if (wasReimbursableExpense && !willBeReimbursableExpense) {
+      await tx
+        .delete(reimbursementAllocations)
+        .where(eq(reimbursementAllocations.expenseTxId, id))
+      updateData.manualSettlementAt = null
+    }
+
+    if (existing.recurringId) {
+      const recurringId = existing.recurringId
+      const shouldPropagate =
+        !!opts.propagateRecurringAmount &&
+        typeof data.amount === 'number' &&
+        Math.abs(Number(data.amount) - Number(existing.amount)) > 0.005
+
+      if (shouldPropagate) {
+        const entryId = await upsertRecurringAmountEntryTx(tx, {
+          recurringId,
+          startDate: nextDate,
+          amount: nextAmount,
+          idFactory: nanoid,
+        })
+        await syncRecurringEffectiveAmountTx(tx, recurringId)
+        updateData.recurringAmountId = entryId
+      } else {
+        const allEntries = await loadRecurringAmountEntriesTx(tx, recurringId)
+        updateData.recurringAmountId = pickEffectiveRecurringAmountEntry(allEntries, nextDate)?.id ?? null
+      }
+    } else {
+      updateData.recurringAmountId = null
+    }
+
+    await tx.update(transactions).set(updateData).where(eq(transactions.id, id))
+  })
+
   revalidateApp()
 }
 
@@ -112,7 +288,27 @@ export async function clearTransaction(id: string, cleared: boolean) {
 }
 
 export async function linkTransactionToRecurring(id: string, recurringId: string) {
-  await db.update(transactions).set({ recurringId }).where(eq(transactions.id, id))
+  await db.transaction(async (tx) => {
+    const r = await tx.query.recurring.findFirst({
+      where: (rr, { eq }) => eq(rr.id, recurringId),
+      columns: { method: true },
+    })
+    const method = (r?.method as PaymentMethod | undefined) ?? 'card'
+
+    const t = await tx.query.transactions.findFirst({
+      where: (tt, { eq }) => eq(tt.id, id),
+      columns: { kind: true },
+    })
+
+    await tx
+      .update(transactions)
+      .set({
+        recurringId,
+        method,
+        ...(t?.kind === 'expense' && method === 'cash' ? { cleared: 1 } : {}),
+      })
+      .where(eq(transactions.id, id))
+  })
   revalidateApp()
 }
 
@@ -126,6 +322,20 @@ export async function bulkLinkTransactionsToRecurring(
   recurringId: string,
 ): Promise<void> {
   if (ids.length === 0) return
-  await db.update(transactions).set({ recurringId }).where(inArray(transactions.id, ids))
+  await db.transaction(async (tx) => {
+    const r = await tx.query.recurring.findFirst({
+      where: (rr, { eq }) => eq(rr.id, recurringId),
+      columns: { method: true },
+    })
+    const method = (r?.method as PaymentMethod | undefined) ?? 'card'
+
+    await tx.update(transactions).set({ recurringId, method }).where(inArray(transactions.id, ids))
+    if (method === 'cash') {
+      await tx
+        .update(transactions)
+        .set({ cleared: 1 })
+        .where(and(inArray(transactions.id, ids), eq(transactions.kind, 'expense')))
+    }
+  })
   revalidateApp()
 }

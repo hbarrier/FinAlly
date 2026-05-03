@@ -38,6 +38,9 @@ export const recurring = sqliteTable('recurring', {
   name: text('name').notNull(),
   amount: real('amount').notNull(),
   kind: text('kind', { enum: ['expense', 'income'] }).notNull(),
+  method: text('method', { enum: ['card', 'transfer', 'cash', 'check', 'debit', 'paypal'] })
+    .notNull()
+    .default('card'),
   categoryId: text('category_id').references(() => categories.id, {
     onDelete: 'set null',
   }),
@@ -86,6 +89,9 @@ export const transactions = sqliteTable(
     date: text('date').notNull(),
     amount: real('amount').notNull(),
     kind: text('kind', { enum: ['expense', 'income'] }).notNull(),
+    method: text('method', { enum: ['card', 'transfer', 'cash', 'check', 'debit', 'paypal'] })
+      .notNull()
+      .default('card'),
     categoryId: text('category_id').references(() => categories.id, {
       onDelete: 'set null',
     }),
@@ -94,6 +100,9 @@ export const transactions = sqliteTable(
     }),
     note: text('note'),
     recurringId: text('recurring_id').references(() => recurring.id, {
+      onDelete: 'set null',
+    }),
+    recurringAmountId: text('recurring_amount_id').references(() => recurringAmounts.id, {
       onDelete: 'set null',
     }),
     reimbursable: int('reimbursable').notNull().default(0),
@@ -109,10 +118,18 @@ export const transactions = sqliteTable(
     index('transactions_category_id_idx').on(t.categoryId),
     index('transactions_merchant_id_idx').on(t.merchantId),
     index('transactions_recurring_id_idx').on(t.recurringId),
+    index('transactions_recurring_amount_id_idx').on(t.recurringAmountId),
     index('transactions_date_idx').on(t.date),
     index('transactions_kind_date_idx').on(t.kind, t.date),
   ],
 )
+
+// --- transactions FTS (full-text search on note) ---
+// Backed by SQLite FTS5 virtual table (created in a SQL migration).
+export const transactionsFts = sqliteTable('transactions_fts', {
+  transactionId: text('transaction_id').notNull(),
+  note: text('note').notNull(),
+})
 
 // --- budgets ---
 export const budgets = sqliteTable(
