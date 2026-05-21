@@ -54,6 +54,7 @@ export const recurring = sqliteTable('recurring', {
   dayOfWeek: int('day_of_week'),
   startDate: text('start_date').notNull(),
   endDate: text('end_date'),
+  monthRules: text('month_rules'),
 })
 
 // --- recurring amounts (time-versioned history) ---
@@ -70,13 +71,43 @@ export const recurringAmounts = sqliteTable(
   (t) => [index('recurring_amounts_recurring_id_idx').on(t.recurringId)],
 )
 
+// --- recurring instances (one per recurring × month) ---
+export const recurringInstances = sqliteTable(
+  'recurring_instances',
+  {
+    id: text('id').primaryKey(),
+    recurringId: text('recurring_id')
+      .notNull()
+      .references(() => recurring.id, { onDelete: 'cascade' }),
+    month: text('month').notNull(), // YYYY-MM
+    status: text('status', { enum: ['expected', 'linked', 'not_applicable'] })
+      .notNull()
+      .default('expected'),
+    transactionId: text('transaction_id').references(() => transactions.id, {
+      onDelete: 'set null',
+    }),
+  },
+  (t) => [
+    unique('recurring_instances_recurring_month_unique').on(t.recurringId, t.month),
+    index('recurring_instances_recurring_id_idx').on(t.recurringId),
+  ],
+)
+
 export const recurringRelations = relations(recurring, ({ many }) => ({
   amounts: many(recurringAmounts),
+  instances: many(recurringInstances),
 }))
 
 export const recurringAmountsRelations = relations(recurringAmounts, ({ one }) => ({
   recurring: one(recurring, {
     fields: [recurringAmounts.recurringId],
+    references: [recurring.id],
+  }),
+}))
+
+export const recurringInstancesRelations = relations(recurringInstances, ({ one }) => ({
+  recurring: one(recurring, {
+    fields: [recurringInstances.recurringId],
     references: [recurring.id],
   }),
 }))
@@ -107,6 +138,8 @@ export const transactions = sqliteTable(
     }),
     reimbursable: int('reimbursable').notNull().default(0),
     reimbursementTxId: text('reimbursement_tx_id'),
+    reimbursementAmountOverride: real('reimbursement_amount_override'),
+    reimbursementComment: text('reimbursement_comment'),
     cleared: int('cleared').notNull().default(0),
     claimedDate: text('claimed_date'),
     manualSettlementAt: text('manual_settlement_at'),
@@ -191,6 +224,51 @@ export const reimbursementRates = sqliteTable(
     startDate: text('start_date').notNull(), // ISO date, rate applies from this date onward
   },
   (t) => [index('reimbursement_rates_start_date_idx').on(t.startDate)],
+)
+
+// --- tax allocations (daughter assignment per qualifying income transaction) ---
+export const taxAllocations = sqliteTable('tax_allocations', {
+  transactionId: text('transaction_id')
+    .primaryKey()
+    .references(() => transactions.id, { onDelete: 'cascade' }),
+  allocation: text('allocation', { enum: ['audrey', 'lucie', 'split'] }).notNull(),
+  updatedAt: text('updated_at')
+    .notNull()
+    .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
+})
+
+// --- reimbursement claims (one per month, tracks claim date + settlement) ---
+export const reimbursementClaims = sqliteTable(
+  'reimbursement_claims',
+  {
+    id: text('id').primaryKey(),
+    month: text('month').notNull().unique(), // YYYY-MM
+    claimDate: text('claim_date').notNull(),
+    settledAt: text('settled_at'),
+    createdAt: text('created_at')
+      .notNull()
+      .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
+  },
+  (t) => [index('reimbursement_claims_month_idx').on(t.month)],
+)
+
+// --- reimbursement claim allocations (income txns linked to a month claim) ---
+export const reimbursementClaimAllocations = sqliteTable(
+  'reimbursement_claim_allocations',
+  {
+    id: text('id').primaryKey(),
+    claimId: text('claim_id')
+      .notNull()
+      .references(() => reimbursementClaims.id, { onDelete: 'cascade' }),
+    reimbursementTxId: text('reimbursement_tx_id')
+      .notNull()
+      .references(() => transactions.id, { onDelete: 'cascade' }),
+  },
+  (t) => [
+    unique('rca_claim_tx_unique').on(t.claimId, t.reimbursementTxId),
+    index('rca_claim_id_idx').on(t.claimId),
+    index('rca_tx_id_idx').on(t.reimbursementTxId),
+  ],
 )
 
 // --- reimbursement allocations (income-driven mapping) ---

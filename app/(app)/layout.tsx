@@ -2,6 +2,7 @@ import { Suspense } from 'react'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { SidebarNav } from './sidebar-nav'
 import { getUserSettings } from '@/lib/queries/user-settings'
+import { RecurringInstancesBootstrap } from '@/components/fern/recurring-instances-bootstrap'
 import styles from './layout.module.css'
 
 export default async function AppLayout({
@@ -51,6 +52,7 @@ export default async function AppLayout({
 
       {/* Main content */}
       <main className={styles.main}>
+        <RecurringInstancesBootstrap />
         {children}
       </main>
     </div>

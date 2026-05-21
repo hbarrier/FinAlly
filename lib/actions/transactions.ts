@@ -6,6 +6,7 @@ import { nanoid } from '../utils'
 import { and, eq, inArray, or } from 'drizzle-orm'
 import { revalidateApp } from './_shared'
 import { defaultPaymentMethodForKind, type PaymentMethod } from '../payment-method'
+import { upsertLinkedInstance, revertInstanceToExpected } from '../recurring-instances'
 import {
   loadRecurringAmountEntriesTx,
   pickEffectiveRecurringAmountEntry,
@@ -34,11 +35,18 @@ export async function addTransaction(data: {
         ? 1
         : undefined
 
-  await db.insert(transactions).values({
-    id: nanoid(),
-    ...data,
-    method,
-    ...(cleared === undefined ? {} : { cleared }),
+  const txId = nanoid()
+  await db.transaction(async (tx) => {
+    await tx.insert(transactions).values({
+      id: txId,
+      ...data,
+      method,
+      ...(cleared === undefined ? {} : { cleared }),
+    })
+    if (data.recurringId) {
+      const month = data.date.slice(0, 7)
+      await upsertLinkedInstance(tx, data.recurringId, month, txId)
+    }
   })
   revalidateApp()
 }
@@ -271,6 +279,7 @@ export async function updateTransactionWithRecurringAmountOption(
 
 export async function deleteTransaction(id: string) {
   await db.transaction(async (tx) => {
+    await revertInstanceToExpected(tx, id)
     await tx
       .delete(reimbursementAllocations)
       .where(or(
@@ -297,7 +306,7 @@ export async function linkTransactionToRecurring(id: string, recurringId: string
 
     const t = await tx.query.transactions.findFirst({
       where: (tt, { eq }) => eq(tt.id, id),
-      columns: { kind: true },
+      columns: { kind: true, date: true },
     })
 
     await tx
@@ -308,12 +317,19 @@ export async function linkTransactionToRecurring(id: string, recurringId: string
         ...(t?.kind === 'expense' && method === 'cash' ? { cleared: 1 } : {}),
       })
       .where(eq(transactions.id, id))
+
+    if (t?.date) {
+      await upsertLinkedInstance(tx, recurringId, t.date.slice(0, 7), id)
+    }
   })
   revalidateApp()
 }
 
 export async function detachTransactionFromRecurring(id: string) {
-  await db.update(transactions).set({ recurringId: null }).where(eq(transactions.id, id))
+  await db.transaction(async (tx) => {
+    await revertInstanceToExpected(tx, id)
+    await tx.update(transactions).set({ recurringId: null }).where(eq(transactions.id, id))
+  })
   revalidateApp()
 }
 
@@ -329,12 +345,21 @@ export async function bulkLinkTransactionsToRecurring(
     })
     const method = (r?.method as PaymentMethod | undefined) ?? 'card'
 
+    const txns = await tx
+      .select({ id: transactions.id, date: transactions.date })
+      .from(transactions)
+      .where(inArray(transactions.id, ids))
+
     await tx.update(transactions).set({ recurringId, method }).where(inArray(transactions.id, ids))
     if (method === 'cash') {
       await tx
         .update(transactions)
         .set({ cleared: 1 })
         .where(and(inArray(transactions.id, ids), eq(transactions.kind, 'expense')))
+    }
+
+    for (const t of txns) {
+      await upsertLinkedInstance(tx, recurringId, t.date.slice(0, 7), t.id)
     }
   })
   revalidateApp()

@@ -8,13 +8,11 @@ import { CatSwatch } from '@/components/fern/cat-swatch'
 import { Chip } from '@/components/fern/chip'
 import { SegmentedControl } from '@/components/fern/segmented-control'
 import { TransactionSheet } from '@/components/fern/sheets/transaction-sheet'
-import { fmt, allOccurrencesInRange, formatDate, type Category, type Transaction, type RecurringWithAmounts } from '@/lib/derive'
-import { pickEffectiveRecurringAmountEntry, type RecurringAmountEntry } from '@/lib/recurring-amounts'
+import { fmt, resolvedDayOfMonth, formatDate, type Category, type Transaction, type RecurringWithAmounts } from '@/lib/derive'
 import { PageHeader } from '@/components/fern/page-header'
 import { FernButton } from '@/components/fern/button'
 import { EmptyState } from '@/components/fern/empty-state'
 import { Fab } from '@/components/fern/fab'
-import { SearchableSelect, type SelectOption } from '@/components/fern/searchable-select'
 import { PAYMENT_METHODS, paymentMethodLabel, type PaymentMethod } from '@/lib/payment-method'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
@@ -29,49 +27,53 @@ import {
   clearTransaction,
   detachTransactionFromRecurring,
 } from '@/lib/actions/transactions'
+import { markInstanceNotApplicable, unmarkInstanceNotApplicable } from '@/lib/actions/recurring-instances'
 import {
   mapReimbursementIncomeToExpenses,
   setExpenseManualSettlement,
 } from '@/lib/actions/reimbursements'
 import { RecurringLinkSheet } from '@/components/fern/sheets/recurring-link-sheet'
 import { BulkRecurringLinkSheet } from '@/components/fern/sheets/bulk-recurring-link-sheet'
-import type { Merchant } from '@/lib/db-types'
+import type { Merchant, RecurringInstance } from '@/lib/db-types'
 
 const ImportWizard = dynamic(
   () => import('./import-wizard').then((m) => m.ImportWizard),
   { ssr: false },
 )
 
-type VirtualEntry = {
-  _virtual: true
+type InstanceEntry = {
+  _instance: true
+  instanceId: string
   id: string
   date: string
+  month: string
   amount: number
-  recurringAmountId: string | null
   kind: 'expense' | 'income'
   method: PaymentMethod
   categoryId: string | null
   merchantId: string | null
   recurringId: string
   name: string
+  isNa?: true
 }
 
-type Movement = Transaction | VirtualEntry
+type Movement = Transaction | InstanceEntry
 
-type ReimbursementFilter =
-  | 'all'
-  | 'unresolved'
-  | 'resolved'
-  | 'expense:not_reimbursed'
-  | 'expense:partially_reimbursed'
-  | 'expense:reimbursed'
-  | 'expense:manually_settled'
-  | 'income:unmapped'
-  | 'income:partially_allocated'
-  | 'income:fully_allocated'
+const REIMB_OPTIONS = [
+  { group: 'Summary', value: 'unresolved', label: 'Open work' },
+  { group: 'Summary', value: 'resolved', label: 'Fully resolved' },
+  { group: 'Expenses', value: 'expense:not_reimbursed', label: 'Not reimbursed' },
+  { group: 'Expenses', value: 'expense:partially_reimbursed', label: 'Partially reimbursed' },
+  { group: 'Expenses', value: 'expense:reimbursed', label: 'Reimbursed' },
+  { group: 'Expenses', value: 'expense:manually_settled', label: 'Manually settled' },
+  { group: 'Income', value: 'income:unmapped', label: 'Unmapped income' },
+  { group: 'Income', value: 'income:claim_linked', label: 'Claim linked' },
+  { group: 'Income', value: 'income:partially_allocated', label: 'Partially allocated' },
+  { group: 'Income', value: 'income:fully_allocated', label: 'Fully allocated' },
+] as const
 
-function isVirtual(m: Movement): m is VirtualEntry {
-  return '_virtual' in m
+function isInstance(m: Movement): m is InstanceEntry {
+  return '_instance' in m
 }
 
 function paymentMethodIcon(method: PaymentMethod): string {
@@ -106,6 +108,7 @@ interface TransactionsClientProps {
   categories: Category[]
   merchants: Merchant[]
   recurring: RecurringWithAmounts[]
+  instances: RecurringInstance[]
   eligibleReimbursementExpenses: ReimbursementMappingExpense[]
   reimbursementSummaries: Record<string, { status: string; label: string }>
   reimbursementMappingCounts: Record<string, number>
@@ -115,20 +118,13 @@ interface TransactionsClientProps {
   initialMonths?: number
 }
 
-function toRecurringAmountEntries(recurringId: string, raw: RecurringWithAmounts['amounts']): RecurringAmountEntry[] {
-  return raw.map((a) => ({
-    id: a.id,
-    recurringId,
-    amount: a.amount,
-    startDate: a.startDate,
-  }))
-}
 
 export function TransactionsClient({
   transactions: txns,
   categories,
   merchants,
   recurring,
+  instances,
   eligibleReimbursementExpenses,
   reimbursementSummaries,
   reimbursementMappingCounts,
@@ -140,12 +136,17 @@ export function TransactionsClient({
   const router = useRouter()
   const [q, setQ] = useState('')
   const [kindFilter, setKindFilter] = useState('all')
-  const [catFilter, setCatFilter] = useState('all')
-  const merchantFilter = initialMerchantId
+  const [catFilter, setCatFilter] = useState<Set<string>>(new Set())
+  const [catFilterOpen, setCatFilterOpen] = useState(false)
+  const [merchantFilter, setMerchantFilter] = useState<Set<string>>(
+    initialMerchantId && initialMerchantId !== 'all' ? new Set([initialMerchantId]) : new Set()
+  )
+  const [merchantFilterOpen, setMerchantFilterOpen] = useState(false)
   const [clearedFilter, setClearedFilter] = useState<'all' | 'cleared' | 'uncleared'>('all')
   const [methodFilter, setMethodFilter] = useState<Set<PaymentMethod>>(new Set())
   const [methodFilterOpen, setMethodFilterOpen] = useState(false)
-  const [reimbursementFilter, setReimbursementFilter] = useState<ReimbursementFilter>('all')
+  const [reimbursementFilter, setReimbursementFilter] = useState<Set<string>>(new Set())
+  const [reimbFilterOpen, setReimbFilterOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
   const [sheetOpen, setSheetOpen] = useState(false)
   const [editingTxn, setEditingTxn] = useState<Transaction | null>(null)
@@ -162,6 +163,9 @@ export function TransactionsClient({
   const [pendingScrollMonth, setPendingScrollMonth] = useState<string | null>(null)
   const [showScrollTop, setShowScrollTop] = useState(false)
   const topSentinelRef = useRef<HTMLDivElement | null>(null)
+  const bottomSentinelRef = useRef<HTMLDivElement | null>(null)
+  const loadingMoreRef = useRef(false)
+  const [showNa, setShowNa] = useState(false)
   const [selectionMode, setSelectionMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [bulkSheetOpen, setBulkSheetOpen] = useState(false)
@@ -176,71 +180,45 @@ export function TransactionsClient({
     }))
   }
 
-  // Generate virtual entries for recurring occurrences not yet logged as transactions
-  const virtualEntries = useMemo(() => {
-    if (!recurring.length) return []
-    const yearStart = new Date(`${selectedYear}-01-01T00:00:00`)
-    const now = new Date()
-    const yearEnd = new Date(`${selectedYear}-12-31T23:59:59`)
-    // For the current year, extend to end of current month so all this month's
-    // recurring items are visible from the 1st (not just those due today or earlier).
-    // For past years, show everything through year-end.
-    const rangeEnd =
-      selectedYear === now.getFullYear()
-        ? new Date(Math.min(
-            yearEnd.getTime(),
-            new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999).getTime(),
-          ))
-        : new Date(Math.min(yearEnd.getTime(), now.getTime()))
-
-    // Format a Date as YYYY-MM-DD in local time (not UTC) to avoid off-by-one
-    // when local midnight is behind UTC (e.g. France UTC+1/+2).
-    function localDateStr(d: Date): string {
-      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-    }
-
-    // Dedup by period rather than exact date: a transaction logged any day within
-    // the expected cadence period counts as covering that occurrence.
-    function periodKey(isoDate: string, cadence: string): string {
-      if (cadence === 'yearly') return isoDate.slice(0, 4)
-      if (cadence === 'monthly') return isoDate.slice(0, 7)
-      // weekly / biweekly: use the ISO Monday of that week as period key
-      const d = new Date(isoDate + 'T12:00:00')
-      const monday = new Date(d)
-      monday.setDate(d.getDate() - ((d.getDay() + 6) % 7))
-      return monday.toISOString().slice(0, 10)
-    }
-
+  // Derive ghost entries from 'expected' (and optionally 'not_applicable') instances
+  const instanceEntries = useMemo((): InstanceEntry[] => {
     const recurringById = new Map(recurring.map((r) => [r.id, r]))
-    const loggedPeriods = new Set<string>()
-    txns
-      .filter((t) => t.recurringId)
-      .forEach((t) => {
-        const r = recurringById.get(t.recurringId!)
-        if (r) loggedPeriods.add(`${t.recurringId}:${periodKey(t.date, r.cadence)}`)
-      })
-
-    return allOccurrencesInRange(recurring, yearStart, rangeEnd)
-      .filter((o) => !loggedPeriods.has(`${o.id}:${periodKey(localDateStr(o.date), o.cadence)}`))
-      .map((o) => {
-        const iso = localDateStr(o.date)
-        const entry = pickEffectiveRecurringAmountEntry(toRecurringAmountEntries(o.id, o.amounts ?? []), iso)
-        const amt = entry?.amount ?? o.amount
-        return {
-          _virtual: true as const,
-          id: `virtual:${o.id}:${iso}`,
-          date: iso,
-          amount: amt,
-          recurringAmountId: entry?.id ?? null,
-          kind: o.kind,
-          method: o.method,
-          categoryId: o.categoryId,
-          merchantId: o.merchantId ?? null,
-          recurringId: o.id,
-          name: o.name,
+    return instances
+      .filter((inst) => inst.status === 'expected' || (showNa && inst.status === 'not_applicable'))
+      .flatMap((inst): InstanceEntry[] => {
+        const r = recurringById.get(inst.recurringId)
+        if (!r) return []
+        // Compute expected display date for the month
+        let date: string
+        if (r.cadence === 'monthly') {
+          const dom = resolvedDayOfMonth(r.dayOfMonth ?? 1, new Date(inst.month + '-15'))
+          date = `${inst.month}-${String(dom).padStart(2, '0')}`
+        } else if (r.cadence === 'yearly') {
+          date = `${inst.month.slice(0, 4)}-${r.startDate.slice(5)}`
+        } else {
+          // weekly: first occurrence of dayOfWeek in the month
+          const d = new Date(inst.month + '-01T12:00:00')
+          const target = r.dayOfWeek ?? 1
+          while (d.getDay() !== target) d.setDate(d.getDate() + 1)
+          date = `${inst.month}-${String(d.getDate()).padStart(2, '0')}`
         }
+        return [{
+          _instance: true,
+          instanceId: inst.id,
+          id: `instance:${inst.id}`,
+          date,
+          month: inst.month,
+          amount: r.amount,
+          kind: r.kind,
+          method: r.method as PaymentMethod,
+          categoryId: r.categoryId,
+          merchantId: r.merchantId ?? null,
+          recurringId: r.id,
+          name: r.name,
+          ...(inst.status === 'not_applicable' ? { isNa: true as const } : {}),
+        }]
       })
-  }, [recurring, txns, selectedYear])
+  }, [instances, recurring, showNa])
 
   const categoryById = useMemo(
     () => new Map(categories.map((c) => [c.id, c])),
@@ -257,21 +235,22 @@ export function TransactionsClient({
     [merchants],
   )
 
-  const categoryFilterOptions = useMemo<SelectOption[]>(
-    () => [
-      { value: 'all', label: 'All categories' },
-      ...categories.map((c) => ({ value: c.id, label: c.name })),
-    ],
-    [categories],
-  )
+  const catFilterLabel = useMemo(() => {
+    if (catFilter.size === 0) return 'All categories'
+    return categories
+      .filter((c) => catFilter.has(c.id))
+      .map((c) => c.name)
+      .sort((a, b) => a.localeCompare(b))
+      .join(', ')
+  }, [catFilter, categories])
 
-  const merchantFilterOptions = useMemo<SelectOption[]>(
-    () => [
-      { value: 'all', label: 'All merchants' },
-      ...merchantsSortedByName.map((m) => ({ value: m.id, label: m.name })),
-    ],
-    [merchantsSortedByName],
-  )
+  const merchantFilterLabel = useMemo(() => {
+    if (merchantFilter.size === 0) return 'All merchants'
+    return merchantsSortedByName
+      .filter((m) => merchantFilter.has(m.id))
+      .map((m) => m.name)
+      .join(', ')
+  }, [merchantFilter, merchantsSortedByName])
 
   const methodFilterLabel = useMemo(() => {
     if (methodFilter.size === 0) return 'All payment types'
@@ -281,18 +260,27 @@ export function TransactionsClient({
       .join(', ')
   }, [methodFilter])
 
+  const reimbFilterLabel = useMemo(() => {
+    if (reimbursementFilter.size === 0) return 'All reimbursement states'
+    return REIMB_OPTIONS
+      .filter((o) => reimbursementFilter.has(o.value))
+      .map((o) => o.label)
+      .join(', ')
+  }, [reimbursementFilter])
+
   const filtered = useMemo(() => {
-    const all: Movement[] = [...txns, ...virtualEntries]
+    const all: Movement[] = [...txns, ...instanceEntries]
     const needle = q.toLowerCase()
     return all.filter((m) => {
       if (kindFilter !== 'all' && m.kind !== kindFilter) return false
-      if (catFilter !== 'all' && m.categoryId !== catFilter) return false
-      if (merchantFilter !== 'all') {
-        if (isVirtual(m)) return false
-        if ((m as Transaction).merchantId !== merchantFilter) return false
+      if (catFilter.size > 0 && !catFilter.has(m.categoryId ?? '')) return false
+      if (merchantFilter.size > 0) {
+        if (isInstance(m)) return false
+        const mid = (m as Transaction).merchantId
+        if (!mid || !merchantFilter.has(mid)) return false
       }
       if (clearedFilter !== 'all') {
-        if (isVirtual(m)) {
+        if (isInstance(m)) {
           if (clearedFilter === 'cleared') return false
         } else {
           const isCleared = (m as Transaction).cleared === 1
@@ -301,29 +289,28 @@ export function TransactionsClient({
         }
       }
       if (methodFilter.size > 0 && !methodFilter.has(m.method)) return false
-      if (reimbursementFilter !== 'all') {
-        if (isVirtual(m)) return false
-
+      if (reimbursementFilter.size > 0) {
+        if (isInstance(m)) return false
         const summary = reimbursementSummaries[m.id]
         if (!summary) return false
-
-        if (reimbursementFilter === 'unresolved') {
-          if (!isUnresolvedReimbursementStatus(summary.status)) return false
-        } else if (reimbursementFilter === 'resolved') {
-          if (isUnresolvedReimbursementStatus(summary.status)) return false
-        } else {
-          const [scope, status] = reimbursementFilter.split(':')
+        const tx = m as Transaction
+        const matches = [...reimbursementFilter].some((f) => {
+          if (f === 'unresolved') return isUnresolvedReimbursementStatus(summary.status)
+          if (f === 'resolved') return !isUnresolvedReimbursementStatus(summary.status)
+          const [scope, status] = f.split(':')
           if (summary.status !== status) return false
-          if (scope === 'expense' && m.kind !== 'expense') return false
-          if (scope === 'income' && m.kind !== 'income') return false
-        }
+          if (scope === 'expense' && tx.kind !== 'expense') return false
+          if (scope === 'income' && tx.kind !== 'income') return false
+          return true
+        })
+        if (!matches) return false
       }
       if (q) {
         const cat = m.categoryId ? categoryById.get(m.categoryId) : undefined
-        const merchant = !isVirtual(m) && (m as Transaction).merchantId
+        const merchant = !isInstance(m) && (m as Transaction).merchantId
           ? merchantById.get((m as Transaction).merchantId!)
           : undefined
-        const hay = isVirtual(m)
+        const hay = isInstance(m)
           ? `${m.name} ${cat?.name ?? ''}`.toLowerCase()
           : `${(m as Transaction).note ?? ''} ${cat?.name ?? ''} ${merchant?.name ?? ''}`.toLowerCase()
         if (!hay.includes(needle)) return false
@@ -332,7 +319,7 @@ export function TransactionsClient({
     })
   }, [
     txns,
-    virtualEntries,
+    instanceEntries,
     kindFilter,
     catFilter,
     merchantFilter,
@@ -345,23 +332,30 @@ export function TransactionsClient({
     merchantById,
   ])
 
-  // All months in the filtered data, sorted newest-first
+  // All months in the loaded data (unfiltered), sorted newest-first
   const allMonths = useMemo(() => {
     const monthSet = new Set<string>()
-    filtered.forEach((m) => monthSet.add(m.date.slice(0, 7)))
+    txns.forEach((t) => monthSet.add(t.date.slice(0, 7)))
+    instanceEntries.forEach((t) => monthSet.add(t.date.slice(0, 7)))
     return [...monthSet].sort((a, b) => b.localeCompare(a))
-  }, [filtered])
+  }, [txns, instanceEntries])
 
   const visibleMonthSet = useMemo(
     () => new Set(allMonths.slice(0, visibleMonths)),
     [allMonths, visibleMonths],
   )
 
+  const canLoadMore = (() => {
+    const currentYear = new Date().getFullYear()
+    const maxMonths = selectedYear < currentYear ? 12 : selectedYear > currentYear ? 0 : new Date().getMonth() + 1
+    return visibleMonths < allMonths.length || (allMonths.length > 0 && visibleMonths < maxMonths)
+  })()
+
   useEffect(() => {
     // Allow deep-linking / post-navigation scroll with `scrollTo=YYYY-MM`.
     const params = new URLSearchParams(window.location.search)
     const month = params.get('scrollTo')
-    if (month && /^\d{4}-\d{2}$/.test(month)) {
+    if (month && (/^\d{4}-\d{2}$/.test(month) || /^txn-.+$/.test(month))) {
       setPendingScrollMonth(month)
     }
   }, [])
@@ -381,11 +375,40 @@ export function TransactionsClient({
   }, [])
 
   useEffect(() => {
+    const sentinel = bottomSentinelRef.current
+    if (!sentinel) return
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting && canLoadMore && !loadingMoreRef.current) {
+          loadingMoreRef.current = true
+          const next = visibleMonths + 1
+          setVisibleMonths(() => next)
+          const params = new URLSearchParams(window.location.search)
+          params.set('view', 'timeline')
+          params.set('year', String(selectedYear))
+          params.set('months', String(next))
+          router.push(`?${params.toString()}`)
+        }
+      },
+      { threshold: 0.1 },
+    )
+    observer.observe(sentinel)
+    return () => observer.disconnect()
+  }, [canLoadMore, visibleMonths, selectedYear, router])
+
+  useEffect(() => { loadingMoreRef.current = false }, [visibleMonths])
+
+  useEffect(() => {
     if (!pendingScrollMonth) return
-    if (!visibleMonthSet.has(pendingScrollMonth)) return
-    const el = document.getElementById(`month-${pendingScrollMonth}`)
+    let el: HTMLElement | null
+    if (pendingScrollMonth.startsWith('txn-')) {
+      el = document.getElementById(pendingScrollMonth)
+    } else {
+      if (!visibleMonthSet.has(pendingScrollMonth)) return
+      el = document.getElementById(`month-${pendingScrollMonth}`)
+    }
     if (!el) return
-    el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    el.scrollIntoView({ behavior: 'smooth', block: pendingScrollMonth.startsWith('txn-') ? 'center' : 'start' })
     setPendingScrollMonth(null)
     // Clean up the scrollTo param so refreshes don't keep jumping.
     const params = new URLSearchParams(window.location.search)
@@ -445,7 +468,7 @@ export function TransactionsClient({
   const cbExpensesByMonth = useMemo(() => {
     const out: Record<string, { cleared: number; total: number }> = {}
     for (const m of visibleEntries) {
-      if (isVirtual(m)) continue
+      if (isInstance(m)) continue
       if (m.kind !== 'expense') continue
       if (m.method !== 'card') continue
 
@@ -459,7 +482,7 @@ export function TransactionsClient({
   }, [visibleEntries])
 
   const visibleRealIds = useMemo(
-    () => visibleEntries.filter((m) => !isVirtual(m)).map((m) => m.id),
+    () => visibleEntries.filter((m) => !isInstance(m)).map((m) => m.id),
     [visibleEntries],
   )
 
@@ -489,10 +512,15 @@ export function TransactionsClient({
     return Object.entries(byMonth).sort(([a], [b]) => b.localeCompare(a))
   }, [dateGroups])
 
+  const monthGroupsMap = useMemo(
+    () => Object.fromEntries(monthGroups) as Record<string, [string, Movement[]][]>,
+    [monthGroups],
+  )
+
   let filteredActual = 0
   let filteredScheduled = 0
   for (const m of filtered) {
-    if (isVirtual(m)) filteredScheduled++
+    if (isInstance(m)) filteredScheduled++
     else filteredActual++
   }
 
@@ -634,7 +662,7 @@ export function TransactionsClient({
 
   const selectAllInMonth = (month: string) => {
     const ids = visibleEntries
-      .filter((m) => !isVirtual(m) && m.date.startsWith(month))
+      .filter((m) => !isInstance(m) && m.date.startsWith(month))
       .map((m) => m.id)
     setSelectedIds((prev) => {
       const next = new Set(prev)
@@ -643,7 +671,7 @@ export function TransactionsClient({
     })
   }
 
-  const handleOpenVirtual = (entry: VirtualEntry) => {
+  const handleOpenInstance = (entry: InstanceEntry) => {
     setPrefillData({
       date: entry.date,
       amount: entry.amount,
@@ -653,7 +681,7 @@ export function TransactionsClient({
       merchantId: entry.merchantId,
       note: entry.name,
       recurringId: entry.recurringId,
-      recurringAmountId: entry.recurringAmountId,
+      recurringAmountId: null,
     })
     setEditingTxn(null)
     setSheetOpen(true)
@@ -708,45 +736,47 @@ export function TransactionsClient({
         }
       />
 
-      {/* Year picker */}
+      {/* Row 1: Year picker + Jump to month */}
       {years.length > 0 && (
-        <div className="fern-segmented" style={{ marginBottom: 16, alignSelf: 'flex-start' }}>
-          {years.map((y) => (
-            <button
-              key={y}
-              type="button"
-              className={String(selectedYear) === y ? 'active' : ''}
-              onClick={() => {
-                const params = new URLSearchParams(window.location.search)
-                params.set('year', y)
-                router.push(`?${params.toString()}`)
-              }}
-            >
-              {y}
-            </button>
-          ))}
+        <div style={{ display: 'flex', gap: 10, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+          <div className="fern-segmented">
+            {years.map((y) => (
+              <button
+                key={y}
+                type="button"
+                className={String(selectedYear) === y ? 'active' : ''}
+                onClick={() => {
+                  const params = new URLSearchParams(window.location.search)
+                  params.set('year', y)
+                  router.push(`?${params.toString()}`)
+                }}
+              >
+                {y}
+              </button>
+            ))}
+          </div>
+          <select
+            className="fern-select"
+            style={{ maxWidth: 160 }}
+            defaultValue=""
+            onChange={(e) => {
+              const v = e.target.value
+              if (v) jumpToMonth(v)
+              e.currentTarget.value = ''
+            }}
+          >
+            <option value="" disabled>Jump to month…</option>
+            {monthJumpOptions.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
         </div>
       )}
 
-      {/* Filters */}
-      <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
-        <select
-          className="fern-select"
-          style={{ maxWidth: 160 }}
-          defaultValue=""
-          onChange={(e) => {
-            const v = e.target.value
-            if (v) jumpToMonth(v)
-            e.currentTarget.value = ''
-          }}
-        >
-          <option value="" disabled>Jump to month…</option>
-          {monthJumpOptions.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
+      {/* Row 2: Search + toggle filters */}
+      <div style={{ display: 'flex', gap: 10, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: 220, background: 'var(--bg-elevated)', borderRadius: 10, padding: '0 12px', border: '1.5px solid var(--line)', flexShrink: 0 }}>
           <Icon name="search" size={16} style={{ color: 'var(--ink-faint)', flexShrink: 0 }} />
           <input
@@ -771,21 +801,140 @@ export function TransactionsClient({
           onChange={(v) => setClearedFilter(v as 'all' | 'cleared' | 'uncleared')}
           options={[{ value: 'all', label: 'All' }, { value: 'cleared', label: 'Cleared' }, { value: 'uncleared', label: 'Pending' }]}
         />
+        <div className="fern-segmented">
+          <button
+            type="button"
+            className={showNa ? 'active' : ''}
+            onClick={() => setShowNa((v) => !v)}
+          >
+            Show N/A
+          </button>
+        </div>
+      </div>
+
+      {/* Row 3: Dropdown filters */}
+      <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
+        {/* Categories */}
+        <Popover open={catFilterOpen} onOpenChange={setCatFilterOpen}>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              className="fern-select"
+              style={{ maxWidth: 220, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}
+            >
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {catFilterLabel}
+              </span>
+              {catFilter.size > 0 && (
+                <span style={{ fontSize: 12, color: 'var(--ink-faint)', flexShrink: 0 }}>{catFilter.size}</span>
+              )}
+            </button>
+          </PopoverTrigger>
+          {catFilterOpen && (
+            <PopoverContent style={{ padding: 0, width: 260 }} align="start">
+              <Command>
+                <CommandInput placeholder="Search categories…" />
+                <CommandList>
+                  <CommandEmpty>No results</CommandEmpty>
+                  <CommandGroup heading="Categories">
+                    {categories.map((c) => {
+                      const checked = catFilter.has(c.id)
+                      return (
+                        <CommandItem
+                          key={c.id}
+                          value={c.name}
+                          data-checked={checked ? 'true' : 'false'}
+                          onSelect={() => setCatFilter((prev) => {
+                            const next = new Set(prev)
+                            if (next.has(c.id)) next.delete(c.id)
+                            else next.add(c.id)
+                            return next
+                          })}
+                        >
+                          <CatSwatch color={c.color} icon={c.icon ?? 'tag'} size={16} />
+                          {c.name}
+                        </CommandItem>
+                      )
+                    })}
+                  </CommandGroup>
+                  {catFilter.size > 0 && (
+                    <CommandGroup>
+                      <CommandItem value="Clear categories" onSelect={() => setCatFilter(new Set())}>Clear</CommandItem>
+                    </CommandGroup>
+                  )}
+                </CommandList>
+              </Command>
+            </PopoverContent>
+          )}
+        </Popover>
+
+        {/* Merchants */}
+        <Popover open={merchantFilterOpen} onOpenChange={setMerchantFilterOpen}>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              className="fern-select"
+              style={{ maxWidth: 320, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}
+            >
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {merchantFilterLabel}
+              </span>
+              {merchantFilter.size > 0 && (
+                <span style={{ fontSize: 12, color: 'var(--ink-faint)', flexShrink: 0 }}>{merchantFilter.size}</span>
+              )}
+            </button>
+          </PopoverTrigger>
+          {merchantFilterOpen && (
+            <PopoverContent style={{ padding: 0, width: 320 }} align="start">
+              <Command>
+                <CommandInput placeholder="Search merchants…" />
+                <CommandList>
+                  <CommandEmpty>No results</CommandEmpty>
+                  <CommandGroup heading="Merchants">
+                    {merchantsSortedByName.map((m) => {
+                      const checked = merchantFilter.has(m.id)
+                      return (
+                        <CommandItem
+                          key={m.id}
+                          value={m.name}
+                          data-checked={checked ? 'true' : 'false'}
+                          style={{ whiteSpace: 'nowrap' }}
+                          onSelect={() => setMerchantFilter((prev) => {
+                            const next = new Set(prev)
+                            if (next.has(m.id)) next.delete(m.id)
+                            else next.add(m.id)
+                            return next
+                          })}
+                        >
+                          {m.name}
+                        </CommandItem>
+                      )
+                    })}
+                  </CommandGroup>
+                  {merchantFilter.size > 0 && (
+                    <CommandGroup>
+                      <CommandItem value="Clear merchants" onSelect={() => setMerchantFilter(new Set())}>Clear</CommandItem>
+                    </CommandGroup>
+                  )}
+                </CommandList>
+              </Command>
+            </PopoverContent>
+          )}
+        </Popover>
+
+        {/* Payment types */}
         <Popover open={methodFilterOpen} onOpenChange={setMethodFilterOpen}>
           <PopoverTrigger asChild>
             <button
               type="button"
               className="fern-select"
-              style={{ maxWidth: 260, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}
-              aria-label="Filter by payment type"
+              style={{ maxWidth: 220, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}
             >
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {methodFilterLabel}
               </span>
               {methodFilter.size > 0 && (
-                <span style={{ fontSize: 12, color: 'var(--ink-faint)', flexShrink: 0 }}>
-                  {methodFilter.size}
-                </span>
+                <span style={{ fontSize: 12, color: 'var(--ink-faint)', flexShrink: 0 }}>{methodFilter.size}</span>
               )}
             </button>
           </PopoverTrigger>
@@ -803,14 +952,12 @@ export function TransactionsClient({
                           key={m}
                           value={paymentMethodLabel(m)}
                           data-checked={checked ? 'true' : 'false'}
-                          onSelect={() => {
-                            setMethodFilter((prev) => {
-                              const next = new Set(prev)
-                              if (next.has(m)) next.delete(m)
-                              else next.add(m)
-                              return next
-                            })
-                          }}
+                          onSelect={() => setMethodFilter((prev) => {
+                            const next = new Set(prev)
+                            if (next.has(m)) next.delete(m)
+                            else next.add(m)
+                            return next
+                          })}
                         >
                           <Icon name={paymentMethodIcon(m)} size={14} style={{ color: 'var(--ink-faint)' }} />
                           {paymentMethodLabel(m)}
@@ -820,12 +967,7 @@ export function TransactionsClient({
                   </CommandGroup>
                   {methodFilter.size > 0 && (
                     <CommandGroup>
-                      <CommandItem
-                        value="Clear payment types"
-                        onSelect={() => setMethodFilter(new Set())}
-                      >
-                        Clear
-                      </CommandItem>
+                      <CommandItem value="Clear payment types" onSelect={() => setMethodFilter(new Set())}>Clear</CommandItem>
                     </CommandGroup>
                   )}
                 </CommandList>
@@ -833,54 +975,61 @@ export function TransactionsClient({
             </PopoverContent>
           )}
         </Popover>
-        <div style={{ width: 180, maxWidth: 180, flexShrink: 0 }}>
-          <SearchableSelect
-            value={catFilter}
-            onChange={(v) => setCatFilter(v ?? 'all')}
-            options={categoryFilterOptions}
-            searchPlaceholder="Search categories…"
-          />
-        </div>
-        <div style={{ flex: 1, minWidth: 260, maxWidth: 520 }}>
-          <SearchableSelect
-            value={merchantFilter}
-            onChange={(v) => {
-              const val = v ?? 'all'
-              const params = new URLSearchParams(window.location.search)
-              if (val !== 'all') {
-                params.set('merchant', val)
-              } else {
-                params.delete('merchant')
-              }
-              params.set('year', String(selectedYear))
-              params.delete('months')
-              router.push(`?${params.toString()}`)
-            }}
-            options={merchantFilterOptions}
-            searchPlaceholder="Search merchants…"
-          />
-        </div>
-        <select
-          className="fern-select"
-          style={{ maxWidth: 240 }}
-          value={reimbursementFilter}
-          onChange={(e) => setReimbursementFilter(e.target.value as ReimbursementFilter)}
-        >
-          <option value="all">All reimbursement states</option>
-          <option value="unresolved">Open work</option>
-          <option value="resolved">Fully resolved</option>
-          <optgroup label="Expenses">
-            <option value="expense:not_reimbursed">Not reimbursed</option>
-            <option value="expense:partially_reimbursed">Partially reimbursed</option>
-            <option value="expense:reimbursed">Reimbursed</option>
-            <option value="expense:manually_settled">Manually settled</option>
-          </optgroup>
-          <optgroup label="Income">
-            <option value="income:unmapped">Unmapped</option>
-            <option value="income:partially_allocated">Partially allocated</option>
-            <option value="income:fully_allocated">Fully allocated</option>
-          </optgroup>
-        </select>
+
+        {/* Reimbursement states */}
+        <Popover open={reimbFilterOpen} onOpenChange={setReimbFilterOpen}>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              className="fern-select"
+              style={{ maxWidth: 260, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}
+            >
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {reimbFilterLabel}
+              </span>
+              {reimbursementFilter.size > 0 && (
+                <span style={{ fontSize: 12, color: 'var(--ink-faint)', flexShrink: 0 }}>{reimbursementFilter.size}</span>
+              )}
+            </button>
+          </PopoverTrigger>
+          {reimbFilterOpen && (
+            <PopoverContent style={{ padding: 0, width: 280 }} align="start">
+              <Command>
+                <CommandInput placeholder="Search states…" />
+                <CommandList>
+                  <CommandEmpty>No results</CommandEmpty>
+                  {(['Summary', 'Expenses', 'Income'] as const).map((group) => (
+                    <CommandGroup key={group} heading={group}>
+                      {REIMB_OPTIONS.filter((o) => o.group === group).map((o) => {
+                        const checked = reimbursementFilter.has(o.value)
+                        return (
+                          <CommandItem
+                            key={o.value}
+                            value={o.label}
+                            data-checked={checked ? 'true' : 'false'}
+                            onSelect={() => setReimbursementFilter((prev) => {
+                              const next = new Set(prev)
+                              if (next.has(o.value)) next.delete(o.value)
+                              else next.add(o.value)
+                              return next
+                            })}
+                          >
+                            {o.label}
+                          </CommandItem>
+                        )
+                      })}
+                    </CommandGroup>
+                  ))}
+                  {reimbursementFilter.size > 0 && (
+                    <CommandGroup>
+                      <CommandItem value="Clear states" onSelect={() => setReimbursementFilter(new Set())}>Clear</CommandItem>
+                    </CommandGroup>
+                  )}
+                </CommandList>
+              </Command>
+            </PopoverContent>
+          )}
+        </Popover>
       </div>
 
       {selectionMode && (
@@ -904,13 +1053,14 @@ export function TransactionsClient({
         </div>
       )}
 
-      {txns.length === 0 && virtualEntries.length === 0 ? (
+      {txns.length === 0 && instanceEntries.length === 0 ? (
         <EmptyState title="No transactions yet" description="Log your first expense or income to see it here." />
       ) : filtered.length === 0 ? (
         <EmptyState illu="◌" title="Nothing matches" description="Try a different search or filter." />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-          {monthGroups.map(([month, dgs]) => {
+          {allMonths.slice(0, visibleMonths).map((month) => {
+            const dgs = monthGroupsMap[month] ?? []
             const monthLabel = formatDate(month + '-15T12:00:00', 'en-US', { month: 'long', year: 'numeric' })
             const cb = cbExpensesByMonth[month] ?? { cleared: 0, total: 0 }
             return (
@@ -942,6 +1092,9 @@ export function TransactionsClient({
                   )}
                 </div>
                 <div className="fern-card" style={{ padding: '8px 16px' }}>
+                  {dgs.length === 0 && (
+                    <div style={{ padding: '10px 4px', fontSize: 13, color: 'var(--ink-faint)' }}>No transactions</div>
+                  )}
                   {dgs.map(([date, items]) => {
                     const total = items.reduce((s, m) => s + (m.kind === 'income' ? 1 : -1) * Number(m.amount ?? 0), 0)
                     const label = formatDate(date + 'T12:00:00', 'en-US', { weekday: 'long', day: 'numeric', month: 'long' })
@@ -955,62 +1108,119 @@ export function TransactionsClient({
                         </div>
                         {items.map((m) => {
                     const cat = m.categoryId ? categoryById.get(m.categoryId) : undefined
-                    if (isVirtual(m)) {
+                    if (isInstance(m)) {
                       return (
                         <div
                           key={m.id}
                           className="fern-txn-row"
-                          style={{ opacity: 0.6 }}
-                          onClick={() => handleOpenVirtual(m)}
+                          style={{ opacity: m.isNa ? 0.35 : 0.6 }}
+                          onClick={() => !m.isNa && handleOpenInstance(m)}
                         >
                           <CatSwatch color={cat?.color} icon={cat?.icon ?? 'tag'} size={34} />
                           <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textDecoration: m.isNa ? 'line-through' : undefined }}>
                               {m.name}
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
                               <span style={{ fontSize: 12, color: 'var(--ink-faint)' }}>{cat?.name ?? 'Uncategorized'}</span>
-                              <Chip tone="scheduled">
-                                <Icon name={paymentMethodIcon(m.method)} size={10} /> {paymentMethodLabel(m.method)}
-                              </Chip>
-                              <Chip tone="scheduled"><Icon name="repeat" size={10} /> scheduled</Chip>
+                              {!m.isNa && (
+                                <Chip tone="scheduled">
+                                  <Icon name={paymentMethodIcon(m.method)} size={10} /> {paymentMethodLabel(m.method)}
+                                </Chip>
+                              )}
+                              <Chip tone="recurring"><Icon name="repeat" size={10} /> {m.isNa ? 'N/A' : 'recurring'}</Chip>
                             </div>
                           </div>
-                          <div style={{ fontSize: 14, fontWeight: 600, color: m.kind === 'income' ? 'var(--sage-ink)' : 'var(--rose-ink)', fontFamily: 'var(--mono-fern)', flexShrink: 0 }}>
+                          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink-faint)', fontFamily: 'var(--mono-fern)', flexShrink: 0, textDecoration: m.isNa ? 'line-through' : undefined }}>
                             {m.kind === 'income' ? '+' : '−'}{fmt(Math.abs(m.amount ?? 0))}
                           </div>
-                          <button
-                            title="Log and mark as cleared"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              startTransition(async () => {
-                                await addTransaction({
-                                  date: m.date,
-                                  amount: m.amount,
-                                  kind: m.kind,
-                                  method: m.method,
-                                  categoryId: m.categoryId,
-                                  merchantId: m.merchantId,
-                                  note: m.name,
-                                  recurringId: m.recurringId,
-                                  recurringAmountId: m.recurringAmountId,
-                                  cleared: 1,
+                          {m.isNa ? (
+                            <button
+                              title="Mark as expected again"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                startTransition(async () => {
+                                  await unmarkInstanceNotApplicable(m.instanceId)
                                 })
-                              })
-                            }}
-                            style={{
-                              flexShrink: 0,
-                              width: 20,
-                              height: 20,
-                              borderRadius: '50%',
-                              border: '1.5px solid var(--line)',
-                              background: 'transparent',
-                              display: 'grid',
-                              placeItems: 'center',
-                              cursor: 'pointer',
-                              padding: 0,
-                            }}
-                          />
+                              }}
+                              style={{
+                                flexShrink: 0,
+                                width: 20,
+                                height: 20,
+                                borderRadius: 4,
+                                border: '1.5px solid var(--line)',
+                                background: 'transparent',
+                                display: 'grid',
+                                placeItems: 'center',
+                                cursor: 'pointer',
+                                padding: 0,
+                                fontSize: 10,
+                                color: 'var(--ink-faint)',
+                              }}
+                            >
+                              ↩
+                            </button>
+                          ) : (
+                            <>
+                              <button
+                                title="Not applicable this month"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  startTransition(async () => {
+                                    await markInstanceNotApplicable(m.instanceId)
+                                  })
+                                }}
+                                style={{
+                                  flexShrink: 0,
+                                  width: 20,
+                                  height: 20,
+                                  borderRadius: 4,
+                                  border: '1.5px solid var(--line)',
+                                  background: 'transparent',
+                                  display: 'grid',
+                                  placeItems: 'center',
+                                  cursor: 'pointer',
+                                  padding: 0,
+                                  fontSize: 10,
+                                  color: 'var(--ink-faint)',
+                                }}
+                              >
+                                N/A
+                              </button>
+                              <button
+                                title="Log and mark as cleared"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  startTransition(async () => {
+                                    await addTransaction({
+                                      date: m.date,
+                                      amount: m.amount,
+                                      kind: m.kind,
+                                      method: m.method,
+                                      categoryId: m.categoryId,
+                                      merchantId: m.merchantId,
+                                      note: m.name,
+                                      recurringId: m.recurringId,
+                                      recurringAmountId: null,
+                                      cleared: 1,
+                                    })
+                                  })
+                                }}
+                                style={{
+                                  flexShrink: 0,
+                                  width: 20,
+                                  height: 20,
+                                  borderRadius: '50%',
+                                  border: '1.5px solid var(--line)',
+                                  background: 'transparent',
+                                  display: 'grid',
+                                  placeItems: 'center',
+                                  cursor: 'pointer',
+                                  padding: 0,
+                                }}
+                              />
+                            </>
+                          )}
                         </div>
                       )
                     }
@@ -1025,6 +1235,7 @@ export function TransactionsClient({
                     return (
                       <div
                         key={t.id}
+                        id={`txn-${t.id}`}
                         className="fern-txn-row"
                         onClick={() => {
                           if (selectionMode) {
@@ -1178,24 +1389,7 @@ export function TransactionsClient({
             )
           })}
 
-          {visibleMonths < allMonths.length && (
-            <div style={{ textAlign: 'center', marginTop: 8 }}>
-              <FernButton
-                tone="outline"
-                onClick={() => {
-                  const next = visibleMonths + 1
-                  setVisibleMonths(() => next)
-                  const params = new URLSearchParams(window.location.search)
-                  params.set('view', 'timeline')
-                  params.set('year', String(selectedYear))
-                  params.set('months', String(next))
-                  router.push(`?${params.toString()}`)
-                }}
-              >
-                Load more
-              </FernButton>
-            </div>
-          )}
+          {canLoadMore && <div ref={bottomSentinelRef} style={{ height: 40 }} />}
         </div>
       )}
 

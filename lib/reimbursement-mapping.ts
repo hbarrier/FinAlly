@@ -34,6 +34,7 @@ export type ExpenseReimbursementStatus =
 
 export type IncomeReimbursementStatus =
   | 'unmapped'
+  | 'claim_linked'
   | 'partially_allocated'
   | 'fully_allocated'
 
@@ -192,6 +193,8 @@ export function incomeReimbursementStatusLabel(status: IncomeReimbursementStatus
       return 'Fully allocated'
     case 'partially_allocated':
       return 'Partially allocated'
+    case 'claim_linked':
+      return 'Claim linked'
     case 'unmapped':
       return 'Unmapped'
   }

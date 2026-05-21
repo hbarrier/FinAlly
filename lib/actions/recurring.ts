@@ -7,6 +7,11 @@ import { nanoid } from '../utils'
 import { eq, and, isNull, inArray } from 'drizzle-orm'
 import { effectiveAmount, resolvedDayOfMonth } from '../derive'
 import { defaultPaymentMethodForKind, type PaymentMethod } from '../payment-method'
+import {
+  ensureInstancesForRecurring,
+  upsertLinkedInstance,
+  currentMonth,
+} from '../recurring-instances'
 
 export async function addRecurring(data: {
   name: string
@@ -36,6 +41,8 @@ export async function addRecurring(data: {
       amount: data.amount,
       startDate: data.startDate,
     })
+    const r = await tx.query.recurring.findFirst({ where: eq(recurring.id, id) })
+    if (r) await ensureInstancesForRecurring(tx, r, data.startDate.slice(0, 7), currentMonth())
   })
   revalidateApp()
 }
@@ -108,6 +115,14 @@ export async function updateRecurring(
         })
       }
       await syncEffectiveAmount(tx, id)
+    }
+
+    // Gap-fill instances when startDate moves earlier
+    if (data.startDate && data.startDate < current.startDate) {
+      const updated = await tx.query.recurring.findFirst({ where: eq(recurring.id, id) })
+      if (updated) {
+        await ensureInstancesForRecurring(tx, updated, data.startDate.slice(0, 7), currentMonth())
+      }
     }
   })
   revalidateApp()
@@ -206,6 +221,23 @@ export async function promoteToRecurring(
       })
       .where(inArray(transactions.id, matchingIds))
 
+    // Create linked instances for each matched transaction
+    const matchedTxns = candidates.filter((t) => matchingIds.includes(t.id))
+    if (!matchedTxns.find((t) => t.id === txnId)) {
+      const sourceTxn = await tx.query.transactions.findFirst({
+        where: (t, { eq }) => eq(t.id, txnId),
+        columns: { date: true },
+      })
+      if (sourceTxn) matchedTxns.push({ id: txnId, date: sourceTxn.date, amount: data.amount })
+    }
+    for (const t of matchedTxns) {
+      await upsertLinkedInstance(tx, newId, t.date.slice(0, 7), t.id)
+    }
+
+    // Gap-fill expected instances
+    const r = await tx.query.recurring.findFirst({ where: eq(recurring.id, newId) })
+    if (r) await ensureInstancesForRecurring(tx, r, data.startDate.slice(0, 7), currentMonth())
+
     return matchingIds.length
   })
 
@@ -240,6 +272,12 @@ export async function bulkPromoteToRecurring(
       amount: data.amount,
       startDate: data.startDate,
     })
+
+    const txns = await tx
+      .select({ id: transactions.id, date: transactions.date })
+      .from(transactions)
+      .where(inArray(transactions.id, txnIds))
+
     await tx
       .update(transactions)
       .set({
@@ -249,6 +287,13 @@ export async function bulkPromoteToRecurring(
         ...(data.kind === 'expense' && method === 'cash' ? { cleared: 1 } : {}),
       })
       .where(inArray(transactions.id, txnIds))
+
+    for (const t of txns) {
+      await upsertLinkedInstance(tx, newId, t.date.slice(0, 7), t.id)
+    }
+
+    const r = await tx.query.recurring.findFirst({ where: eq(recurring.id, newId) })
+    if (r) await ensureInstancesForRecurring(tx, r, data.startDate.slice(0, 7), currentMonth())
   })
 
   revalidateApp()

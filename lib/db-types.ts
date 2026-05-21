@@ -4,6 +4,7 @@ import type {
   merchants,
   recurring,
   recurringAmounts,
+  recurringInstances,
   transactions,
   budgets,
   goals,
@@ -11,6 +12,9 @@ import type {
   monthlyOpeningBalances,
   reimbursementRates,
   reimbursementAllocations,
+  reimbursementClaims,
+  reimbursementClaimAllocations,
+  taxAllocations,
 } from './schema'
 
 export type Category = InferSelectModel<typeof categories>
@@ -24,8 +28,15 @@ export type UserSettings = InferSelectModel<typeof userSettings>
 export type MonthlyOpeningBalance = InferSelectModel<typeof monthlyOpeningBalances>
 export type ReimbursementRate = InferSelectModel<typeof reimbursementRates>
 export type ReimbursementAllocation = InferSelectModel<typeof reimbursementAllocations>
+export type ReimbursementClaim = InferSelectModel<typeof reimbursementClaims>
+export type ReimbursementClaimAllocation = InferSelectModel<typeof reimbursementClaimAllocations>
+
+export type RecurringInstance = InferSelectModel<typeof recurringInstances>
 
 export type RecurringWithAmounts = Recurring & { amounts: RecurringAmount[] }
 
 export type TransactionKind = Transaction['kind']
 export type RecurringCadence = Recurring['cadence']
+
+export type TaxAllocation = InferSelectModel<typeof taxAllocations>
+export type TaxAllocationValue = 'audrey' | 'lucie' | 'split'

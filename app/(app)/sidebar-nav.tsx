@@ -10,6 +10,7 @@ const NAV = [
   { href: '/transactions', label: 'Movements', icon: 'list' },
   { href: '/recurring', label: 'Recurring', icon: 'repeat' },
   { href: '/reimbursements', label: 'Remboursements', icon: 'receipt' },
+  { href: '/tax-status', label: 'Tax Status', icon: 'fileText' },
   { href: '/categories', label: 'Categories', icon: 'tag' },
   { href: '/merchants', label: 'Merchants', icon: 'store' },
   { href: '/budgets', label: 'Budgets', icon: 'pie' },

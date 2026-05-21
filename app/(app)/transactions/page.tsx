@@ -1,6 +1,6 @@
 import { db } from '@/lib/db'
-import { asc, desc, eq, sql } from 'drizzle-orm'
-import { transactions, merchants, reimbursementAllocations, reimbursementRates, recurringAmounts } from '@/lib/schema'
+import { asc, desc, eq, sql, and, gte, lte } from 'drizzle-orm'
+import { transactions, merchants, reimbursementAllocations, reimbursementClaimAllocations, reimbursementRates, recurringAmounts, recurringInstances } from '@/lib/schema'
 import {
   expenseReimbursementStatusLabel,
   getApplicableReimbursementRate,
@@ -49,9 +49,11 @@ export default async function TransactionsPage({
     cats,
     merchantsList,
     recurringList,
+    instancesList,
     yearsResult,
     rates,
     allocations,
+    claimAllocationRows,
     reimbursableExpenses,
   ] = await Promise.all([
     db.query.categories.findMany(),
@@ -59,12 +61,19 @@ export default async function TransactionsPage({
     db.query.recurring.findMany({
       with: { amounts: { orderBy: [asc(recurringAmounts.startDate)] } },
     }),
+    db.select().from(recurringInstances).where(
+      and(
+        gte(recurringInstances.month, `${selectedYear}-01`),
+        lte(recurringInstances.month, `${selectedYear}-12`),
+      )
+    ),
     db.select({ year: sql<string>`substr(${transactions.date}, 1, 4)` })
       .from(transactions)
       .groupBy(sql`substr(${transactions.date}, 1, 4)`)
       .orderBy(sql`substr(${transactions.date}, 1, 4) DESC`),
     db.select().from(reimbursementRates).orderBy(desc(reimbursementRates.startDate)),
     db.select().from(reimbursementAllocations),
+    db.select({ reimbursementTxId: reimbursementClaimAllocations.reimbursementTxId }).from(reimbursementClaimAllocations),
     db.query.transactions.findMany({
       where: (t, { and, eq }) => and(eq(t.kind, 'expense'), eq(t.reimbursable, 1)),
       orderBy: [desc(transactions.date), desc(transactions.createdAt)],
@@ -96,6 +105,8 @@ export default async function TransactionsPage({
   const { allocationsByReimbursementTxId, allocationsByExpenseTxId } =
     indexReimbursementAllocations(allocations)
 
+  const claimedIncomeTxIds = new Set(claimAllocationRows.map((r) => r.reimbursementTxId))
+
   const reimbursementSummaries: Record<string, { status: string; label: string }> = {}
   const reimbursementMappingCounts: Record<string, number> = {}
   for (const allocation of allocations) {
@@ -111,7 +122,9 @@ export default async function TransactionsPage({
         txn,
         allocationsByReimbursementTxId.get(txn.id) ?? [],
       )
-      const status = summary.status
+      const status = summary.status === 'unmapped' && claimedIncomeTxIds.has(txn.id)
+        ? 'claim_linked' as const
+        : summary.status
       reimbursementSummaries[txn.id] = { status, label: incomeReimbursementStatusLabel(status) }
     }
 
@@ -154,6 +167,7 @@ export default async function TransactionsPage({
       categories={cats}
       merchants={merchantsList}
       recurring={recurringList}
+      instances={instancesList}
       eligibleReimbursementExpenses={eligibleReimbursementExpenses}
       reimbursementSummaries={reimbursementSummaries}
       reimbursementMappingCounts={reimbursementMappingCounts}
