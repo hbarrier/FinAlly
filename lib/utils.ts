@@ -1,6 +1,20 @@
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
 
+export const REIMBURSEMENT_CATEGORY_NAME = 'Remboursements'
+
+export const parseDecimal = (v: string) => Number(v.replace(',', '.'))
+
+export function runAction(fn: () => Promise<unknown>): () => Promise<void> {
+  return async () => {
+    try {
+      await fn()
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'An error occurred')
+    }
+  }
+}
+
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }

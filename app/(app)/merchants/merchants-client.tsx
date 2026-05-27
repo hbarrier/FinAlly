@@ -12,6 +12,7 @@ import { EmptyState } from '@/components/fern/empty-state'
 import type { Category } from '@/lib/derive'
 import type { Merchant } from '@/lib/db-types'
 import { addMerchant, updateMerchant, deleteMerchant, mergeMerchants } from '@/lib/actions/merchants'
+import { runAction } from '@/lib/utils'
 
 interface MerchantsClientProps {
   merchants: Merchant[]
@@ -59,13 +60,13 @@ export function MerchantsClient({ merchants: merchantsList, categories, transact
   }
 
   const handleSave = async (data: Parameters<typeof addMerchant>[0] & { isActive?: number }) => {
-    startTransition(async () => {
+    startTransition(runAction(async () => {
       if (editing && editing !== 'new') {
         await updateMerchant(editing, data)
       } else {
         await addMerchant(data)
       }
-    })
+    }))
     setEditing(null)
   }
 
@@ -75,7 +76,7 @@ export function MerchantsClient({ merchants: merchantsList, categories, transact
       ? `This merchant is used in ${used} transaction${used === 1 ? '' : 's'}. Delete anyway?`
       : `Delete "${m.name}"?`
     if (!confirm(msg)) return
-    startTransition(async () => { await deleteMerchant(m.id) })
+    startTransition(runAction(async () => { await deleteMerchant(m.id) }))
   }
 
   const handleMerge = async () => {
@@ -83,7 +84,7 @@ export function MerchantsClient({ merchants: merchantsList, categories, transact
     const keeper = merchantsList.find((m) => m.id === keepId)!
     const mergeCount = mergeIds.length
     if (!confirm(`Merge ${mergeCount} merchant${mergeCount > 1 ? 's' : ''} into "${keeper.name}"? This cannot be undone.`)) return
-    startTransition(async () => { await mergeMerchants(keepId, mergeIds) })
+    startTransition(runAction(async () => { await mergeMerchants(keepId, mergeIds) }))
     setSelected([])
   }
 

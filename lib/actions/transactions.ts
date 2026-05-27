@@ -2,7 +2,7 @@
 
 import { db } from '../db'
 import { categories, reimbursementAllocations, transactions } from '../schema'
-import { nanoid } from '../utils'
+import { nanoid, REIMBURSEMENT_CATEGORY_NAME } from '../utils'
 import { and, eq, inArray, or } from 'drizzle-orm'
 import { revalidateApp } from './_shared'
 import { defaultPaymentMethodForKind, type PaymentMethod } from '../payment-method'
@@ -64,86 +64,7 @@ export async function updateTransaction(
     method?: PaymentMethod
   },
 ) {
-  await db.transaction(async (tx) => {
-    const [existing] = await tx
-      .select({
-        id: transactions.id,
-        date: transactions.date,
-        amount: transactions.amount,
-        kind: transactions.kind,
-        method: transactions.method,
-        recurringId: transactions.recurringId,
-        categoryId: transactions.categoryId,
-        categoryName: categories.name,
-        categoryKind: categories.kind,
-        reimbursable: transactions.reimbursable,
-      })
-      .from(transactions)
-      .leftJoin(categories, eq(transactions.categoryId, categories.id))
-      .where(eq(transactions.id, id))
-      .limit(1)
-
-    if (!existing) return
-
-    const nextKind = data.kind ?? existing.kind
-    const nextCategoryId = data.categoryId === undefined ? existing.categoryId : data.categoryId
-    const nextReimbursable = data.reimbursable === undefined ? existing.reimbursable : data.reimbursable
-
-    let nextMethod: PaymentMethod | undefined
-    if (existing.recurringId) {
-      const r = await tx.query.recurring.findFirst({
-        where: (rr, { eq }) => eq(rr.id, existing.recurringId!),
-        columns: { method: true },
-      })
-      nextMethod = (r?.method as PaymentMethod | undefined) ?? defaultPaymentMethodForKind(nextKind)
-    } else if (data.method) {
-      nextMethod = data.method
-    } else if (data.kind && data.kind !== existing.kind) {
-      const wasImplicitDefault = existing.method === defaultPaymentMethodForKind(existing.kind)
-      nextMethod = wasImplicitDefault ? defaultPaymentMethodForKind(nextKind) : existing.method
-    }
-
-    const nextCategory = nextCategoryId
-      ? await tx
-          .select({ name: categories.name, kind: categories.kind })
-          .from(categories)
-          .where(eq(categories.id, nextCategoryId))
-          .limit(1)
-      : []
-
-    const wasReimbursementIncome =
-      existing.kind === 'income' &&
-      existing.categoryKind === 'income' &&
-      existing.categoryName === 'Remboursements'
-    const willBeReimbursementIncome =
-      nextKind === 'income' &&
-      nextCategory[0]?.kind === 'income' &&
-      nextCategory[0]?.name === 'Remboursements'
-
-    const wasReimbursableExpense = existing.kind === 'expense' && existing.reimbursable === 1
-    const willBeReimbursableExpense = nextKind === 'expense' && nextReimbursable === 1
-
-    if (wasReimbursementIncome && !willBeReimbursementIncome) {
-      await tx
-        .delete(reimbursementAllocations)
-        .where(eq(reimbursementAllocations.reimbursementTxId, id))
-    }
-
-    const updateData: typeof data & { manualSettlementAt?: string | null; cleared?: number; method?: PaymentMethod } = { ...data }
-    if (nextMethod) updateData.method = nextMethod
-    if (nextKind === 'expense' && nextMethod === 'cash') {
-      updateData.cleared = 1
-    }
-    if (wasReimbursableExpense && !willBeReimbursableExpense) {
-      await tx
-        .delete(reimbursementAllocations)
-        .where(eq(reimbursementAllocations.expenseTxId, id))
-      updateData.manualSettlementAt = null
-    }
-
-    await tx.update(transactions).set(updateData).where(eq(transactions.id, id))
-  })
-  revalidateApp()
+  return updateTransactionWithRecurringAmountOption(id, data, { propagateRecurringAmount: false })
 }
 
 export async function updateTransactionWithRecurringAmountOption(
@@ -215,11 +136,11 @@ export async function updateTransactionWithRecurringAmountOption(
     const wasReimbursementIncome =
       existing.kind === 'income' &&
       existing.categoryKind === 'income' &&
-      existing.categoryName === 'Remboursements'
+      existing.categoryName === REIMBURSEMENT_CATEGORY_NAME
     const willBeReimbursementIncome =
       nextKind === 'income' &&
       nextCategory[0]?.kind === 'income' &&
-      nextCategory[0]?.name === 'Remboursements'
+      nextCategory[0]?.name === REIMBURSEMENT_CATEGORY_NAME
 
     const wasReimbursableExpense = existing.kind === 'expense' && existing.reimbursable === 1
     const willBeReimbursableExpense = nextKind === 'expense' && nextReimbursable === 1

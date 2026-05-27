@@ -16,7 +16,7 @@ interface CategoryBarsProps {
 
 export function CategoryBars({ items }: CategoryBarsProps) {
   const max = Math.max(...items.map((i) => i.amount), 1)
-  const shown = items.slice(0, 6)
+  const shown = items.slice(0, 8)
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%' }}>

@@ -1,4 +1,7 @@
+import type { Metadata } from 'next'
 import { db } from '@/lib/db'
+
+export const metadata: Metadata = { title: 'Categories | FinAlly' }
 import { CategoriesClient } from './categories-client'
 
 export default async function CategoriesPage() {

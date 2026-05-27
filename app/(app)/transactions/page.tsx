@@ -1,15 +1,18 @@
+import type { Metadata } from 'next'
 import { db } from '@/lib/db'
+
+export const metadata: Metadata = { title: 'Transactions | FinAlly' }
 import { asc, desc, eq, sql, and, gte, lte } from 'drizzle-orm'
 import { transactions, merchants, reimbursementAllocations, reimbursementClaimAllocations, reimbursementRates, recurringAmounts, recurringInstances } from '@/lib/schema'
 import {
   expenseReimbursementStatusLabel,
-  getApplicableReimbursementRate,
   getExpenseReimbursementSummary,
   getIncomeReimbursementSummary,
   incomeReimbursementStatusLabel,
 } from '@/lib/reimbursement-mapping'
 import { indexReimbursementAllocations } from '@/lib/queries/reimbursement-allocations'
 import { TransactionsClient } from './transactions-client'
+import { REIMBURSEMENT_CATEGORY_NAME } from '@/lib/utils'
 
 export default async function TransactionsPage({
   searchParams,
@@ -43,7 +46,9 @@ export default async function TransactionsPage({
 
   const startMonth = `${startMonthDate.getUTCFullYear()}-${String(startMonthDate.getUTCMonth() + 1).padStart(2, '0')}`
   const timelineFrom = `${startMonth}-01`
-  const timelineTo = `${endMonth}-31`
+  const [endYear, endMonthNum] = endMonth.split('-').map(Number)
+  const lastDay = new Date(endYear, endMonthNum, 0).getDate()
+  const timelineTo = `${endMonth}-${String(lastDay).padStart(2, '0')}`
 
   const [
     cats,
@@ -54,7 +59,6 @@ export default async function TransactionsPage({
     rates,
     allocations,
     claimAllocationRows,
-    reimbursableExpenses,
   ] = await Promise.all([
     db.query.categories.findMany(),
     db.query.merchants.findMany({ where: eq(merchants.isActive, 1) }),
@@ -72,12 +76,10 @@ export default async function TransactionsPage({
       .groupBy(sql`substr(${transactions.date}, 1, 4)`)
       .orderBy(sql`substr(${transactions.date}, 1, 4) DESC`),
     db.select().from(reimbursementRates).orderBy(desc(reimbursementRates.startDate)),
-    db.select().from(reimbursementAllocations),
+    db.select().from(reimbursementAllocations).where(
+      and(gte(reimbursementAllocations.createdAt, yearStart), lte(reimbursementAllocations.createdAt, yearEnd + 'T23:59:59Z'))
+    ),
     db.select({ reimbursementTxId: reimbursementClaimAllocations.reimbursementTxId }).from(reimbursementClaimAllocations),
-    db.query.transactions.findMany({
-      where: (t, { and, eq }) => and(eq(t.kind, 'expense'), eq(t.reimbursable, 1)),
-      orderBy: [desc(transactions.date), desc(transactions.createdAt)],
-    }),
   ])
 
   // When a merchant filter is active, load the full year for that merchant.
@@ -96,7 +98,7 @@ export default async function TransactionsPage({
   const years = yearsResult.map((r) => r.year)
   const reimbursementCategoryIds = new Set(
     cats
-      .filter((c) => c.kind === 'income' && c.name === 'Remboursements')
+      .filter((c) => c.kind === 'income' && c.name === REIMBURSEMENT_CATEGORY_NAME)
       .map((c) => c.id),
   )
   const merchantById = new Map(merchantsList.map((m) => [m.id, m]))
@@ -139,28 +141,6 @@ export default async function TransactionsPage({
     }
   }
 
-  const eligibleReimbursementExpenses = reimbursableExpenses.map((expense) => {
-    const expenseAllocations = allocationsByExpenseTxId.get(expense.id) ?? []
-    const rate = getApplicableReimbursementRate(rates, expense.date)
-    const reimbursementSummary = getExpenseReimbursementSummary(expense, rates, expenseAllocations)
-    return {
-      id: expense.id,
-      date: expense.date,
-      amount: expense.amount,
-      categoryName: expense.categoryId ? categoryById.get(expense.categoryId)?.name ?? null : null,
-      merchantName: expense.merchantId ? merchantById.get(expense.merchantId)?.name ?? null : null,
-      manualSettlementAt: expense.manualSettlementAt,
-      applicableRate: rate?.percent ?? null,
-      expectedAmount: reimbursementSummary.expectedAmount,
-      allocatedAmount: reimbursementSummary.allocatedAmount,
-      remainingExpectedAmount: reimbursementSummary.remainingExpectedAmount,
-      allocations: expenseAllocations.map((allocation) => ({
-        reimbursementTxId: allocation.reimbursementTxId,
-        amount: allocation.amount,
-      })),
-    }
-  })
-
   return (
     <TransactionsClient
       transactions={txns}
@@ -168,7 +148,6 @@ export default async function TransactionsPage({
       merchants={merchantsList}
       recurring={recurringList}
       instances={instancesList}
-      eligibleReimbursementExpenses={eligibleReimbursementExpenses}
       reimbursementSummaries={reimbursementSummaries}
       reimbursementMappingCounts={reimbursementMappingCounts}
       initialMerchantId={merchant ?? 'all'}

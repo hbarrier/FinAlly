@@ -22,6 +22,8 @@ import {
   setMonthClaimSettled,
 } from '@/lib/actions/reimbursement-claims'
 import { setTaxAllocation, clearTaxAllocation } from '@/lib/actions/tax-allocations'
+import { runAction } from '@/lib/utils'
+import { YearPicker } from '@/components/fern/year-picker'
 
 // ---- types ----
 
@@ -172,18 +174,18 @@ export function ReimbursementsClient({ monthData, pickerIncomes, rates, years, s
     const { expense, draftAmount, draftComment } = overrideModal
     const amt = draftAmount ? Number(draftAmount.replace(',', '.')) : null
     setOverrideModal(null)
-    startTransition(async () => {
+    startTransition(runAction(async () => {
       await setExpenseAmountOverride(expense.id, amt, draftComment.trim() || null)
-    })
+    }))
   }
 
   const handleClearOverride = () => {
     if (!overrideModal) return
     const { expense } = overrideModal
     setOverrideModal(null)
-    startTransition(async () => {
+    startTransition(runAction(async () => {
       await setExpenseAmountOverride(expense.id, null, null)
-    })
+    }))
   }
 
   return (
@@ -200,18 +202,7 @@ export function ReimbursementsClient({ monthData, pickerIncomes, rates, years, s
         </div>
 
         {years.length > 0 && (
-          <div className="fern-segmented">
-            {years.map((y) => (
-              <button
-                key={y}
-                type="button"
-                className={String(selectedYear) === y ? 'active' : ''}
-                onClick={() => handleYearChange(y)}
-              >
-                {y}
-              </button>
-            ))}
-          </div>
+          <YearPicker years={years} selectedYear={selectedYear} onSelect={handleYearChange} />
         )}
 
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -407,10 +398,10 @@ function ExpensesPanel({
   const total = clearedTotal(expenses)
 
   const handleClaimDate = (value: string) => {
-    startTransition(async () => {
+    startTransition(runAction(async () => {
       if (!value) await clearMonthClaimDate(month)
       else await setMonthClaimDate(month, value)
-    })
+    }))
   }
 
   return (
@@ -468,10 +459,10 @@ function ExpenseRow({
   const isOverride = expense.reimbursementAmountOverride !== null
 
   const pickAllocation = (v: TaxAllocationValue) => {
-    startTransition(async () => {
+    startTransition(runAction(async () => {
       if (expense.taxAllocation === v) await clearTaxAllocation(expense.id)
       else await setTaxAllocation(expense.id, v)
-    })
+    }))
   }
 
   return (
@@ -601,25 +592,25 @@ function ClaimsPanel({
 
   const handleLinkSelected = () => {
     const toLink = [...pendingIds].filter((id) => !alreadyLinkedIds.has(id))
-    startTransition(async () => {
+    startTransition(runAction(async () => {
       for (const id of toLink) {
         await linkIncomeToClaim(month, id)
       }
-    })
+    }))
     setPendingIds(new Set())
     setPickerOpen(false)
   }
 
   const handleDetachAll = () => {
-    startTransition(async () => {
+    startTransition(runAction(async () => {
       await unlinkAllFromClaim(month)
-    })
+    }))
   }
 
   const handleToggleSettled = () => {
-    startTransition(async () => {
+    startTransition(runAction(async () => {
       await setMonthClaimSettled(month, !claim.settledAt)
-    })
+    }))
   }
 
   return (
@@ -880,7 +871,7 @@ function RatesSection({ rates }: { rates: Rate[] }) {
   const handleAdd = () => {
     const pct = Number(ratePercent.replace(',', '.'))
     if (!pct || !rateDate) return
-    startTransition(async () => { await addReimbursementRate(pct, rateDate) })
+    startTransition(runAction(async () => { await addReimbursementRate(pct, rateDate) }))
     setShowForm(false)
     setRatePercent('')
     setRateDate(new Date().toISOString().slice(0, 10))
@@ -890,12 +881,12 @@ function RatesSection({ rates }: { rates: Rate[] }) {
     if (!editingId) return
     const pct = Number(editPercent.replace(',', '.'))
     if (!pct || !editDate) return
-    startTransition(async () => { await updateReimbursementRate(editingId, pct, editDate) })
+    startTransition(runAction(async () => { await updateReimbursementRate(editingId, pct, editDate) }))
     setEditingId(null)
   }
 
   const handleDelete = (id: string) => {
-    startTransition(async () => { await deleteReimbursementRate(id) })
+    startTransition(runAction(async () => { await deleteReimbursementRate(id) }))
   }
 
   return (

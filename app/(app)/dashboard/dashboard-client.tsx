@@ -30,7 +30,8 @@ import {
   deleteTransaction,
 } from '@/lib/actions/transactions'
 import { upsertMonthlyOpeningBalance } from '@/lib/actions/monthly-opening-balances'
-import type { Merchant, UserSettings as Settings } from '@/lib/db-types'
+import { runAction } from '@/lib/utils'
+import type { Merchant } from '@/lib/db-types'
 
 type RangeKey = 'ytd' | '1m' | '6m' | '1y' | '2y' | '5y'
 
@@ -53,7 +54,6 @@ const RANGE_LABELS: Record<RangeKey, string> = {
 }
 
 interface DashboardClientProps {
-  settings: Settings
   allTransactions: Transaction[]
   monthKey: string
   monthStart: string
@@ -198,22 +198,22 @@ export function DashboardClient({
   const chartEnd = chartSeries[chartSeries.length - 1]?.balance
 
   const handleSave = async (data: Parameters<typeof addTransaction>[0]) => {
-    startTransition(async () => {
+    startTransition(runAction(async () => {
       if (editingTxn) {
         await updateTransaction(editingTxn.id, data)
       } else {
         await addTransaction(data)
       }
-    })
+    }))
     setSheetOpen(false)
     setEditingTxn(null)
   }
 
   const handleDelete = async () => {
     if (!editingTxn) return
-    startTransition(async () => {
+    startTransition(runAction(async () => {
       await deleteTransaction(editingTxn.id)
-    })
+    }))
     setSheetOpen(false)
     setEditingTxn(null)
   }
@@ -245,6 +245,7 @@ export function DashboardClient({
             <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{ color: 'var(--ink-faint)' }}>€</span>
               <input
+                key={openingBalance}
                 className="fern-input"
                 style={{ width: 110, padding: '4px 8px', fontSize: 13, textAlign: 'right' }}
                 type="number"
@@ -252,9 +253,9 @@ export function DashboardClient({
                 onBlur={(e) => {
                   const v = Number(e.target.value)
                   if (!Number.isFinite(v)) return
-                  startTransition(async () => {
+                  startTransition(runAction(async () => {
                     await upsertMonthlyOpeningBalance(monthKey, v)
-                  })
+                  }))
                 }}
               />
             </span>

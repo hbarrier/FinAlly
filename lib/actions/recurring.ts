@@ -5,13 +5,14 @@ import { db } from '../db'
 import { recurring, recurringAmounts, transactions } from '../schema'
 import { nanoid } from '../utils'
 import { eq, and, isNull, inArray } from 'drizzle-orm'
-import { effectiveAmount, resolvedDayOfMonth } from '../derive'
+import { resolvedDayOfMonth } from '../derive'
 import { defaultPaymentMethodForKind, type PaymentMethod } from '../payment-method'
 import {
   ensureInstancesForRecurring,
   upsertLinkedInstance,
   currentMonth,
 } from '../recurring-instances'
+import { syncRecurringEffectiveAmountTx } from '../recurring-amounts'
 
 export async function addRecurring(data: {
   name: string
@@ -114,7 +115,7 @@ export async function updateRecurring(
           startDate: today,
         })
       }
-      await syncEffectiveAmount(tx, id)
+      await syncRecurringEffectiveAmountTx(tx, id)
     }
 
     // Gap-fill instances when startDate moves earlier
@@ -145,7 +146,7 @@ export async function addRecurringAmount(
       amount,
       startDate,
     })
-    await syncEffectiveAmount(tx, recurringId)
+    await syncRecurringEffectiveAmountTx(tx, recurringId)
   })
   revalidateApp()
 }
@@ -153,7 +154,7 @@ export async function addRecurringAmount(
 export async function deleteRecurringAmount(entryId: string, recurringId: string) {
   await db.transaction(async (tx) => {
     await tx.delete(recurringAmounts).where(eq(recurringAmounts.id, entryId))
-    await syncEffectiveAmount(tx, recurringId)
+    await syncRecurringEffectiveAmountTx(tx, recurringId)
   })
   revalidateApp()
 }
@@ -300,19 +301,3 @@ export async function bulkPromoteToRecurring(
   return { recurringId: newId, linkedCount: txnIds.length }
 }
 
-type DbClient = Parameters<Parameters<typeof db.transaction>[0]>[0] | typeof db
-
-async function syncEffectiveAmount(client: DbClient, recurringId: string) {
-  const allEntries = await client
-    .select()
-    .from(recurringAmounts)
-    .where(eq(recurringAmounts.recurringId, recurringId))
-
-  if (allEntries.length === 0) return
-
-  const current = effectiveAmount(allEntries)
-  await client
-    .update(recurring)
-    .set({ amount: current })
-    .where(eq(recurring.id, recurringId))
-}

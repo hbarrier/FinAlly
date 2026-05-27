@@ -43,7 +43,7 @@ export default async function AppLayout({
               {settings?.name ?? 'You'}
             </div>
             <div className={styles.userCurrency}>
-              € · EUR
+              {settings?.currency ?? 'EUR'}
             </div>
           </div>
           <ThemeToggle />

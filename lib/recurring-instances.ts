@@ -116,8 +116,3 @@ export async function revertInstanceToExpected(
 export function currentMonth(): string {
   return new Date().toISOString().slice(0, 7)
 }
-
-/** Last day of the current month as YYYY-MM. */
-export function endOfCurrentMonth(): string {
-  return currentMonth()
-}

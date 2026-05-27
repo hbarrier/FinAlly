@@ -9,6 +9,7 @@ import { Money } from '@/components/fern/money'
 import { fmt, thisMonthTransactions, type Category } from '@/lib/derive'
 import type { Budget } from '@/lib/db-types'
 import { upsertBudget, deleteBudget } from '@/lib/actions/budgets'
+import { runAction } from '@/lib/utils'
 
 type TransactionSlice = {
   id: string
@@ -115,10 +116,10 @@ export function BudgetsClient({ categories, budgets: budgetsList, transactions: 
                           defaultValue={limit || ''}
                           onBlur={(e) => {
                             const v = Number(e.target.value)
-                            startTransition(async () => {
+                            startTransition(runAction(async () => {
                               if (v > 0) await upsertBudget(c.id, v)
                               else await deleteBudget(c.id)
-                            })
+                            }))
                           }}
                         />
                       </span>

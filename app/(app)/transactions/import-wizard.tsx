@@ -10,6 +10,7 @@ import {
 import { SearchableSelect } from '@/components/fern/searchable-select'
 import { Icon } from '@/components/fern/icon'
 import { importTransactions, type MerchantMappingPayload, type ImportRow } from '@/lib/actions/import'
+import { runAction } from '@/lib/utils'
 import type { RecurringWithAmounts } from '@/lib/derive'
 import type { Merchant } from '@/lib/db-types'
 
@@ -256,10 +257,10 @@ export function ImportWizard({
       amount: r.amount,
     }))
 
-    startTransition(async () => {
+    startTransition(runAction(async () => {
       await importTransactions({ merchantMappings: mappings, rows })
       handleClose()
-    })
+    }))
   }
 
   const newMerchantCount = merchantStates.filter(

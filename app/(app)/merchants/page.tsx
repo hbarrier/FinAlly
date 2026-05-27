@@ -1,4 +1,7 @@
+import type { Metadata } from 'next'
 import { db } from '@/lib/db'
+
+export const metadata: Metadata = { title: 'Merchants | FinAlly' }
 import { MerchantsClient } from './merchants-client'
 
 export default async function MerchantsPage() {

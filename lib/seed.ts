@@ -1,6 +1,6 @@
 import { db } from './db'
 import { categories } from './schema'
-import { nanoid } from './utils'
+import { nanoid, REIMBURSEMENT_CATEGORY_NAME } from './utils'
 import { sql } from 'drizzle-orm'
 
 const DEFAULT_CATEGORIES = [
@@ -16,7 +16,7 @@ const DEFAULT_CATEGORIES = [
 
 // Special categories that must always exist (seeded by name, not in the initial batch)
 const SPECIAL_CATEGORIES = [
-  { icon: 'receipt', name: 'Remboursements', color: 'teal', kind: 'income' as const, isPensionAlimentaire: 0 },
+  { icon: 'receipt', name: REIMBURSEMENT_CATEGORY_NAME, color: 'teal', kind: 'income' as const, isPensionAlimentaire: 0 },
   { icon: 'cat-gift', name: 'Pension alimentaire', color: 'lilac', kind: 'income' as const, isPensionAlimentaire: 1 },
 ]
 
@@ -39,13 +39,10 @@ async function doSeed() {
 
   // Always ensure special categories exist (idempotent by name)
   for (const special of SPECIAL_CATEGORIES) {
-    const exists = existingCats.find((c) => c.name === special.name)
-    if (!exists) {
-      await db.run(sql`
-        INSERT OR IGNORE INTO categories (id, name, icon, color, kind, is_pension_alimentaire)
-        VALUES (${nanoid()}, ${special.name}, ${special.icon}, ${special.color}, ${special.kind}, ${special.isPensionAlimentaire})
-      `)
-    }
+    await db.run(sql`
+      INSERT OR IGNORE INTO categories (id, name, icon, color, kind, is_pension_alimentaire)
+      VALUES (${nanoid()}, ${special.name}, ${special.icon}, ${special.color}, ${special.kind}, ${special.isPensionAlimentaire})
+    `)
   }
 }
 

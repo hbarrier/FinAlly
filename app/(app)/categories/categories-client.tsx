@@ -10,6 +10,7 @@ import { FernButton } from '@/components/fern/button'
 import { EmptyState } from '@/components/fern/empty-state'
 import { fmt, thisMonthTransactions, type Category } from '@/lib/derive'
 import { addCategory, updateCategory, deleteCategory } from '@/lib/actions/categories'
+import { runAction } from '@/lib/utils'
 
 type TransactionSlice = {
   id: string
@@ -56,13 +57,13 @@ export function CategoriesClient({ categories, transactions: txns }: CategoriesC
   const editingItem = editing && editing !== 'new' ? categories.find((c) => c.id === editing) : null
 
   const handleSave = async (data: Parameters<typeof addCategory>[0]) => {
-    startTransition(async () => {
+    startTransition(runAction(async () => {
       if (editing && editing !== 'new') {
         await updateCategory(editing, data)
       } else {
         await addCategory(data)
       }
-    })
+    }))
     setEditing(null)
   }
 
@@ -72,7 +73,7 @@ export function CategoriesClient({ categories, transactions: txns }: CategoriesC
       ? `This category has ${used} transaction${used === 1 ? '' : 's'}. Delete anyway? They'll become "Uncategorized".`
       : `Delete "${cat.name}"?`
     if (!confirm(msg)) return
-    startTransition(async () => { await deleteCategory(cat.id) })
+    startTransition(runAction(async () => { await deleteCategory(cat.id) }))
   }
 
   return (

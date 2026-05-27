@@ -1,4 +1,7 @@
+import type { Metadata } from 'next'
 import { db } from '@/lib/db'
+
+export const metadata: Metadata = { title: 'Recurring | FinAlly' }
 import { asc, eq, inArray } from 'drizzle-orm'
 import { recurringAmounts, merchants as merchantsTable, transactions } from '@/lib/schema'
 import { RecurringClient } from './recurring-client'

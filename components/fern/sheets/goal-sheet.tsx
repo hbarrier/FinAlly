@@ -10,8 +10,7 @@ import { GoalRing } from '../goal-ring'
 import { SheetShell } from '../sheet-shell'
 import { CategoryAppearanceFields } from '../category-appearance-fields'
 import type { Goal } from '@/lib/db-types'
-
-const parseDecimal = (v: string) => Number(v.replace(',', '.'))
+import { parseDecimal } from '@/lib/utils'
 
 const goalSchema = z.object({
   name: z.string().min(1, 'Name is required'),

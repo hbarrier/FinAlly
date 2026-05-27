@@ -1,7 +1,6 @@
 import type { Metadata } from "next"
 import { Inter, Instrument_Serif, JetBrains_Mono } from "next/font/google"
 import "./globals.css"
-import { seed } from "@/lib/seed"
 
 const inter = Inter({
   variable: "--font-inter",
@@ -26,17 +25,11 @@ export const metadata: Metadata = {
   description: "Your quiet place to look after your money.",
 }
 
-// Force dynamic rendering so seed() runs on real requests, not during build
-export const dynamic = 'force-dynamic'
-
-export default async function RootLayout({
+export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode
 }>) {
-  // Seed on first real request (no-op if already done)
-  await seed()
-
   return (
     <html lang="en" className={`${inter.variable} ${instrumentSerif.variable} ${jetbrainsMono.variable} h-full antialiased`}>
       <head>

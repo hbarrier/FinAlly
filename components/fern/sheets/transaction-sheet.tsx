@@ -12,8 +12,7 @@ import { SheetShell } from '../sheet-shell'
 import type { Category, Transaction } from '@/lib/derive'
 import type { Merchant } from '@/lib/db-types'
 import { PAYMENT_METHODS, paymentMethodLabel, type PaymentMethod, defaultPaymentMethodForKind } from '@/lib/payment-method'
-
-const parseDecimal = (v: string) => Number(v.replace(',', '.'))
+import { parseDecimal } from '@/lib/utils'
 
 const transactionSchema = z.object({
   kind: z.enum(['expense', 'income']),

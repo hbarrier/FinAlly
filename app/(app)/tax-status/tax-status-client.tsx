@@ -4,6 +4,8 @@ import { useMemo, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { fmt, formatDate } from '@/lib/derive'
 import { setTaxAllocation } from '@/lib/actions/tax-allocations'
+import { runAction } from '@/lib/utils'
+import { YearPicker } from '@/components/fern/year-picker'
 import type { TaxIncomeRow, TaxExpenseRow } from '@/lib/queries/tax-data'
 import type { TaxAllocationValue } from '@/lib/db-types'
 
@@ -18,9 +20,9 @@ function AllocationPicker({ txId, current }: { txId: string; current: TaxAllocat
   const [isPending, startTransition] = useTransition()
 
   const pick = (v: TaxAllocationValue) => {
-    startTransition(async () => {
+    startTransition(runAction(async () => {
       await setTaxAllocation(txId, v)
-    })
+    }))
   }
 
   const options: { value: TaxAllocationValue; label: string }[] = [
@@ -106,22 +108,15 @@ export function TaxStatusClient({ rows, expenseRows, years, selectedYear }: Prop
 
       {/* Year picker */}
       {years.length > 0 && (
-        <div className="fern-segmented">
-          {years.map((y) => (
-            <button
-              key={y}
-              type="button"
-              className={String(selectedYear) === y ? 'active' : ''}
-              onClick={() => {
-                const params = new URLSearchParams(window.location.search)
-                params.set('year', y)
-                router.push(`?${params.toString()}`)
-              }}
-            >
-              {y}
-            </button>
-          ))}
-        </div>
+        <YearPicker
+          years={years}
+          selectedYear={selectedYear}
+          onSelect={(y) => {
+            const params = new URLSearchParams(window.location.search)
+            params.set('year', y)
+            router.push(`?${params.toString()}`)
+          }}
+        />
       )}
 
       {/* Summary cards */}

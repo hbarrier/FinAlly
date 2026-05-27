@@ -1,4 +1,7 @@
+import type { Metadata } from 'next'
 import { getAvailableTaxYears, getTaxData, getExpenseTaxData } from '@/lib/queries/tax-data'
+
+export const metadata: Metadata = { title: 'Tax Status | FinAlly' }
 import { TaxStatusClient } from './tax-status-client'
 
 export default async function TaxStatusPage({

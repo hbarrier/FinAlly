@@ -1,4 +1,7 @@
+import type { Metadata } from 'next'
 import { db } from '@/lib/db'
+
+export const metadata: Metadata = { title: 'Budgets | FinAlly' }
 import { desc } from 'drizzle-orm'
 import { transactions } from '@/lib/schema'
 import { BudgetsClient } from './budgets-client'

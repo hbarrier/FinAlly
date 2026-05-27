@@ -1,4 +1,7 @@
+import type { Metadata } from 'next'
 import { db } from '@/lib/db'
+
+export const metadata: Metadata = { title: 'Reimbursements | FinAlly' }
 import { desc, eq, and, gte, lte, sql, inArray } from 'drizzle-orm'
 import {
   transactions,
@@ -10,6 +13,7 @@ import {
   taxAllocations,
 } from '@/lib/schema'
 import { getApplicableReimbursementRate } from '@/lib/reimbursement-mapping'
+import { REIMBURSEMENT_CATEGORY_NAME } from '@/lib/utils'
 import { ReimbursementsClient } from './reimbursements-client'
 
 export default async function ReimbursementsPage({
@@ -32,7 +36,10 @@ export default async function ReimbursementsPage({
     db.select().from(reimbursementClaims).where(
       and(gte(reimbursementClaims.month, `${year}-01`), lte(reimbursementClaims.month, `${year}-12`)),
     ),
-    db.select().from(reimbursementClaimAllocations),
+    db.select({ claimId: reimbursementClaimAllocations.claimId, reimbursementTxId: reimbursementClaimAllocations.reimbursementTxId })
+      .from(reimbursementClaimAllocations)
+      .innerJoin(reimbursementClaims, eq(reimbursementClaimAllocations.claimId, reimbursementClaims.id))
+      .where(and(gte(reimbursementClaims.month, `${year}-01`), lte(reimbursementClaims.month, `${year}-12`))),
     db.select().from(taxAllocations),
   ])
 
@@ -46,7 +53,7 @@ export default async function ReimbursementsPage({
 
   // Fetch all cleared Remboursements income transactions (for the picker)
   const reimbCatIds = cats
-    .filter((c) => c.kind === 'income' && c.name === 'Remboursements')
+    .filter((c) => c.kind === 'income' && c.name === REIMBURSEMENT_CATEGORY_NAME)
     .map((c) => c.id)
   const eligibleIncomes = reimbCatIds.length > 0
     ? await db.select().from(transactions).where(

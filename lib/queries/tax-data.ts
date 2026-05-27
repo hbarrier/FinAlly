@@ -9,6 +9,7 @@ import {
 } from '@/lib/schema'
 import { and, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm'
 import type { TaxAllocationValue } from '@/lib/db-types'
+import { REIMBURSEMENT_CATEGORY_NAME } from '@/lib/utils'
 
 export type TaxExpenseRow = {
   id: string
@@ -43,7 +44,7 @@ export const getAvailableTaxYears = cache(async (): Promise<string[]> => {
     .filter(
       (c) =>
         c.kind === 'income' &&
-        (c.name === 'Remboursements' || c.isPensionAlimentaire === 1),
+        (c.name === REIMBURSEMENT_CATEGORY_NAME || c.isPensionAlimentaire === 1),
     )
     .map((c) => c.id)
 
@@ -70,7 +71,7 @@ export const getTaxData = cache(async (year: number): Promise<TaxIncomeRow[]> =>
   // Step 1: qualifying category ids
   const cats = await db.select().from(categories)
   const reimbursementCategoryIds = new Set(
-    cats.filter((c) => c.kind === 'income' && c.name === 'Remboursements').map((c) => c.id),
+    cats.filter((c) => c.kind === 'income' && c.name === REIMBURSEMENT_CATEGORY_NAME).map((c) => c.id),
   )
   const pensionCategoryIds = new Set(
     cats.filter((c) => c.kind === 'income' && c.isPensionAlimentaire === 1).map((c) => c.id),

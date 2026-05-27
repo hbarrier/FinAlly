@@ -10,6 +10,7 @@ import { FernButton } from '@/components/fern/button'
 import { EmptyState } from '@/components/fern/empty-state'
 import { fmt, monthlyEstimate, type Category, type RecurringWithAmounts } from '@/lib/derive'
 import { addRecurring, updateRecurring, deleteRecurring } from '@/lib/actions/recurring'
+import { runAction } from '@/lib/utils'
 import type { Merchant } from '@/lib/db-types'
 
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -34,19 +35,19 @@ export function RecurringClient({ recurring, categories, merchants, transactions
   const editingItem = editing && editing !== 'new' ? recurring.find((r) => r.id === editing) : null
 
   const handleSave = async (data: Parameters<typeof addRecurring>[0]) => {
-    startTransition(async () => {
+    startTransition(runAction(async () => {
       if (editing && editing !== 'new') {
         await updateRecurring(editing, data)
       } else {
         await addRecurring(data)
       }
-    })
+    }))
     setEditing(null)
   }
 
   const handleDelete = async (id: string) => {
     if (!confirm('Delete this recurring item?')) return
-    startTransition(async () => { await deleteRecurring(id) })
+    startTransition(runAction(async () => { await deleteRecurring(id) }))
   }
 
   return (

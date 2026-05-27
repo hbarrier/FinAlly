@@ -14,8 +14,7 @@ import { fmt, type Category, type Recurring, type RecurringAmount } from '@/lib/
 import { addRecurringAmount, deleteRecurringAmount } from '@/lib/actions/recurring'
 import type { Merchant } from '@/lib/db-types'
 import { PAYMENT_METHODS, paymentMethodLabel, defaultPaymentMethodForKind, type PaymentMethod } from '@/lib/payment-method'
-
-const parseDecimal = (v: string) => Number(v.replace(',', '.'))
+import { parseDecimal } from '@/lib/utils'
 
 const CADENCES = [
   { value: 'weekly', label: 'Weekly' },

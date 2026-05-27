@@ -14,7 +14,6 @@ import type {
   reimbursementAllocations,
   reimbursementClaims,
   reimbursementClaimAllocations,
-  taxAllocations,
 } from './schema'
 
 export type Category = InferSelectModel<typeof categories>
@@ -38,5 +37,4 @@ export type RecurringWithAmounts = Recurring & { amounts: RecurringAmount[] }
 export type TransactionKind = Transaction['kind']
 export type RecurringCadence = Recurring['cadence']
 
-export type TaxAllocation = InferSelectModel<typeof taxAllocations>
 export type TaxAllocationValue = 'audrey' | 'lucie' | 'split'

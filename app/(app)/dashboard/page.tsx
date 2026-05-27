@@ -1,4 +1,7 @@
+import type { Metadata } from 'next'
 import { db } from '@/lib/db'
+
+export const metadata: Metadata = { title: 'Dashboard | FinAlly' }
 import { and, asc, gte, lt } from 'drizzle-orm'
 import { transactions } from '@/lib/schema'
 import { DashboardClient } from './dashboard-client'
@@ -42,7 +45,6 @@ export default async function DashboardPage() {
 
   return (
     <DashboardClient
-      settings={effectiveSettings}
       allTransactions={allTxns}
       monthKey={monthKey}
       monthStart={monthStart}
