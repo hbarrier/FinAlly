@@ -6,6 +6,9 @@ import { simulations, simulationLines, recurring, transactions, categories, merc
 import { nanoid } from '../utils'
 import { eq, and, or, isNull, gte, lt, inArray } from 'drizzle-orm'
 import { completeMonthsWindow } from '../derive'
+import type { SimulationInputs } from '../db-types'
+
+export type { SimulationInputs } from '../db-types'
 
 export async function addSimulation(data: {
   name: string
@@ -56,6 +59,7 @@ export async function addSimulationLine(
     amount: data.amount,
     frequency: data.frequency,
     sourceRecurringId: data.sourceRecurringId ?? null,
+    origin: data.sourceRecurringId ? 'recurring' : 'manual',
   })
   revalidateApp()
 }
@@ -78,22 +82,6 @@ export async function updateSimulationLine(
 export async function deleteSimulationLine(id: string) {
   await db.delete(simulationLines).where(eq(simulationLines.id, id))
   revalidateApp()
-}
-
-export type SimulationInputs = {
-  recurring: {
-    monthlyExpenses: boolean
-    monthlyIncome: boolean
-    yearlyExpenses: boolean
-    yearlyIncome: boolean
-  }
-  avg: {
-    expenses: boolean
-    income: boolean
-    periodMonths: 1 | 6 | 12
-    rollup: 'all' | 'drop' | 'other'
-    thresholdMonthly: number
-  }
 }
 
 type NewLine = typeof simulationLines.$inferInsert
@@ -137,6 +125,7 @@ async function recurringLines(
       amount: r.amount,
       frequency: r.cadence,
       sourceRecurringId: r.id,
+      origin: 'recurring',
     }))
 }
 
@@ -206,6 +195,7 @@ async function averagedLinesForKind(
     amount: c.avgMonthly,
     frequency: 'monthly',
     sourceRecurringId: null,
+    origin: 'average',
   }))
 
   for (const [k, amount] of rolled) {
@@ -220,6 +210,8 @@ async function averagedLinesForKind(
       amount,
       frequency: 'monthly',
       sourceRecurringId: null,
+      rollup: 1,
+      origin: 'rollup',
     })
   }
 
@@ -248,6 +240,7 @@ export async function populateSimulationFromInputs(
   }
 
   if (lines.length > 0) await db.insert(simulationLines).values(lines)
+  await db.update(simulations).set({ inputs: JSON.stringify(inputs) }).where(eq(simulations.id, simulationId))
   revalidateApp()
 }
 
@@ -264,6 +257,7 @@ export async function duplicateSimulation(id: string): Promise<{ id: string }> {
       id: newId,
       name: `${original.name} (copy)`,
       description: original.description,
+      inputs: original.inputs,
     })
 
     if (original.lines.length > 0) {
@@ -278,6 +272,8 @@ export async function duplicateSimulation(id: string): Promise<{ id: string }> {
           amount: l.amount,
           frequency: l.frequency,
           sourceRecurringId: l.sourceRecurringId,
+          rollup: l.rollup,
+          origin: l.origin,
         })),
       )
     }

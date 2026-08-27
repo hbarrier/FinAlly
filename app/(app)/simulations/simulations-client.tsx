@@ -11,6 +11,7 @@ import { SimulationSheet } from '@/components/fern/sheets/simulation-sheet'
 import { fmt, simulationTotals } from '@/lib/derive'
 import type { SimulationWithLines } from '@/lib/db-types'
 import { addSimulation, populateSimulationFromInputs, deleteSimulation, duplicateSimulation, type SimulationInputs } from '@/lib/actions/simulations'
+import { alertDialog, confirmDialog } from '@/lib/dialogs-store'
 
 interface SimulationsClientProps {
   simulations: SimulationWithLines[]
@@ -29,7 +30,7 @@ export function SimulationsClient({ simulations, recurringEnabled }: Simulations
         if (data.inputs) await populateSimulationFromInputs(id, data.inputs)
         router.push(`/simulations/${id}`)
       } catch (e) {
-        alert(e instanceof Error ? e.message : 'An error occurred')
+        void alertDialog(e instanceof Error ? e.message : 'An error occurred')
       }
     })
   }
@@ -40,18 +41,18 @@ export function SimulationsClient({ simulations, recurringEnabled }: Simulations
         const clone = await duplicateSimulation(id)
         router.push(`/simulations/${clone.id}`)
       } catch (e) {
-        alert(e instanceof Error ? e.message : 'An error occurred')
+        void alertDialog(e instanceof Error ? e.message : 'An error occurred')
       }
     })
   }
 
-  const handleDelete = (id: string) => {
-    if (!confirm('Delete this simulation?')) return
+  const handleDelete = async (id: string) => {
+    if (!(await confirmDialog({ message: 'Delete this simulation?', confirmLabel: 'Delete', tone: 'danger' }))) return
     startTransition(async () => {
       try {
         await deleteSimulation(id)
       } catch (e) {
-        alert(e instanceof Error ? e.message : 'An error occurred')
+        void alertDialog(e instanceof Error ? e.message : 'An error occurred')
       }
     })
   }

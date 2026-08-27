@@ -26,6 +26,7 @@ import { RecurringLinkSheet } from '@/components/fern/sheets/recurring-link-shee
 import { BulkRecurringLinkSheet } from '@/components/fern/sheets/bulk-recurring-link-sheet'
 import type { Merchant, RecurringInstance } from '@/lib/db-types'
 import { runAction, REIMBURSEMENT_CATEGORY_NAME } from '@/lib/utils'
+import { confirmDialog } from '@/lib/dialogs-store'
 import { YearPicker } from '@/components/fern/year-picker'
 import { TransactionFilters } from './transaction-filters'
 import { TransactionRow } from './transaction-row'
@@ -498,16 +499,20 @@ export function TransactionsClient({
         nextCategory.name === REIMBURSEMENT_CATEGORY_NAME
 
       if (mappingCount > 0 && wasReimbursableExpense && !willBeReimbursableExpense) {
-        const confirmed = window.confirm(
-          'This expense has reimbursement mappings. Turning off reimbursable will clear its mappings and manual settlement state.',
-        )
+        const confirmed = await confirmDialog({
+          message:
+            'This expense has reimbursement mappings. Turning off reimbursable will clear its mappings and manual settlement state.',
+          confirmLabel: 'Continue',
+        })
         if (!confirmed) return
       }
 
       if (mappingCount > 0 && wasReimbursementIncome && !willBeReimbursementIncome) {
-        const confirmed = window.confirm(
-          'This reimbursement income has mappings. Changing it out of the Remboursements category will clear those mappings.',
-        )
+        const confirmed = await confirmDialog({
+          message:
+            'This reimbursement income has mappings. Changing it out of the Remboursements category will clear those mappings.',
+          confirmLabel: 'Continue',
+        })
         if (!confirmed) return
       }
     }
@@ -534,9 +539,12 @@ export function TransactionsClient({
             const latest = candidates[candidates.length - 1]
             const isLatestThisMonth = latest?.id === editingTxn.id
             if (isLatestThisMonth) {
-              propagateRecurringAmount = window.confirm(
-                'This is the latest instance of this recurring item this month.\n\nPush this amount to the recurring template going forward?',
-              )
+              propagateRecurringAmount = await confirmDialog({
+                title: 'Update recurring template?',
+                message:
+                  'This is the latest instance of this recurring item this month.\n\nPush this amount to the recurring template going forward?',
+                confirmLabel: 'Push forward',
+              })
             }
           }
         }

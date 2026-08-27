@@ -15,6 +15,20 @@
       "when": 1787829938059,
       "tag": "0001_productive_the_order",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1787831296938,
+      "tag": "0002_thick_boomerang",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1787831853069,
+      "tag": "0003_redundant_romulus",
+      "breakpoints": true
     }
   ]
 }

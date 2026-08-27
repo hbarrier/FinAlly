@@ -11,6 +11,7 @@ export type {
   RecurringInstance,
   RecurringWithAmounts,
   SimulationLine,
+  SimulationInputs,
 } from './db-types'
 import type {
   Category,
@@ -19,6 +20,7 @@ import type {
   RecurringAmount,
   RecurringInstance,
   SimulationLine,
+  SimulationInputs,
 } from './db-types'
 
 export function effectiveAmount(amounts: RecurringAmount[], date: Date = new Date()): number {
@@ -347,6 +349,52 @@ export function simulationLinesByCategory(
       }
     })
     .sort((a, b) => b.amount - a.amount)
+}
+
+export function sortSimulationLines(lines: SimulationLine[]): SimulationLine[] {
+  return [...lines].sort((a, b) => Number(b.amount || 0) - Number(a.amount || 0))
+}
+
+export function groupSimulationLinesByCategory(
+  lines: SimulationLine[],
+  cats: Category[],
+): { key: string; cat: Category | undefined; total: number; lines: SimulationLine[] }[] {
+  const catById = new Map(cats.map((c) => [c.id, c]))
+  const groups = new Map<string, { cat: Category | undefined; lines: SimulationLine[] }>()
+  for (const l of sortSimulationLines(lines)) {
+    const cat = l.categoryId ? catById.get(l.categoryId) : undefined
+    const key = cat?.name ?? 'Uncategorized'
+    if (!groups.has(key)) groups.set(key, { cat, lines: [] })
+    groups.get(key)!.lines.push(l)
+  }
+  return [...groups.entries()]
+    .map(([key, g]) => ({
+      key,
+      cat: g.cat,
+      total: g.lines.reduce((s, l) => s + Number(l.amount || 0), 0),
+      lines: g.lines,
+    }))
+    .sort((a, b) => b.total - a.total)
+}
+
+/** Human-readable bullets describing the wizard inputs a simulation was seeded with. */
+export function describeSimulationInputs(inputs: SimulationInputs): string[] {
+  const out: string[] = []
+  const rec = inputs.recurring
+  if (rec.monthlyExpenses) out.push('Recurring monthly expenses')
+  if (rec.monthlyIncome) out.push('Recurring monthly income')
+  if (rec.yearlyExpenses) out.push('Recurring yearly expenses')
+  if (rec.yearlyIncome) out.push('Recurring yearly income')
+
+  const period = inputs.avg.periodMonths === 1 ? 'last month' : `last ${inputs.avg.periodMonths} months`
+  if (inputs.avg.expenses) out.push(`Averaged non-recurring expenses · ${period}`)
+  if (inputs.avg.income) out.push(`Averaged non-recurring income · ${period}`)
+
+  if ((inputs.avg.expenses || inputs.avg.income) && inputs.avg.rollup !== 'all') {
+    const under = `Items under ${fmt(inputs.avg.thresholdMonthly)}/mo`
+    out.push(inputs.avg.rollup === 'drop' ? `${under} dropped` : `${under} rolled into "Other <category>"`)
+  }
+  return out
 }
 
 export function currentRecurringMonthlyNet(recurringItems: Recurring[], ref: Date = new Date()): number {

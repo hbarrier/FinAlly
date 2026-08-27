@@ -659,6 +659,29 @@
   cursor: default;
 }
 
+.fern-btn.sheet-primary.danger {
+  background: var(--rose-ink);
+  color: white;
+}
+
+/* ---------- Modal scaffolding ---------- */
+.fern-modal-content {
+  background: var(--bg-elevated);
+  max-width: 420px;
+}
+
+.fern-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+
+.fern-modal-content .fern-sheet-footer {
+  margin-top: 4px;
+}
+
 /* ---------- Category tile grid ---------- */
 .fern-cat-grid {
   display: grid;

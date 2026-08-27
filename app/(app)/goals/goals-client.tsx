@@ -10,6 +10,7 @@ import { EmptyState } from '@/components/fern/empty-state'
 import { fmt, formatDate } from '@/lib/derive'
 import { addGoal, updateGoal, deleteGoal } from '@/lib/actions/goals'
 import { runAction } from '@/lib/utils'
+import { confirmDialog, promptDialog } from '@/lib/dialogs-store'
 import type { Goal } from '@/lib/db-types'
 
 interface GoalsClientProps {
@@ -34,7 +35,7 @@ export function GoalsClient({ goals: goalsList }: GoalsClientProps) {
   }
 
   const handleContribute = async (g: Goal) => {
-    const add = prompt('Add to this goal (€)', '50')
+    const add = await promptDialog({ title: 'Add a contribution', message: 'Add to this goal (€)', defaultValue: '50', confirmLabel: 'Add' })
     const n = Number(add)
     if (n > 0) {
       startTransition(runAction(async () => {
@@ -102,7 +103,7 @@ export function GoalsClient({ goals: goalsList }: GoalsClientProps) {
                   <button onClick={() => setEditing(g.id)} style={{ background: 'none', border: '1.5px solid var(--line)', borderRadius: 10, cursor: 'pointer', color: 'var(--ink-soft)', padding: '7px 10px', display: 'grid', placeItems: 'center' }}>
                     <Icon name="edit" size={14} />
                   </button>
-                  <button onClick={() => { if (confirm('Delete this goal?')) startTransition(runAction(async () => { await deleteGoal(g.id) })) }} style={{ background: 'none', border: '1.5px solid var(--line)', borderRadius: 10, cursor: 'pointer', color: 'var(--ink-soft)', padding: '7px 10px', display: 'grid', placeItems: 'center' }}>
+                  <button onClick={async () => { if (await confirmDialog({ message: 'Delete this goal?', confirmLabel: 'Delete', tone: 'danger' })) startTransition(runAction(async () => { await deleteGoal(g.id) })) }} style={{ background: 'none', border: '1.5px solid var(--line)', borderRadius: 10, cursor: 'pointer', color: 'var(--ink-soft)', padding: '7px 10px', display: 'grid', placeItems: 'center' }}>
                     <Icon name="trash" size={14} />
                   </button>
                 </div>

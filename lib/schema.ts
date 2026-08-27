@@ -116,6 +116,7 @@ export const simulations = sqliteTable('simulations', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   description: text('description'),
+  inputs: text('inputs'), // JSON SimulationInputs used to seed it; null when hand-built
   createdAt: text('created_at')
     .notNull()
     .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
@@ -141,6 +142,10 @@ export const simulationLines = sqliteTable(
     sourceRecurringId: text('source_recurring_id').references(() => recurring.id, {
       onDelete: 'set null',
     }),
+    rollup: int('rollup').notNull().default(0),
+    origin: text('origin', { enum: ['manual', 'recurring', 'average', 'rollup'] })
+      .notNull()
+      .default('manual'),
   },
   (t) => [
     index('simulation_lines_simulation_id_idx').on(t.simulationId),

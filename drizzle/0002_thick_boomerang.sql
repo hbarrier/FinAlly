@@ -1,0 +1,1 @@
+ALTER TABLE `simulation_lines` ADD `rollup` integer DEFAULT 0 NOT NULL;

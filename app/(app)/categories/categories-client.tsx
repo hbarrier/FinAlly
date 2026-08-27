@@ -11,6 +11,7 @@ import { EmptyState } from '@/components/fern/empty-state'
 import { fmt, thisMonthTransactions, type Category } from '@/lib/derive'
 import { addCategory, updateCategory, deleteCategory } from '@/lib/actions/categories'
 import { runAction } from '@/lib/utils'
+import { confirmDialog } from '@/lib/dialogs-store'
 
 type TransactionSlice = {
   id: string
@@ -72,7 +73,7 @@ export function CategoriesClient({ categories, transactions: txns }: CategoriesC
     const msg = used > 0
       ? `This category has ${used} transaction${used === 1 ? '' : 's'}. Delete anyway? They'll become "Uncategorized".`
       : `Delete "${cat.name}"?`
-    if (!confirm(msg)) return
+    if (!(await confirmDialog({ message: msg, confirmLabel: 'Delete', tone: 'danger' }))) return
     startTransition(runAction(async () => { await deleteCategory(cat.id) }))
   }
 

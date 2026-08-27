@@ -1,5 +1,6 @@
 import type { Metadata } from "next"
 import { Inter, Instrument_Serif, JetBrains_Mono } from "next/font/google"
+import { DialogsHost } from "@/lib/dialogs"
 import "./globals.css"
 
 const inter = Inter({
@@ -39,7 +40,10 @@ export default function RootLayout({
           }}
         />
       </head>
-      <body className="min-h-full">{children}</body>
+      <body className="min-h-full">
+        {children}
+        <DialogsHost />
+      </body>
     </html>
   )
 }

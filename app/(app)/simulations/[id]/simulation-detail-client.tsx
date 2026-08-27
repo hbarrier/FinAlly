@@ -18,14 +18,20 @@ import {
   currentBalance,
   simulationTotals,
   simulationLinesByCategory,
+  sortSimulationLines,
+  groupSimulationLinesByCategory,
   currentRecurringMonthlyNet,
   simulationBalanceProjection,
+  describeSimulationInputs,
   type SimulationView,
+  type SimulationInputs,
   type Category,
   type Recurring,
   type Transaction,
 } from '@/lib/derive'
 import type { Merchant, SimulationLine, SimulationWithLines } from '@/lib/db-types'
+import { alertDialog, confirmDialog } from '@/lib/dialogs-store'
+import { Modal } from '@/components/fern/modal'
 import {
   addSimulationLine,
   deleteSimulation,
@@ -39,6 +45,29 @@ const VIEWS = [
   { value: 'monthly', label: 'Monthly' },
   { value: 'yearly', label: 'Yearly' },
 ]
+
+/** Per-line provenance chips. `manual` lines carry no chip. Order = legend order. */
+const ORIGINS = [
+  { key: 'recurring', label: 'recurring', bg: 'var(--teal-bg)', ink: 'var(--teal-ink)' },
+  { key: 'average', label: 'averaged', bg: 'var(--butter-bg)', ink: 'var(--butter-ink)' },
+  { key: 'rollup', label: 'grouped', bg: 'var(--lilac-bg)', ink: 'var(--lilac-ink)' },
+  { key: 'manual', label: 'added by hand', bg: 'var(--line-soft)', ink: 'var(--ink-soft)' },
+] as const
+
+const ORIGIN_META = Object.fromEntries(ORIGINS.map((o) => [o.key, o])) as Record<
+  string,
+  (typeof ORIGINS)[number]
+>
+
+function OriginChip({ origin }: { origin: string }) {
+  const m = ORIGIN_META[origin]
+  if (!m || origin === 'manual') return null
+  return (
+    <span style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.04em', padding: '1px 5px', borderRadius: 4, background: m.bg, color: m.ink }}>
+      {m.label}
+    </span>
+  )
+}
 
 interface SimulationDetailClientProps {
   simulation: SimulationWithLines
@@ -62,10 +91,12 @@ export function SimulationDetailClient({
   const router = useRouter()
   const [, startTransition] = useTransition()
   const [editingSimulation, setEditingSimulation] = useState(false)
+  const [showInfo, setShowInfo] = useState(false)
   const [editingLine, setEditingLine] = useState<string | null>(null)
   const [addingKind, setAddingKind] = useState<'expense' | 'income' | null>(null)
   const [viewMode, setViewMode] = useState<'monthly' | 'yearly'>('monthly')
   const [includeYearlySplit, setIncludeYearlySplit] = useState(false)
+  const [lineView, setLineView] = useState<'amount' | 'category'>('amount')
 
   const view: SimulationView =
     viewMode === 'yearly' ? 'yearly' : includeYearlySplit ? 'monthly-with-yearly' : 'monthly'
@@ -101,12 +132,27 @@ export function SimulationDetailClient({
 
   const editingLineItem = editingLine ? simulation.lines.find((l) => l.id === editingLine) ?? null : null
 
+  const seededWith = useMemo<string[] | null>(() => {
+    if (!simulation.inputs) return null
+    try {
+      return describeSimulationInputs(JSON.parse(simulation.inputs) as SimulationInputs)
+    } catch {
+      return null
+    }
+  }, [simulation.inputs])
+
+  const originCounts = useMemo(() => {
+    const c: Record<string, number> = {}
+    for (const l of simulation.lines) c[l.origin] = (c[l.origin] ?? 0) + 1
+    return c
+  }, [simulation.lines])
+
   const handleSaveSimulation = (data: { name: string; description: string | null }) => {
     startTransition(async () => {
       try {
         await updateSimulation(simulation.id, { name: data.name, description: data.description })
       } catch (e) {
-        alert(e instanceof Error ? e.message : 'An error occurred')
+        void alertDialog(e instanceof Error ? e.message : 'An error occurred')
       }
     })
   }
@@ -117,19 +163,19 @@ export function SimulationDetailClient({
         const clone = await duplicateSimulation(simulation.id)
         router.push(`/simulations/${clone.id}`)
       } catch (e) {
-        alert(e instanceof Error ? e.message : 'An error occurred')
+        void alertDialog(e instanceof Error ? e.message : 'An error occurred')
       }
     })
   }
 
-  const handleDeleteSimulation = () => {
-    if (!confirm('Delete this simulation?')) return
+  const handleDeleteSimulation = async () => {
+    if (!(await confirmDialog({ message: 'Delete this simulation?', confirmLabel: 'Delete', tone: 'danger' }))) return
     startTransition(async () => {
       try {
         await deleteSimulation(simulation.id)
         router.push('/simulations')
       } catch (e) {
-        alert(e instanceof Error ? e.message : 'An error occurred')
+        void alertDialog(e instanceof Error ? e.message : 'An error occurred')
       }
     })
   }
@@ -152,20 +198,20 @@ export function SimulationDetailClient({
           await addSimulationLine(simulation.id, data)
         }
       } catch (e) {
-        alert(e instanceof Error ? e.message : 'An error occurred')
+        void alertDialog(e instanceof Error ? e.message : 'An error occurred')
       }
     })
     setEditingLine(null)
     setAddingKind(null)
   }
 
-  const handleDeleteLine = (id: string) => {
-    if (!confirm('Delete this line?')) return
+  const handleDeleteLine = async (id: string) => {
+    if (!(await confirmDialog({ message: 'Delete this line?', confirmLabel: 'Delete', tone: 'danger' }))) return
     startTransition(async () => {
       try {
         await deleteSimulationLine(id)
       } catch (e) {
-        alert(e instanceof Error ? e.message : 'An error occurred')
+        void alertDialog(e instanceof Error ? e.message : 'An error occurred')
       }
     })
   }
@@ -181,7 +227,21 @@ export function SimulationDetailClient({
 
       <PageHeader
         kicker="What-if scenario"
-        title={<em>{simulation.name}</em>}
+        title={
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <em>{simulation.name}</em>
+            {seededWith && (
+              <button
+                type="button"
+                onClick={() => setShowInfo(true)}
+                aria-label="What's included in this simulation"
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-faint)', display: 'grid', placeItems: 'center', padding: 2 }}
+              >
+                <Icon name="info" size={18} />
+              </button>
+            )}
+          </span>
+        }
         actions={
           <div style={{ display: 'flex', gap: 8 }}>
             <FernButton tone="outline" onClick={() => setEditingSimulation(true)}>
@@ -199,6 +259,39 @@ export function SimulationDetailClient({
 
       {simulation.description && (
         <p style={{ color: 'var(--ink-soft)', fontSize: 13, marginTop: -12, marginBottom: 20 }}>{simulation.description}</p>
+      )}
+
+      {seededWith && (
+        <Modal
+          open={showInfo}
+          onClose={() => setShowInfo(false)}
+          title="What's included"
+          footer={
+            <button type="button" className="fern-btn sheet-primary primary" onClick={() => setShowInfo(false)}>
+              Got it
+            </button>
+          }
+        >
+          {seededWith.length > 0 && (
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--ink-faint)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 4 }}>Seeded with</div>
+              <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: 'var(--ink-soft)', display: 'flex', flexDirection: 'column', gap: 2 }}>
+                {seededWith.map((s) => <li key={s}>{s}</li>)}
+              </ul>
+            </div>
+          )}
+          <div>
+            <div style={{ fontSize: 11, color: 'var(--ink-faint)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 4 }}>Lines now</div>
+            <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>
+              {ORIGINS.filter((o) => originCounts[o.key]).map((o, i) => (
+                <span key={o.key}>
+                  {i > 0 && ' · '}
+                  {originCounts[o.key]} {o.label}
+                </span>
+              ))}
+            </div>
+          </div>
+        </Modal>
       )}
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
@@ -274,10 +367,30 @@ export function SimulationDetailClient({
           description="Add revenues and expenses from scratch, or copy them from a recurring item."
         />
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-          <LineList title="Revenue lines" lines={revenues} categoryById={categoryById} merchantById={merchantById} recurringById={recurringById} onEdit={setEditingLine} onDelete={handleDeleteLine} />
-          <LineList title="Expense lines" lines={expenses} categoryById={categoryById} merchantById={merchantById} recurringById={recurringById} onEdit={setEditingLine} onDelete={handleDeleteLine} />
-        </div>
+        <>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              {ORIGINS.filter((o) => originCounts[o.key]).map((o) => (
+                <span key={o.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--ink-faint)' }}>
+                  <span style={{ width: 8, height: 8, borderRadius: 2, background: o.bg }} />
+                  {o.label}
+                </span>
+              ))}
+            </div>
+            <SegmentedControl
+              value={lineView}
+              onChange={(v) => setLineView(v as 'amount' | 'category')}
+              options={[
+                { value: 'amount', label: 'By amount' },
+                { value: 'category', label: 'By category' },
+              ]}
+            />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            <LineList title="Revenue lines" lines={revenues} view={lineView} categories={categories} categoryById={categoryById} merchantById={merchantById} recurringById={recurringById} onEdit={setEditingLine} onDelete={handleDeleteLine} />
+            <LineList title="Expense lines" lines={expenses} view={lineView} categories={categories} categoryById={categoryById} merchantById={merchantById} recurringById={recurringById} onEdit={setEditingLine} onDelete={handleDeleteLine} />
+          </div>
+        </>
       )}
 
       <SimulationSheet
@@ -306,6 +419,8 @@ export function SimulationDetailClient({
 function LineList({
   title,
   lines,
+  view,
+  categories,
   categoryById,
   merchantById,
   recurringById,
@@ -314,12 +429,17 @@ function LineList({
 }: {
   title: string
   lines: SimulationLine[]
+  view: 'amount' | 'category'
+  categories: Category[]
   categoryById: Map<string, Category>
   merchantById: Map<string, Merchant>
   recurringById: Map<string, Recurring>
   onEdit: (id: string) => void
   onDelete: (id: string) => void
 }) {
+  const groups = view === 'category' ? groupSimulationLinesByCategory(lines, categories) : null
+  const rowProps = { categoryById, merchantById, recurringById, onEdit, onDelete }
+
   return (
     <div className="fern-card">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
@@ -328,39 +448,73 @@ function LineList({
       </div>
       {lines.length === 0 ? (
         <div style={{ color: 'var(--ink-faint)', padding: '20px 0', textAlign: 'center', fontSize: 13 }}>None yet</div>
-      ) : (
-        lines.map((l) => {
-          const cat = l.categoryId ? categoryById.get(l.categoryId) : undefined
-          const merchant = l.merchantId ? merchantById.get(l.merchantId) : undefined
-          const source = l.sourceRecurringId ? recurringById.get(l.sourceRecurringId) : undefined
-          return (
-            <div key={l.id} onClick={() => onEdit(l.id)} style={{ cursor: 'pointer' }}>
-              <div className="fern-txn-row">
-                <CatSwatch color={cat?.color} icon={cat?.icon ?? 'tag'} size={34} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--ink)' }}>
-                    {l.name || cat?.name || 'Uncategorized'}
-                  </div>
-                  <div style={{ fontSize: 12, color: 'var(--ink-faint)' }}>
-                    {[cat?.name, merchant?.name].filter(Boolean).join(' · ')}
-                    {l.frequency === 'yearly' ? ' · Yearly' : ' · Monthly'}
-                    {source && ` · from ${source.name}`}
-                  </div>
-                </div>
-                <div style={{ fontSize: 14, fontWeight: 600, color: l.kind === 'income' ? 'var(--sage-ink)' : 'var(--rose-ink)', fontFamily: 'var(--mono-fern)', flexShrink: 0 }}>
-                  {l.kind === 'income' ? '+' : '−'}{fmt(l.amount)}
-                </div>
-                <button
-                  onClick={(e) => { e.stopPropagation(); onDelete(l.id) }}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-faint)', display: 'grid', placeItems: 'center', padding: 4 }}
-                >
-                  <Icon name="trash" size={14} />
-                </button>
+      ) : groups ? (
+        groups.map((g) => (
+          <div key={g.key} style={{ marginBottom: 8 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', borderBottom: '1px solid var(--border)', marginBottom: 4 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                {g.cat && <CatSwatch color={g.cat.color} icon={g.cat.icon ?? 'tag'} size={18} />}
+                <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-faint)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{g.key}</span>
               </div>
+              <span style={{ fontSize: 11, fontFamily: 'var(--mono-fern)', color: 'var(--ink-faint)' }}>{fmt(g.total)}</span>
             </div>
-          )
-        })
+            {g.lines.map((l) => <LineRow key={l.id} l={l} {...rowProps} />)}
+          </div>
+        ))
+      ) : (
+        sortSimulationLines(lines).map((l) => <LineRow key={l.id} l={l} {...rowProps} />)
       )}
+    </div>
+  )
+}
+
+function LineRow({
+  l,
+  categoryById,
+  merchantById,
+  recurringById,
+  onEdit,
+  onDelete,
+}: {
+  l: SimulationLine
+  categoryById: Map<string, Category>
+  merchantById: Map<string, Merchant>
+  recurringById: Map<string, Recurring>
+  onEdit: (id: string) => void
+  onDelete: (id: string) => void
+}) {
+  const cat = l.categoryId ? categoryById.get(l.categoryId) : undefined
+  const merchant = l.merchantId ? merchantById.get(l.merchantId) : undefined
+  const source = l.sourceRecurringId ? recurringById.get(l.sourceRecurringId) : undefined
+  return (
+    <div onClick={() => onEdit(l.id)} style={{ cursor: 'pointer' }}>
+      <div className="fern-txn-row">
+        {l.origin === 'rollup' ? (
+          <CatSwatch color="lilac" icon="list" size={34} />
+        ) : (
+          <CatSwatch color={cat?.color} icon={cat?.icon ?? 'tag'} size={34} />
+        )}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--ink)', display: 'flex', alignItems: 'center', gap: 6 }}>
+            {l.name || cat?.name || 'Uncategorized'}
+            <OriginChip origin={l.origin} />
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--ink-faint)' }}>
+            {[cat?.name, merchant?.name].filter(Boolean).join(' · ')}
+            {l.frequency === 'yearly' ? ' · Yearly' : ' · Monthly'}
+            {source && ` · from ${source.name}`}
+          </div>
+        </div>
+        <div style={{ fontSize: 14, fontWeight: 600, color: l.kind === 'income' ? 'var(--sage-ink)' : 'var(--rose-ink)', fontFamily: 'var(--mono-fern)', flexShrink: 0 }}>
+          {l.kind === 'income' ? '+' : '−'}{fmt(l.amount)}
+        </div>
+        <button
+          onClick={(e) => { e.stopPropagation(); onDelete(l.id) }}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-faint)', display: 'grid', placeItems: 'center', padding: 4 }}
+        >
+          <Icon name="trash" size={14} />
+        </button>
+      </div>
     </div>
   )
 }

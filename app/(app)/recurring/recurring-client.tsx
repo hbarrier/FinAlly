@@ -10,6 +10,7 @@ import { EmptyState } from '@/components/fern/empty-state'
 import { fmt, monthlyEstimate, type Category, type RecurringWithAmounts } from '@/lib/derive'
 import { addRecurring, updateRecurring, deleteRecurring } from '@/lib/actions/recurring'
 import { runAction } from '@/lib/utils'
+import { confirmDialog } from '@/lib/dialogs-store'
 import type { Merchant } from '@/lib/db-types'
 
 const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -44,7 +45,7 @@ export function RecurringClient({ recurring, categories, merchants, transactions
   }
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Delete this recurring item?')) return
+    if (!(await confirmDialog({ message: 'Delete this recurring item?', confirmLabel: 'Delete', tone: 'danger' }))) return
     startTransition(runAction(async () => { await deleteRecurring(id) }))
   }
 

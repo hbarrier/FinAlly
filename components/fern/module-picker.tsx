@@ -27,7 +27,7 @@ export function ModulePicker({ value, onChange }: ModulePickerProps) {
         <div>
           <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--teal-ink)' }}>Core</div>
           <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>
-            Dashboard, Movements, Categories, Merchants — always on
+            Dashboard, Movements, Merchants, Categories — always on
           </div>
         </div>
       </label>

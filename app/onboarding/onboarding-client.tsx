@@ -6,6 +6,7 @@ import { ModulePicker } from '@/components/fern/module-picker'
 import { CURRENCIES, DEFAULT_CURRENCY } from '@/lib/settings-options'
 import { completeOnboarding } from '@/lib/actions/settings'
 import { parseDecimal } from '@/lib/utils'
+import { alertDialog } from '@/lib/dialogs-store'
 import type { Modules } from '@/lib/db-types'
 
 const DEFAULT_MODULES: Modules = {
@@ -37,7 +38,7 @@ export function OnboardingClient() {
         })
         router.replace('/dashboard')
       } catch (e) {
-        alert(e instanceof Error ? e.message : 'An error occurred')
+        void alertDialog(e instanceof Error ? e.message : 'An error occurred')
       }
     })
   }

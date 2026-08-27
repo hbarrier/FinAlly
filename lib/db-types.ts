@@ -48,3 +48,19 @@ export type Simulation = InferSelectModel<typeof simulations>
 export type SimulationLine = InferSelectModel<typeof simulationLines>
 export type SimulationWithLines = Simulation & { lines: SimulationLine[] }
 export type SimulationLineFrequency = SimulationLine['frequency']
+
+export type SimulationInputs = {
+  recurring: {
+    monthlyExpenses: boolean
+    monthlyIncome: boolean
+    yearlyExpenses: boolean
+    yearlyIncome: boolean
+  }
+  avg: {
+    expenses: boolean
+    income: boolean
+    periodMonths: 1 | 6 | 12
+    rollup: 'all' | 'drop' | 'other'
+    thresholdMonthly: number
+  }
+}
