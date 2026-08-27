@@ -48,6 +48,7 @@ export type Simulation = InferSelectModel<typeof simulations>
 export type SimulationLine = InferSelectModel<typeof simulationLines>
 export type SimulationWithLines = Simulation & { lines: SimulationLine[] }
 export type SimulationLineFrequency = SimulationLine['frequency']
+export type SimulationLinePriority = SimulationLine['priority']
 
 export type SimulationInputs = {
   recurring: {

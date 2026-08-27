@@ -1,16 +1,17 @@
 'use client'
 
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { Field, FieldError } from '@/components/ui/field'
-import { Icon } from '../icon'
 import { SegmentedControl } from '../segmented-control'
 import { SearchableSelect } from '../searchable-select'
 import { SheetShell } from '../sheet-shell'
+import { FernButton } from '../button'
+import { SimulationLineDetailSheet } from './simulation-line-detail-sheet'
 import type { Category, Recurring } from '@/lib/derive'
-import type { Merchant, SimulationLine } from '@/lib/db-types'
+import type { Merchant, SimulationInputs, SimulationLine, Transaction } from '@/lib/db-types'
 import { parseDecimal } from '@/lib/utils'
 
 const FREQUENCIES = [
@@ -60,6 +61,10 @@ interface SimulationLineSheetProps {
   recurringEnabled?: boolean
   item?: SimulationLine | null
   initialKind?: 'expense' | 'income'
+  transactions?: Transaction[]
+  simulationInputs?: SimulationInputs | null
+  onApplyAverage?: (lineId: string, data: { months: number; excludedTxnIds: string[] }) => void
+  pending?: boolean
   onSave: (data: {
     name: string | null
     kind: 'expense' | 'income'
@@ -80,8 +85,13 @@ export function SimulationLineSheet({
   recurringEnabled = false,
   item,
   initialKind,
+  transactions = [],
+  simulationInputs,
+  onApplyAverage,
+  pending,
   onSave,
 }: SimulationLineSheetProps) {
+  const [detailOpen, setDetailOpen] = useState(false)
   const {
     register,
     control,
@@ -98,6 +108,7 @@ export function SimulationLineSheet({
   })
 
   useEffect(() => {
+    setDetailOpen(false)
     if (open) {
       reset(getDefaultValues(item, initialKind))
       trigger()
@@ -133,6 +144,8 @@ export function SimulationLineSheet({
     [recurringOptions, watchedKind],
   )
 
+  const averaged = !!item && (item.origin === 'average' || item.origin === 'rollup') && !!simulationInputs
+
   const handlePickRecurring = (recurringId: string | null) => {
     setValue('recurringId', recurringId)
     if (!recurringId) return
@@ -160,6 +173,7 @@ export function SimulationLineSheet({
   }
 
   return (
+    <>
     <SheetShell
       open={open}
       onClose={onClose}
@@ -171,36 +185,11 @@ export function SimulationLineSheet({
         disabled: !isValid,
       }}
     >
-      <Controller
-        control={control}
-        name="kind"
-        render={({ field }) => (
-          <div className="fern-type-toggle" style={{ marginBottom: 0 }}>
-            <button
-              type="button"
-              className={field.value === 'expense' ? 'active expense' : ''}
-              onClick={() => {
-                field.onChange('expense')
-                setValue('categoryId', '')
-                setValue('recurringId', null)
-              }}
-            >
-              <Icon name="arrowDown" size={14} /> Expense
-            </button>
-            <button
-              type="button"
-              className={field.value === 'income' ? 'active income' : ''}
-              onClick={() => {
-                field.onChange('income')
-                setValue('categoryId', '')
-                setValue('recurringId', null)
-              }}
-            >
-              <Icon name="arrowUp" size={14} /> Income
-            </button>
-          </div>
-        )}
-      />
+      {averaged && (
+        <FernButton type="button" tone="outline" onClick={() => setDetailOpen(true)}>
+          View source details
+        </FernButton>
+      )}
 
       {!item && recurringEnabled && (
         <div>
@@ -297,6 +286,25 @@ export function SimulationLineSheet({
           )}
         />
       </div>
+
     </SheetShell>
+
+    {averaged && item && simulationInputs && (
+      <SimulationLineDetailSheet
+        open={detailOpen}
+        onClose={() => setDetailOpen(false)}
+        line={item}
+        inputs={simulationInputs}
+        transactions={transactions}
+        categories={categories}
+        merchants={merchants}
+        pending={pending}
+        onApply={(data) => {
+          onApplyAverage?.(item.id, data)
+          setDetailOpen(false)
+        }}
+      />
+    )}
+    </>
   )
 }

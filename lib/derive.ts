@@ -296,6 +296,11 @@ export function monthlyEstimate(r: Recurring, ref: Date = new Date()): number {
 
 export type SimulationView = 'monthly' | 'monthly-with-yearly' | 'yearly'
 
+/** Rounds an averaged/grouped simulation line amount to the nearest 10. */
+export function roundToTen(n: number): number {
+  return Math.round(n / 10) * 10
+}
+
 export function simulationTotals(
   lines: SimulationLine[],
   view: SimulationView,
@@ -313,6 +318,27 @@ export function simulationTotals(
       return acc
     },
     { income: 0, expense: 0 },
+  )
+}
+
+export function simulationExpenseByPriority(
+  lines: SimulationLine[],
+  view: SimulationView,
+): { must: number; should: number; nice: number } {
+  const relevant = (view === 'monthly' ? lines.filter((l) => l.frequency === 'monthly') : lines).filter(
+    (l) => l.kind === 'expense',
+  )
+  const factor = (l: SimulationLine) => {
+    if (view === 'yearly') return l.frequency === 'yearly' ? 1 : 12
+    return l.frequency === 'monthly' ? 1 : 1 / 12
+  }
+  return relevant.reduce(
+    (acc, l) => {
+      const key = l.priority ?? 'should'
+      acc[key] += Number(l.amount || 0) * factor(l)
+      return acc
+    },
+    { must: 0, should: 0, nice: 0 },
   )
 }
 
@@ -351,17 +377,37 @@ export function simulationLinesByCategory(
     .sort((a, b) => b.amount - a.amount)
 }
 
-export function sortSimulationLines(lines: SimulationLine[]): SimulationLine[] {
-  return [...lines].sort((a, b) => Number(b.amount || 0) - Number(a.amount || 0))
+/**
+ * Amount for one simulation line as shown under the monthly/yearly toggle.
+ * Monthly view: yearly lines are split into 12. Yearly view: monthly lines
+ * are multiplied by 12.
+ */
+export function simulationLineDisplayAmount(
+  line: SimulationLine,
+  viewMode: 'monthly' | 'yearly',
+): number {
+  const amt = Number(line.amount || 0)
+  if (viewMode === 'yearly') return line.frequency === 'yearly' ? amt : amt * 12
+  return line.frequency === 'yearly' ? amt / 12 : amt
+}
+
+export function sortSimulationLines(
+  lines: SimulationLine[],
+  viewMode: 'monthly' | 'yearly' = 'monthly',
+): SimulationLine[] {
+  return [...lines].sort(
+    (a, b) => simulationLineDisplayAmount(b, viewMode) - simulationLineDisplayAmount(a, viewMode),
+  )
 }
 
 export function groupSimulationLinesByCategory(
   lines: SimulationLine[],
   cats: Category[],
+  viewMode: 'monthly' | 'yearly' = 'monthly',
 ): { key: string; cat: Category | undefined; total: number; lines: SimulationLine[] }[] {
   const catById = new Map(cats.map((c) => [c.id, c]))
   const groups = new Map<string, { cat: Category | undefined; lines: SimulationLine[] }>()
-  for (const l of sortSimulationLines(lines)) {
+  for (const l of sortSimulationLines(lines, viewMode)) {
     const cat = l.categoryId ? catById.get(l.categoryId) : undefined
     const key = cat?.name ?? 'Uncategorized'
     if (!groups.has(key)) groups.set(key, { cat, lines: [] })
@@ -371,10 +417,72 @@ export function groupSimulationLinesByCategory(
     .map(([key, g]) => ({
       key,
       cat: g.cat,
-      total: g.lines.reduce((s, l) => s + Number(l.amount || 0), 0),
+      total: g.lines.reduce((s, l) => s + simulationLineDisplayAmount(l, viewMode), 0),
       lines: g.lines,
     }))
     .sort((a, b) => b.total - a.total)
+}
+
+/**
+ * Re-derives the non-recurring transactions that fed an averaged or grouped
+ * simulation line. Mirrors the seeding math in `averagedLinesForKind`, so with
+ * no exclusions `sum(result) / inputs.avg.periodMonths` is the exact average the
+ * line amount was rounded (to the nearest 10) from.
+ * Pass the simulation's `createdAt` as `ref` to reproduce the original window.
+ */
+export function simulationLineSourceTransactions(
+  line: Pick<SimulationLine, 'kind' | 'categoryId' | 'merchantId' | 'origin'>,
+  inputs: SimulationInputs,
+  transactions: Transaction[],
+  ref: Date = new Date(),
+  overrideMonths?: number,
+): Transaction[] {
+  const months = overrideMonths ?? inputs.avg.periodMonths
+  const { start, endExclusive } = completeMonthsWindow(months, ref)
+  const inWindow = transactions.filter(
+    (t) => t.kind === line.kind && !t.recurringId && t.date >= start && t.date < endExclusive,
+  )
+
+  let source: Transaction[]
+  if (line.origin === 'rollup') {
+    const inCategory = inWindow.filter((t) => (t.categoryId ?? '') === (line.categoryId ?? ''))
+    const comboSum = new Map<string, number>()
+    for (const t of inCategory) {
+      const k = t.merchantId ?? ''
+      comboSum.set(k, (comboSum.get(k) ?? 0) + Number(t.amount || 0))
+    }
+    source = inCategory.filter(
+      (t) => (comboSum.get(t.merchantId ?? '') ?? 0) / months < inputs.avg.thresholdMonthly,
+    )
+  } else {
+    source = inWindow.filter(
+      (t) =>
+        (t.categoryId ?? '') === (line.categoryId ?? '') &&
+        (t.merchantId ?? '') === (line.merchantId ?? ''),
+    )
+  }
+
+  return source.sort((a, b) => b.date.localeCompare(a.date))
+}
+
+/** Groups transactions by calendar month, newest month first, rows within a month by date desc. */
+export function groupTransactionsByMonth(
+  txns: Transaction[],
+): { month: string; total: number; txns: Transaction[] }[] {
+  const byMonth = new Map<string, Transaction[]>()
+  for (const t of txns) {
+    const key = monthKey(t.date)
+    const list = byMonth.get(key) ?? []
+    list.push(t)
+    byMonth.set(key, list)
+  }
+  return [...byMonth.entries()]
+    .sort((a, b) => b[0].localeCompare(a[0]))
+    .map(([month, list]) => ({
+      month,
+      total: list.reduce((s, t) => s + Number(t.amount || 0), 0),
+      txns: list.sort((a, b) => b.date.localeCompare(a.date)),
+    }))
 }
 
 /** Human-readable bullets describing the wizard inputs a simulation was seeded with. */

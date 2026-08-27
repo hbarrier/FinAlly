@@ -17,9 +17,11 @@ import {
   fmt,
   currentBalance,
   simulationTotals,
+  simulationExpenseByPriority,
   simulationLinesByCategory,
   sortSimulationLines,
   groupSimulationLinesByCategory,
+  simulationLineDisplayAmount,
   currentRecurringMonthlyNet,
   simulationBalanceProjection,
   describeSimulationInputs,
@@ -34,6 +36,7 @@ import { alertDialog, confirmDialog } from '@/lib/dialogs-store'
 import { Modal } from '@/components/fern/modal'
 import {
   addSimulationLine,
+  applySimulationLineAverage,
   deleteSimulation,
   deleteSimulationLine,
   duplicateSimulation,
@@ -58,6 +61,36 @@ const ORIGIN_META = Object.fromEntries(ORIGINS.map((o) => [o.key, o])) as Record
   string,
   (typeof ORIGINS)[number]
 >
+
+type Priority = 'must' | 'should' | 'nice'
+
+/** Per-expense-line importance flag. `next` drives the click-to-cycle order. */
+const PRIORITY = {
+  must: { letter: 'M', label: 'Must', bg: 'var(--rose-bg)', ink: 'var(--rose-ink)', next: 'should' },
+  should: { letter: 'S', label: 'Should', bg: 'var(--butter-bg)', ink: 'var(--butter-ink)', next: 'nice' },
+  nice: { letter: 'N', label: 'Nice', bg: 'var(--sage-bg)', ink: 'var(--sage-ink)', next: 'must' },
+} as const satisfies Record<Priority, { letter: string; label: string; bg: string; ink: string; next: Priority }>
+
+function PriorityBadge({ priority, onCycle }: { priority: Priority; onCycle: (next: Priority) => void }) {
+  const p = PRIORITY[priority]
+  return (
+    <button
+      type="button"
+      onClick={(e) => { e.stopPropagation(); onCycle(p.next) }}
+      aria-label={`Priority: ${p.label}. Click to change.`}
+      title={p.label}
+      style={{
+        width: 22, height: 22, borderRadius: 6, border: 'none', cursor: 'pointer',
+        background: p.bg, color: p.ink, fontFamily: 'var(--mono-fern)', fontSize: 11, fontWeight: 700,
+        display: 'grid', placeItems: 'center', flexShrink: 0,
+      }}
+    >
+      {p.letter}
+    </button>
+  )
+}
+
+const signedFmt = (n: number) => (n >= 0 ? '+' : '−') + fmt(Math.abs(n))
 
 function OriginChip({ origin }: { origin: string }) {
   const m = ORIGIN_META[origin]
@@ -89,7 +122,7 @@ export function SimulationDetailClient({
   transactions,
 }: SimulationDetailClientProps) {
   const router = useRouter()
-  const [, startTransition] = useTransition()
+  const [isPending, startTransition] = useTransition()
   const [editingSimulation, setEditingSimulation] = useState(false)
   const [showInfo, setShowInfo] = useState(false)
   const [editingLine, setEditingLine] = useState<string | null>(null)
@@ -102,6 +135,10 @@ export function SimulationDetailClient({
     viewMode === 'yearly' ? 'yearly' : includeYearlySplit ? 'monthly-with-yearly' : 'monthly'
 
   const totals = useMemo(() => simulationTotals(simulation.lines, view), [simulation.lines, view])
+  const expenseByPriority = useMemo(
+    () => simulationExpenseByPriority(simulation.lines, view),
+    [simulation.lines, view],
+  )
   const revenueBars = useMemo(
     () => simulationLinesByCategory(simulation.lines, categories, 'income', view),
     [simulation.lines, categories, view],
@@ -110,6 +147,9 @@ export function SimulationDetailClient({
     () => simulationLinesByCategory(simulation.lines, categories, 'expense', view),
     [simulation.lines, categories, view],
   )
+
+  const netMin = totals.income - totals.expense
+  const netMax = totals.income - (expenseByPriority.must + expenseByPriority.should)
 
   const currentRecurringNet = useMemo(() => currentRecurringMonthlyNet(recurringOptions), [recurringOptions])
   const simulationNetMonthly = useMemo(
@@ -136,6 +176,15 @@ export function SimulationDetailClient({
     if (!simulation.inputs) return null
     try {
       return describeSimulationInputs(JSON.parse(simulation.inputs) as SimulationInputs)
+    } catch {
+      return null
+    }
+  }, [simulation.inputs])
+
+  const simulationInputs = useMemo<SimulationInputs | null>(() => {
+    if (!simulation.inputs) return null
+    try {
+      return JSON.parse(simulation.inputs) as SimulationInputs
     } catch {
       return null
     }
@@ -203,6 +252,26 @@ export function SimulationDetailClient({
     })
     setEditingLine(null)
     setAddingKind(null)
+  }
+
+  const handleSetPriority = (id: string, priority: Priority) => {
+    startTransition(async () => {
+      try {
+        await updateSimulationLine(id, { priority })
+      } catch (e) {
+        void alertDialog(e instanceof Error ? e.message : 'An error occurred')
+      }
+    })
+  }
+
+  const handleApplyAverage = (lineId: string, data: { months: number; excludedTxnIds: string[] }) => {
+    startTransition(async () => {
+      try {
+        await applySimulationLineAverage(lineId, data)
+      } catch (e) {
+        void alertDialog(e instanceof Error ? e.message : 'An error occurred')
+      }
+    })
   }
 
   const handleDeleteLine = async (id: string) => {
@@ -312,14 +381,33 @@ export function SimulationDetailClient({
         <div className="fern-card">
           <div className="fern-page-kicker">{viewMode === 'yearly' ? 'Yearly' : 'Monthly'} · Out</div>
           <div className="fern-display" style={{ fontSize: 32, color: 'var(--rose-ink)', marginTop: 4 }}>−{fmt(totals.expense)}</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginTop: 8, fontSize: 11, color: 'var(--ink-faint)' }}>
+            {(['must', 'should', 'nice'] as const).map((k) => (
+              <div key={k} style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span>{PRIORITY[k].label}</span>
+                <span style={{ fontFamily: 'var(--mono-fern)' }}>−{fmt(expenseByPriority[k])}</span>
+              </div>
+            ))}
+          </div>
         </div>
         <div className="fern-card">
           <div className="fern-page-kicker">Net</div>
-          <div className="fern-display" style={{ fontSize: 32, color: totals.income - totals.expense >= 0 ? 'var(--sage-ink)' : 'var(--rose-ink)', marginTop: 4 }}>
-            {totals.income - totals.expense >= 0 ? '+' : '−'}{fmt(Math.abs(totals.income - totals.expense))}
+          {netMin === netMax ? (
+            <div className="fern-display" style={{ fontSize: 32, color: netMin >= 0 ? 'var(--sage-ink)' : 'var(--rose-ink)', marginTop: 4 }}>
+              {signedFmt(netMin)}
+            </div>
+          ) : (
+            <div className="fern-display" style={{ fontSize: 24, marginTop: 4, display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap' }}>
+              <span style={{ color: netMin >= 0 ? 'var(--sage-ink)' : 'var(--rose-ink)' }}>{signedFmt(netMin)}</span>
+              <span style={{ color: 'var(--ink-faint)', fontSize: 16 }}>–</span>
+              <span style={{ color: netMax >= 0 ? 'var(--sage-ink)' : 'var(--rose-ink)' }}>{signedFmt(netMax)}</span>
+            </div>
+          )}
+          <div style={{ color: 'var(--ink-faint)', fontSize: 11, marginTop: 6 }}>
+            min: all expenses · max: Must + Should only
           </div>
           {recurringEnabled && (
-            <div style={{ color: 'var(--ink-faint)', fontSize: 11, marginTop: 6 }}>
+            <div style={{ color: 'var(--ink-faint)', fontSize: 11, marginTop: 4 }}>
               {delta >= 0 ? '+' : '−'}{fmt(Math.abs(delta))} vs. your current recurring
             </div>
           )}
@@ -387,8 +475,8 @@ export function SimulationDetailClient({
             />
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-            <LineList title="Revenue lines" lines={revenues} view={lineView} categories={categories} categoryById={categoryById} merchantById={merchantById} recurringById={recurringById} onEdit={setEditingLine} onDelete={handleDeleteLine} />
-            <LineList title="Expense lines" lines={expenses} view={lineView} categories={categories} categoryById={categoryById} merchantById={merchantById} recurringById={recurringById} onEdit={setEditingLine} onDelete={handleDeleteLine} />
+            <LineList title="Revenue lines" lines={revenues} view={lineView} viewMode={viewMode} categories={categories} categoryById={categoryById} merchantById={merchantById} recurringById={recurringById} onEdit={setEditingLine} onDelete={handleDeleteLine} onSetPriority={handleSetPriority} />
+            <LineList title="Expense lines" lines={expenses} view={lineView} viewMode={viewMode} categories={categories} categoryById={categoryById} merchantById={merchantById} recurringById={recurringById} onEdit={setEditingLine} onDelete={handleDeleteLine} onSetPriority={handleSetPriority} />
           </div>
         </>
       )}
@@ -410,6 +498,10 @@ export function SimulationDetailClient({
         recurringEnabled={recurringEnabled}
         item={editingLineItem}
         initialKind={addingKind ?? undefined}
+        transactions={transactions}
+        simulationInputs={simulationInputs}
+        onApplyAverage={handleApplyAverage}
+        pending={isPending}
         onSave={handleSaveLine}
       />
     </div>
@@ -420,25 +512,29 @@ function LineList({
   title,
   lines,
   view,
+  viewMode,
   categories,
   categoryById,
   merchantById,
   recurringById,
   onEdit,
   onDelete,
+  onSetPriority,
 }: {
   title: string
   lines: SimulationLine[]
   view: 'amount' | 'category'
+  viewMode: 'monthly' | 'yearly'
   categories: Category[]
   categoryById: Map<string, Category>
   merchantById: Map<string, Merchant>
   recurringById: Map<string, Recurring>
   onEdit: (id: string) => void
   onDelete: (id: string) => void
+  onSetPriority: (id: string, priority: Priority) => void
 }) {
-  const groups = view === 'category' ? groupSimulationLinesByCategory(lines, categories) : null
-  const rowProps = { categoryById, merchantById, recurringById, onEdit, onDelete }
+  const groups = view === 'category' ? groupSimulationLinesByCategory(lines, categories, viewMode) : null
+  const rowProps = { viewMode, categoryById, merchantById, recurringById, onEdit, onDelete, onSetPriority }
 
   return (
     <div className="fern-card">
@@ -462,7 +558,7 @@ function LineList({
           </div>
         ))
       ) : (
-        sortSimulationLines(lines).map((l) => <LineRow key={l.id} l={l} {...rowProps} />)
+        sortSimulationLines(lines, viewMode).map((l) => <LineRow key={l.id} l={l} {...rowProps} />)
       )}
     </div>
   )
@@ -470,18 +566,22 @@ function LineList({
 
 function LineRow({
   l,
+  viewMode,
   categoryById,
   merchantById,
   recurringById,
   onEdit,
   onDelete,
+  onSetPriority,
 }: {
   l: SimulationLine
+  viewMode: 'monthly' | 'yearly'
   categoryById: Map<string, Category>
   merchantById: Map<string, Merchant>
   recurringById: Map<string, Recurring>
   onEdit: (id: string) => void
   onDelete: (id: string) => void
+  onSetPriority: (id: string, priority: Priority) => void
 }) {
   const cat = l.categoryId ? categoryById.get(l.categoryId) : undefined
   const merchant = l.merchantId ? merchantById.get(l.merchantId) : undefined
@@ -506,8 +606,11 @@ function LineRow({
           </div>
         </div>
         <div style={{ fontSize: 14, fontWeight: 600, color: l.kind === 'income' ? 'var(--sage-ink)' : 'var(--rose-ink)', fontFamily: 'var(--mono-fern)', flexShrink: 0 }}>
-          {l.kind === 'income' ? '+' : '−'}{fmt(l.amount)}
+          {l.kind === 'income' ? '+' : '−'}{fmt(simulationLineDisplayAmount(l, viewMode))}
         </div>
+        {l.kind === 'expense' && (
+          <PriorityBadge priority={l.priority ?? 'should'} onCycle={(next) => onSetPriority(l.id, next)} />
+        )}
         <button
           onClick={(e) => { e.stopPropagation(); onDelete(l.id) }}
           style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-faint)', display: 'grid', placeItems: 'center', padding: 4 }}

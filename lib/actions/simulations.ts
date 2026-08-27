@@ -5,7 +5,7 @@ import { db } from '../db'
 import { simulations, simulationLines, recurring, transactions, categories, merchants } from '../schema'
 import { nanoid } from '../utils'
 import { eq, and, or, isNull, gte, lt, inArray } from 'drizzle-orm'
-import { completeMonthsWindow } from '../derive'
+import { completeMonthsWindow, roundToTen, simulationLineSourceTransactions } from '../derive'
 import type { SimulationInputs } from '../db-types'
 
 export type { SimulationInputs } from '../db-types'
@@ -73,6 +73,7 @@ export async function updateSimulationLine(
     merchantId: string | null
     amount: number
     frequency: 'monthly' | 'yearly'
+    priority: 'must' | 'should' | 'nice'
   }>,
 ) {
   await db.update(simulationLines).set(data).where(eq(simulationLines.id, id))
@@ -81,6 +82,41 @@ export async function updateSimulationLine(
 
 export async function deleteSimulationLine(id: string) {
   await db.delete(simulationLines).where(eq(simulationLines.id, id))
+  revalidateApp()
+}
+
+/**
+ * Recomputes an averaged/grouped line's amount from its source transactions over
+ * the given look-back window, minus any flagged (excluded) rows, and persists the
+ * window and exclusions on the line.
+ */
+export async function applySimulationLineAverage(
+  lineId: string,
+  data: { months: number; excludedTxnIds: string[] },
+) {
+  const line = await db.query.simulationLines.findFirst({ where: eq(simulationLines.id, lineId) })
+  if (!line) throw new Error('Simulation line not found')
+
+  const simulation = await db.query.simulations.findFirst({ where: eq(simulations.id, line.simulationId) })
+  if (!simulation?.inputs) throw new Error('Simulation was not seeded from inputs')
+  const inputs = JSON.parse(simulation.inputs) as SimulationInputs
+
+  const allTxns = await db.query.transactions.findMany()
+  const source = simulationLineSourceTransactions(line, inputs, allTxns, undefined, data.months)
+
+  const excluded = new Set(data.excludedTxnIds)
+  const sum = source
+    .filter((t) => !excluded.has(t.id))
+    .reduce((s, t) => s + Number(t.amount || 0), 0)
+
+  await db
+    .update(simulationLines)
+    .set({
+      amount: roundToTen(sum / data.months),
+      avgMonths: data.months,
+      excludedTxnIds: data.excludedTxnIds.length > 0 ? JSON.stringify(data.excludedTxnIds) : null,
+    })
+    .where(eq(simulationLines.id, lineId))
   revalidateApp()
 }
 
@@ -192,7 +228,7 @@ async function averagedLinesForKind(
     kind,
     categoryId: c.categoryId,
     merchantId: c.merchantId,
-    amount: c.avgMonthly,
+    amount: roundToTen(c.avgMonthly),
     frequency: 'monthly',
     sourceRecurringId: null,
     origin: 'average',
@@ -207,7 +243,7 @@ async function averagedLinesForKind(
       kind,
       categoryId,
       merchantId: null,
-      amount,
+      amount: roundToTen(amount),
       frequency: 'monthly',
       sourceRecurringId: null,
       rollup: 1,
@@ -274,6 +310,9 @@ export async function duplicateSimulation(id: string): Promise<{ id: string }> {
           sourceRecurringId: l.sourceRecurringId,
           rollup: l.rollup,
           origin: l.origin,
+          priority: l.priority,
+          excludedTxnIds: l.excludedTxnIds,
+          avgMonths: l.avgMonths,
         })),
       )
     }

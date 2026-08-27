@@ -1,0 +1,1 @@
+ALTER TABLE `simulation_lines` ADD `priority` text DEFAULT 'should' NOT NULL;

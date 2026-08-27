@@ -1,0 +1,1 @@
+ALTER TABLE `simulation_lines` ADD `excluded_txn_ids` text;

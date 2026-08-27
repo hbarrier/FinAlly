@@ -146,6 +146,11 @@ export const simulationLines = sqliteTable(
     origin: text('origin', { enum: ['manual', 'recurring', 'average', 'rollup'] })
       .notNull()
       .default('manual'),
+    priority: text('priority', { enum: ['must', 'should', 'nice'] })
+      .notNull()
+      .default('should'),
+    excludedTxnIds: text('excluded_txn_ids'), // JSON string[] of transaction ids removed from the average; null = none
+    avgMonths: int('avg_months'), // look-back used for this line's average; null = simulation's seeded periodMonths
   },
   (t) => [
     index('simulation_lines_simulation_id_idx').on(t.simulationId),

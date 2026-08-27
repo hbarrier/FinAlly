@@ -1,0 +1,1 @@
+ALTER TABLE `simulation_lines` ADD `avg_months` integer;
