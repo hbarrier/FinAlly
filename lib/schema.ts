@@ -112,6 +112,54 @@ export const recurringInstancesRelations = relations(recurringInstances, ({ one 
   }),
 }))
 
+// --- simulations (what-if scenarios) ---
+export const simulations = sqliteTable('simulations', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  description: text('description'),
+  createdAt: text('created_at')
+    .notNull()
+    .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
+})
+
+export const simulationLines = sqliteTable(
+  'simulation_lines',
+  {
+    id: text('id').primaryKey(),
+    simulationId: text('simulation_id')
+      .notNull()
+      .references(() => simulations.id, { onDelete: 'cascade' }),
+    name: text('name'),
+    kind: text('kind', { enum: ['expense', 'income'] }).notNull(),
+    categoryId: text('category_id').references(() => categories.id, {
+      onDelete: 'set null',
+    }),
+    merchantId: text('merchant_id').references(() => merchants.id, {
+      onDelete: 'set null',
+    }),
+    amount: real('amount').notNull(),
+    frequency: text('frequency', { enum: ['monthly', 'yearly'] }).notNull(),
+    sourceRecurringId: text('source_recurring_id').references(() => recurring.id, {
+      onDelete: 'set null',
+    }),
+  },
+  (t) => [
+    index('simulation_lines_simulation_id_idx').on(t.simulationId),
+    index('simulation_lines_category_id_idx').on(t.categoryId),
+  ],
+)
+
+export const simulationsRelations = relations(simulations, ({ many }) => ({
+  lines: many(simulationLines),
+}))
+
+export const simulationLinesRelations = relations(simulationLines, ({ one }) => ({
+  simulation: one(simulations, {
+    fields: [simulationLines.simulationId],
+    references: [simulations.id],
+  }),
+}))
+
 // --- transactions ---
 export const transactions = sqliteTable(
   'transactions',
@@ -177,7 +225,7 @@ export const budgets = sqliteTable(
   (t) => [unique('budgets_category_unique').on(t.categoryId)],
 )
 
-// --- goals ---
+// --- goals (savings targets) ---
 export const goals = sqliteTable('goals', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
@@ -197,6 +245,12 @@ export const userSettings = sqliteTable('user_settings', {
   name: text('name').notNull().default('You'),
   startingBalance: real('starting_balance').notNull().default(0),
   currency: text('currency').notNull().default('EUR'),
+  onboarded: int('onboarded').notNull().default(0),
+  moduleRecurring: int('module_recurring').notNull().default(1),
+  moduleDivorce: int('module_divorce').notNull().default(0),
+  moduleBudgets: int('module_budgets').notNull().default(0),
+  moduleSimulations: int('module_simulations').notNull().default(0),
+  moduleObjectives: int('module_objectives').notNull().default(0),
 })
 
 // --- monthly opening balances (global, per calendar month) ---

@@ -4,12 +4,6 @@ import { db } from '../db'
 import { recurringInstances } from '../schema'
 import { eq, and } from 'drizzle-orm'
 import { revalidateApp } from './_shared'
-import { ensureInstancesUpTo, currentMonth } from '../recurring-instances'
-
-export async function bootstrapInstances(): Promise<void> {
-  await ensureInstancesUpTo(currentMonth())
-  revalidateApp()
-}
 
 export async function markInstanceNotApplicable(instanceId: string): Promise<void> {
   await db

@@ -1,8 +1,10 @@
 import { Suspense } from 'react'
+import Link from 'next/link'
+import { redirect } from 'next/navigation'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { SidebarNav } from './sidebar-nav'
-import { getUserSettings } from '@/lib/queries/user-settings'
-import { RecurringInstancesBootstrap } from '@/components/fern/recurring-instances-bootstrap'
+import { getUserSettings, getModules } from '@/lib/queries/user-settings'
+import { ensureInstancesUpTo, currentMonth } from '@/lib/recurring-instances'
 import styles from './layout.module.css'
 
 export default async function AppLayout({
@@ -11,6 +13,10 @@ export default async function AppLayout({
   children: React.ReactNode
 }) {
   const settings = await getUserSettings()
+  if (!settings?.onboarded) redirect('/onboarding')
+
+  const modules = await getModules()
+  if (modules.recurring) await ensureInstancesUpTo(currentMonth())
 
   return (
     <div className={styles.appShell}>
@@ -29,30 +35,31 @@ export default async function AppLayout({
         {/* Nav */}
         <nav className={styles.nav}>
           <Suspense fallback={null}>
-            <SidebarNav />
+            <SidebarNav modules={modules} />
           </Suspense>
         </nav>
 
         {/* Footer */}
         <div className={styles.sidebarFooter}>
-          <div className={styles.avatar}>
-            {(settings?.name ?? 'Y').slice(0, 1).toUpperCase()}
-          </div>
-          <div className={styles.userMeta}>
-            <div className={styles.userName}>
-              {settings?.name ?? 'You'}
+          <Link href="/settings" className={styles.userLink}>
+            <div className={styles.avatar}>
+              {(settings?.name ?? 'Y').slice(0, 1).toUpperCase()}
             </div>
-            <div className={styles.userCurrency}>
-              {settings?.currency ?? 'EUR'}
+            <div className={styles.userMeta}>
+              <div className={styles.userName}>
+                {settings?.name ?? 'You'}
+              </div>
+              <div className={styles.userCurrency}>
+                {settings?.currency ?? 'EUR'}
+              </div>
             </div>
-          </div>
+          </Link>
           <ThemeToggle />
         </div>
       </aside>
 
       {/* Main content */}
       <main className={styles.main}>
-        <RecurringInstancesBootstrap />
         {children}
       </main>
     </div>

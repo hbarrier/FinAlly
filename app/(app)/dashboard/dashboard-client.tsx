@@ -7,22 +7,24 @@ import { CatSwatch } from '@/components/fern/cat-swatch'
 import { Chip } from '@/components/fern/chip'
 import { BalanceEvolution } from '@/components/fern/balance-evolution'
 import { CategoryBars } from '@/components/fern/category-bars'
+import { RecurringCategoryBars } from '@/components/fern/recurring-category-bars'
 import { TransactionSheet } from '@/components/fern/sheets/transaction-sheet'
 import { PageHeader } from '@/components/fern/page-header'
 import { FernButton } from '@/components/fern/button'
 import { EmptyState } from '@/components/fern/empty-state'
 import { Money } from '@/components/fern/money'
 import { Fab } from '@/components/fern/fab'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import {
-  thisMonthRecurring,
   sumByKind,
   spendingByCategory,
+  recurringExpensesByCategory,
   fmt,
-  fmtShort,
   formatDate,
   type Category,
   type Transaction,
   type Recurring,
+  type RecurringInstance,
 } from '@/lib/derive'
 import {
   addTransaction,
@@ -64,6 +66,9 @@ interface DashboardClientProps {
   recurring: Recurring[]
   categories: Category[]
   merchants: Merchant[]
+  instances: RecurringInstance[]
+  recurringEnabled: boolean
+  divorceEnabled: boolean
 }
 
 export function DashboardClient({
@@ -77,11 +82,18 @@ export function DashboardClient({
   recurring,
   categories,
   merchants,
+  instances,
+  recurringEnabled,
+  divorceEnabled,
 }: DashboardClientProps) {
   const [showScrollTop, setShowScrollTop] = useState(false)
   const [sheetOpen, setSheetOpen] = useState(false)
   const [editingTxn, setEditingTxn] = useState<Transaction | null>(null)
   const [rangeKey, setRangeKey] = useState<RangeKey>('ytd')
+  const [selectedCatId, setSelectedCatId] = useState<string | null>(null)
+  const [selectedRecurringCatId, setSelectedRecurringCatId] = useState<string | null>(null)
+  const [flattenSizes, setFlattenSizes] = useState(false)
+  const [includeYearlyAmortized, setIncludeYearlyAmortized] = useState(false)
   const [, startTransition] = useTransition()
 
   useEffect(() => {
@@ -175,7 +187,7 @@ export function DashboardClient({
     [openingBalance, monthTxns, monthStart, monthEndIso],
   )
 
-  const { income, expense, net, cats, upcoming } = useMemo(() => {
+  const { income, expense, net, cats } = useMemo(() => {
     const inc = sumByKind(monthTxns, 'income')
     const exp = sumByKind(monthTxns, 'expense')
     return {
@@ -183,14 +195,38 @@ export function DashboardClient({
       expense: exp,
       net: inc - exp,
       cats: spendingByCategory(monthTxns, categories),
-      upcoming: thisMonthRecurring(recurring, today).slice(0, 6),
     }
-  }, [monthTxns, categories, recurring, today])
+  }, [monthTxns, categories])
+
+  const recurringCats = useMemo(
+    () => recurringExpensesByCategory(recurring, categories, instances, allTransactions, monthKey, includeYearlyAmortized),
+    [recurring, categories, instances, allTransactions, monthKey, includeYearlyAmortized],
+  )
+
+  const recurringMonthTotal = useMemo(
+    () => recurringCats.reduce((s, g) => s + g.total, 0),
+    [recurringCats],
+  )
 
   const categoryById = useMemo(
     () => new Map(categories.map((c) => [c.id, c])),
     [categories],
   )
+
+  const merchantById = useMemo(
+    () => new Map(merchants.map((m) => [m.id, m])),
+    [merchants],
+  )
+
+  const selectedCat = selectedCatId ? categoryById.get(selectedCatId) : null
+  const catTxns = useMemo(
+    () => monthTxns.filter((t) => t.kind === 'expense' && t.categoryId === selectedCatId),
+    [monthTxns, selectedCatId],
+  )
+
+  const selectedRecurringGroup = selectedRecurringCatId
+    ? recurringCats.find((g) => g.id === selectedRecurringCatId) ?? null
+    : null
 
   const monthName = today.toLocaleString('en-US', { month: 'long' })
   const hasData = allTransactions.length > 0 || recurring.length > 0
@@ -340,7 +376,7 @@ export function DashboardClient({
       </div>
 
       {/* Bottom grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: recurringEnabled ? '1fr 1fr' : '1fr', gap: 16 }}>
         {/* Category rings */}
         <div className="fern-card">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
@@ -355,7 +391,7 @@ export function DashboardClient({
             )}
           </div>
           {cats.length > 0 ? (
-            <CategoryBars items={cats} />
+            <CategoryBars items={cats} onCategoryClick={setSelectedCatId} />
           ) : (
             <EmptyState
               illu="∅"
@@ -376,41 +412,61 @@ export function DashboardClient({
         </div>
 
         {/* Upcoming recurring */}
+        {recurringEnabled && (
         <div className="fern-card">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
             <div>
               <div style={{ fontSize: 11, fontFamily: 'var(--mono-fern)', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--ink-faint)', marginBottom: 4 }}>This month</div>
               <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: 'var(--ink)' }}>Recurring</h3>
             </div>
-            <Link href="/recurring" style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--ink-soft)', textDecoration: 'none', padding: '4px 8px', borderRadius: 8, background: 'var(--bg-sunken)' }}>
-              Manage <Icon name="chevronRight" size={14} />
-            </Link>
-          </div>
-          {upcoming.length > 0 ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {upcoming.map((u, i) => {
-                const cat = u.categoryId ? categoryById.get(u.categoryId) : undefined
-                const dateStr = u.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-                const isPast = u.date < today
-                return (
-                  <div key={u.id + i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--line-soft)', opacity: isPast ? 0.45 : 1 }}>
-                    {cat && <CatSwatch color={cat.color} icon={cat.icon} size={28} />}
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{u.name}</div>
-                      <div style={{ fontSize: 11, color: 'var(--ink-faint)', fontFamily: 'var(--mono-fern)' }}>{dateStr}</div>
-                    </div>
-                    <span style={{ fontSize: 13, fontWeight: 600, color: u.kind === 'income' ? 'var(--sage-ink)' : 'var(--rose-ink)', fontFamily: 'var(--mono-fern)', flexShrink: 0 }}>
-                      {u.kind === 'income' ? '+' : '−'}{fmtShort(u.amount)}
-                    </span>
-                  </div>
-                )
-              })}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', fontFamily: 'var(--mono-fern)', marginRight: 2 }}>
+                {fmt(recurringMonthTotal)}
+              </span>
+              <button
+                type="button"
+                aria-pressed={flattenSizes}
+                onClick={() => setFlattenSizes((v) => !v)}
+                style={{
+                  fontSize: 12,
+                  color: flattenSizes ? 'var(--sage-ink)' : 'var(--ink-soft)',
+                  padding: '4px 8px',
+                  borderRadius: 8,
+                  background: flattenSizes ? 'var(--sage-bg)' : 'var(--bg-sunken)',
+                  border: 'none',
+                  cursor: 'pointer',
+                }}
+              >
+                Equal width
+              </button>
+              <button
+                type="button"
+                aria-pressed={includeYearlyAmortized}
+                onClick={() => setIncludeYearlyAmortized((v) => !v)}
+                style={{
+                  fontSize: 12,
+                  color: includeYearlyAmortized ? 'var(--sage-ink)' : 'var(--ink-soft)',
+                  padding: '4px 8px',
+                  borderRadius: 8,
+                  background: includeYearlyAmortized ? 'var(--sage-bg)' : 'var(--bg-sunken)',
+                  border: 'none',
+                  cursor: 'pointer',
+                }}
+              >
+                + Yearly
+              </button>
+              <Link href="/recurring" style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--ink-soft)', textDecoration: 'none', padding: '4px 8px', borderRadius: 8, background: 'var(--bg-sunken)' }}>
+                Manage <Icon name="chevronRight" size={14} />
+              </Link>
             </div>
+          </div>
+          {recurringCats.length > 0 ? (
+            <RecurringCategoryBars items={recurringCats} flattenSizes={flattenSizes} onCategoryClick={setSelectedRecurringCatId} />
           ) : (
             <EmptyState
               illu="◎"
               title="Nothing scheduled"
-              description="Set up a recurring bill or payday."
+              description="Set up a recurring bill."
               style={{ padding: '40px 20px' }}
               action={
                 <Link href="/recurring" style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, border: '1.5px solid var(--line)', background: 'transparent', textDecoration: 'none', fontSize: 13, color: 'var(--ink)' }}>
@@ -420,6 +476,7 @@ export function DashboardClient({
             />
           )}
         </div>
+        )}
       </div>
 
       {showScrollTop && (
@@ -441,9 +498,97 @@ export function DashboardClient({
         categories={categories}
         merchants={merchants}
         item={editingTxn}
+        showReimbursable={divorceEnabled}
         onSave={handleSave}
         onDelete={editingTxn ? handleDelete : undefined}
       />
+
+      <Dialog open={!!selectedCatId} onOpenChange={(open) => { if (!open) setSelectedCatId(null) }}>
+        <DialogContent style={{ maxWidth: 480, maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}>
+          <DialogHeader>
+            <DialogTitle style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {selectedCat && <CatSwatch color={selectedCat.color} icon={selectedCat.icon} size={20} />}
+              {selectedCat?.name ?? 'Category'}
+            </DialogTitle>
+          </DialogHeader>
+          <div style={{ overflowY: 'auto', flex: 1, marginTop: 8 }}>
+            {catTxns.length === 0 ? (
+              <div style={{ color: 'var(--ink-faint)', fontSize: 13, textAlign: 'center', padding: '24px 0' }}>No transactions</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                {catTxns.map((t) => {
+                  const label = t.merchantId ? merchantById.get(t.merchantId)?.name : t.note
+                  return (
+                    <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--line-soft)' }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {label || '—'}
+                        </div>
+                        <div style={{ fontSize: 11, color: 'var(--ink-faint)', fontFamily: 'var(--mono-fern)' }}>{t.date}</div>
+                      </div>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--rose-ink)', fontFamily: 'var(--mono-fern)', flexShrink: 0 }}>
+                        −{fmt(Number(t.amount))}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+          <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end' }}>
+            <Link
+              href="/transactions"
+              onClick={() => setSelectedCatId(null)}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, padding: '6px 14px', borderRadius: 8, background: 'var(--bg-sunken)', color: 'var(--ink)', textDecoration: 'none' }}
+            >
+              Go to movements <Icon name="chevronRight" size={14} />
+            </Link>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!selectedRecurringCatId} onOpenChange={(open) => { if (!open) setSelectedRecurringCatId(null) }}>
+        <DialogContent style={{ maxWidth: 480, maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}>
+          <DialogHeader>
+            <DialogTitle style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {selectedRecurringGroup && <CatSwatch color={selectedRecurringGroup.color} icon={selectedRecurringGroup.icon} size={20} />}
+              {selectedRecurringGroup?.name ?? 'Category'}
+            </DialogTitle>
+          </DialogHeader>
+          <div style={{ overflowY: 'auto', flex: 1, marginTop: 8 }}>
+            {!selectedRecurringGroup || selectedRecurringGroup.items.length === 0 ? (
+              <div style={{ color: 'var(--ink-faint)', fontSize: 13, textAlign: 'center', padding: '24px 0' }}>No recurring expenses</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                {selectedRecurringGroup.items.map((it) => (
+                  <div key={it.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--line-soft)', opacity: it.tier === 'cleared' ? 1 : it.tier === 'amortized' ? 0.7 : 0.6 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {it.name}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--ink-faint)', fontFamily: 'var(--mono-fern)' }}>
+                        {it.tier === 'amortized' ? '1/12 of yearly amount' : (it.date ?? 'Not yet cleared')}
+                      </div>
+                    </div>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--rose-ink)', fontFamily: 'var(--mono-fern)', flexShrink: 0 }}>
+                      −{fmt(it.amount)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end' }}>
+            <Link
+              href="/recurring"
+              onClick={() => setSelectedRecurringCatId(null)}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, padding: '6px 14px', borderRadius: 8, background: 'var(--bg-sunken)', color: 'var(--ink)', textDecoration: 'none' }}
+            >
+              Manage <Icon name="chevronRight" size={14} />
+            </Link>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

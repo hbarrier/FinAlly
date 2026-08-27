@@ -61,6 +61,23 @@
   gap: 10px;
 }
 
+.userLink {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+  border-radius: 10px;
+  margin: -6px -8px;
+  padding: 6px 8px;
+  transition: background 0.15s;
+}
+
+.userLink:hover {
+  background: var(--bg-sunken);
+}
+
 .avatar {
   width: 32px;
   height: 32px;

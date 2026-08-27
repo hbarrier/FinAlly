@@ -92,6 +92,8 @@ interface TransactionsClientProps {
   instances: RecurringInstance[]
   reimbursementSummaries: Record<string, { status: string; label: string }>
   reimbursementMappingCounts: Record<string, number>
+  recurringEnabled: boolean
+  divorceEnabled: boolean
   initialMerchantId?: string
   selectedYear: number
   years: string[]
@@ -107,6 +109,8 @@ export function TransactionsClient({
   instances,
   reimbursementSummaries,
   reimbursementMappingCounts,
+  recurringEnabled,
+  divorceEnabled,
   initialMerchantId = 'all',
   selectedYear,
   years,
@@ -404,7 +408,7 @@ export function TransactionsClient({
     for (const m of visibleEntries) {
       if (isInstance(m)) continue
       if (m.kind !== 'expense') continue
-      if (m.method !== 'card') continue
+      if (m.method !== 'card' && m.method !== 'paypal') continue
 
       const month = m.date.slice(0, 7)
       const amountAbs = Math.abs(Number(m.amount ?? 0))
@@ -643,9 +647,11 @@ export function TransactionsClient({
                 </FernButton>
               </>
             )}
-            <FernButton tone={selectionMode ? 'teal' : 'outline'} onClick={toggleSelectionMode}>
-              <Icon name="check-square" size={16} /> {selectionMode ? 'Cancel' : 'Select'}
-            </FernButton>
+            {recurringEnabled && (
+              <FernButton tone={selectionMode ? 'teal' : 'outline'} onClick={toggleSelectionMode}>
+                <Icon name="check-square" size={16} /> {selectionMode ? 'Cancel' : 'Select'}
+              </FernButton>
+            )}
           </div>
         }
       />
@@ -691,6 +697,7 @@ export function TransactionsClient({
         merchantFilter={merchantFilter} merchantFilterOpen={merchantFilterOpen} onMerchantFilterOpenChange={setMerchantFilterOpen} onMerchantFilterChange={setMerchantFilter} merchants={merchants}
         methodFilter={methodFilter} methodFilterOpen={methodFilterOpen} onMethodFilterOpenChange={setMethodFilterOpen} onMethodFilterChange={setMethodFilter}
         reimbursementFilter={reimbursementFilter} reimbFilterOpen={reimbFilterOpen} onReimbFilterOpenChange={setReimbFilterOpen} onReimbursementFilterChange={setReimbursementFilter}
+        showReimbursementFilter={divorceEnabled} showNaToggle={recurringEnabled}
       />
 
       {selectionMode && (
@@ -729,7 +736,7 @@ export function TransactionsClient({
                 <div style={{ display: 'flex', alignItems: 'center', marginBottom: 10 }}>
                   <h2 style={{ margin: 0, flex: 1, fontSize: 13, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--ink-faint)', fontFamily: 'var(--mono-fern)' }}>{monthLabel}</h2>
 
-                  {/* CB monthly KPI: cleared / total (amount sums, expenses only). */}
+                  {/* CB monthly KPI: cleared / total (amount sums, card + paypal expenses). */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
                     <Icon name={paymentMethodIcon('card')} size={10} style={{ color: 'var(--ink-faint)' }} />
                     <span style={{ fontFamily: 'var(--mono-fern)', fontSize: 12, color: 'var(--ink-faint)' }}>
@@ -898,6 +905,8 @@ export function TransactionsClient({
                         selectionMode={selectionMode}
                         isSelected={isSelected}
                         reimbursementSummary={reimbursementSummaries[t.id]}
+                        recurringEnabled={recurringEnabled}
+                        divorceEnabled={divorceEnabled}
                         onClick={() => selectionMode ? toggleRow(t.id) : (setEditingTxn(t), setPrefillData(null), setSheetOpen(true))}
                         onLink={() => { setLinkingTxn(t); setLinkSheetOpen(true) }}
                         onSettle={() => startTransition(runAction(async () => { await setExpenseManualSettlement(t.id, !isManuallySettled) }))}
@@ -975,6 +984,7 @@ export function TransactionsClient({
         categories={categories}
         merchants={merchants}
         item={editingTxn}
+        showReimbursable={divorceEnabled}
         prefill={prefillData ? {
           date: prefillData.date,
           amount: prefillData.amount,

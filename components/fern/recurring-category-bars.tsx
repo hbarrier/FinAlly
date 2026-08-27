@@ -2,29 +2,33 @@ import { COLOR_VARS } from './color-vars'
 import { CatSwatch } from './cat-swatch'
 import { fmt } from '@/lib/derive'
 
-interface BarItem {
+interface RecurringBarItem {
   id: string
   name: string
-  amount: number
   color: string
   icon: string
+  total: number
+  cleared: number
+  amortized: number
 }
 
-interface CategoryBarsProps {
-  items: BarItem[]
+interface RecurringCategoryBarsProps {
+  items: RecurringBarItem[]
+  flattenSizes?: boolean
   onCategoryClick?: (id: string) => void
 }
 
-export function CategoryBars({ items, onCategoryClick }: CategoryBarsProps) {
-  const max = Math.max(...items.map((i) => i.amount), 1)
-  const shown = items.slice(0, 8)
+export function RecurringCategoryBars({ items, flattenSizes, onCategoryClick }: RecurringCategoryBarsProps) {
+  const max = Math.max(...items.map((i) => i.total), 1)
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%' }}>
-      {shown.map((it) => {
-        const pct = (it.amount / max) * 100
+      {items.map((it) => {
+        const pctTotal = flattenSizes ? 100 : (it.total / max) * 100
+        const clearedFrac = it.total > 0 ? it.cleared / it.total : 0
+        const amortizedFrac = it.total > 0 ? it.amortized / it.total : 0
+        const pendingFrac = Math.max(0, 1 - clearedFrac - amortizedFrac)
         const color = COLOR_VARS[it.color]?.solid ?? 'var(--teal)'
-        const bg = COLOR_VARS[it.color]?.bg ?? 'var(--teal-bg)'
 
         return (
           <div
@@ -41,19 +45,13 @@ export function CategoryBars({ items, onCategoryClick }: CategoryBarsProps) {
                 {it.name}
               </span>
               <span style={{ fontSize: 12, fontFamily: 'var(--mono-fern)', color: 'var(--ink)', fontWeight: 500, flexShrink: 0 }}>
-                {fmt(it.amount)}
+                {fmt(it.total)}
               </span>
             </div>
-            <div style={{ height: 6, borderRadius: 4, background: bg, overflow: 'hidden' }}>
-              <div
-                style={{
-                  height: '100%',
-                  width: `${pct}%`,
-                  borderRadius: 4,
-                  background: color,
-                  transition: 'width .5s cubic-bezier(.4,0,.2,1)',
-                }}
-              />
+            <div style={{ height: 6, width: `${pctTotal}%`, borderRadius: 4, overflow: 'hidden', display: 'flex', transition: 'width .5s cubic-bezier(.4,0,.2,1)' }}>
+              <div style={{ width: `${clearedFrac * 100}%`, background: color, opacity: 1 }} />
+              <div style={{ width: `${amortizedFrac * 100}%`, background: color, opacity: 0.7 }} />
+              <div style={{ width: `${pendingFrac * 100}%`, background: color, opacity: 0.35 }} />
             </div>
           </div>
         )

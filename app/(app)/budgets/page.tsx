@@ -5,8 +5,10 @@ export const metadata: Metadata = { title: 'Budgets | FinAlly' }
 import { desc } from 'drizzle-orm'
 import { transactions } from '@/lib/schema'
 import { BudgetsClient } from './budgets-client'
+import { requireModule } from '@/lib/modules'
 
 export default async function BudgetsPage() {
+  await requireModule('budgets')
   const [cats, budgetsList, txns] = await Promise.all([
     db.query.categories.findMany(),
     db.query.budgets.findMany(),

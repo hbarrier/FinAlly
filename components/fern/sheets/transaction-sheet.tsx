@@ -59,6 +59,7 @@ interface TransactionSheetProps {
   categories: Category[]
   merchants: Merchant[]
   item?: Transaction | null
+  showReimbursable?: boolean
   prefill?: (PrefillValues & { method?: PaymentMethod }) | null
   onSave: (data: {
     date: string
@@ -79,6 +80,7 @@ export function TransactionSheet({
   categories,
   merchants,
   item,
+  showReimbursable = false,
   prefill,
   onSave,
   onDelete,
@@ -135,7 +137,7 @@ export function TransactionSheet({
       categoryId: data.categoryId,
       merchantId: data.merchantId,
       note: data.note.trim() || null,
-      reimbursable: data.kind === 'expense' && data.reimbursable ? 1 : 0,
+      reimbursable: showReimbursable && data.kind === 'expense' && data.reimbursable ? 1 : 0,
     })
     onClose()
   }
@@ -331,7 +333,7 @@ export function TransactionSheet({
         <input className="fern-input" placeholder="What was this for?" {...register('note')} />
       </div>
 
-      {watchedKind === 'expense' && (
+      {showReimbursable && watchedKind === 'expense' && (
         <Controller
           control={control}
           name="reimbursable"

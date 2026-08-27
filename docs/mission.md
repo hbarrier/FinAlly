@@ -4,14 +4,20 @@ Fern is a personal finance app for tracking where your money goes and planning w
 
 It is built for a single user who wants full ownership of their financial data — no cloud sync, no subscriptions, no third-party access. The database lives on your machine.
 
+At install the user gives their name, currency and starting balance, and chooses
+which optional modules to enable. The base app is always present; recurring,
+divorce (reimbursements + tax), budgets, simulations and objectives are modules
+that can be turned on or off any time. See [features/modules.md](features/modules.md).
+
 ## What Fern does
 
 - Records every income and expense transaction
-- Tracks recurring bills and income (rent, salary, subscriptions)
-- Compares actual monthly spending against per-category budgets
-- Monitors savings goals with visual progress
-- Handles reimbursable expenses and tracks when they get paid back
+- Tracks recurring bills and income (rent, salary, subscriptions) — *module*
+- Compares actual monthly spending against per-category budgets — *module*
+- Handles reimbursable expenses and tracks when they get paid back — *module*
 - Imports transactions from a CSV bank export
+- Lets you model future what-if changes to income and expenses via simulations — *module*
+- Tracks savings goals — *module*
 
 ## What Fern does not do
 

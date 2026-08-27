@@ -13,6 +13,7 @@ import {
 import { indexReimbursementAllocations } from '@/lib/queries/reimbursement-allocations'
 import { TransactionsClient } from './transactions-client'
 import { REIMBURSEMENT_CATEGORY_NAME } from '@/lib/utils'
+import { getModules } from '@/lib/queries/user-settings'
 
 export default async function TransactionsPage({
   searchParams,
@@ -24,6 +25,7 @@ export default async function TransactionsPage({
   }>
 }) {
   const { year, months, merchant } = await searchParams
+  const modules = await getModules()
 
   const currentYear = new Date().getFullYear()
   const selectedYear = year ? parseInt(year, 10) : currentYear
@@ -62,24 +64,34 @@ export default async function TransactionsPage({
   ] = await Promise.all([
     db.query.categories.findMany(),
     db.query.merchants.findMany({ where: eq(merchants.isActive, 1) }),
-    db.query.recurring.findMany({
-      with: { amounts: { orderBy: [asc(recurringAmounts.startDate)] } },
-    }),
-    db.select().from(recurringInstances).where(
-      and(
-        gte(recurringInstances.month, `${selectedYear}-01`),
-        lte(recurringInstances.month, `${selectedYear}-12`),
-      )
-    ),
+    modules.recurring
+      ? db.query.recurring.findMany({
+          with: { amounts: { orderBy: [asc(recurringAmounts.startDate)] } },
+        })
+      : Promise.resolve([]),
+    modules.recurring
+      ? db.select().from(recurringInstances).where(
+          and(
+            gte(recurringInstances.month, `${selectedYear}-01`),
+            lte(recurringInstances.month, `${selectedYear}-12`),
+          )
+        )
+      : Promise.resolve([]),
     db.select({ year: sql<string>`substr(${transactions.date}, 1, 4)` })
       .from(transactions)
       .groupBy(sql`substr(${transactions.date}, 1, 4)`)
       .orderBy(sql`substr(${transactions.date}, 1, 4) DESC`),
-    db.select().from(reimbursementRates).orderBy(desc(reimbursementRates.startDate)),
-    db.select().from(reimbursementAllocations).where(
-      and(gte(reimbursementAllocations.createdAt, yearStart), lte(reimbursementAllocations.createdAt, yearEnd + 'T23:59:59Z'))
-    ),
-    db.select({ reimbursementTxId: reimbursementClaimAllocations.reimbursementTxId }).from(reimbursementClaimAllocations),
+    modules.divorce
+      ? db.select().from(reimbursementRates).orderBy(desc(reimbursementRates.startDate))
+      : Promise.resolve([]),
+    modules.divorce
+      ? db.select().from(reimbursementAllocations).where(
+          and(gte(reimbursementAllocations.createdAt, yearStart), lte(reimbursementAllocations.createdAt, yearEnd + 'T23:59:59Z'))
+        )
+      : Promise.resolve([]),
+    modules.divorce
+      ? db.select({ reimbursementTxId: reimbursementClaimAllocations.reimbursementTxId }).from(reimbursementClaimAllocations)
+      : Promise.resolve([]),
   ])
 
   // When a merchant filter is active, load the full year for that merchant.
@@ -118,7 +130,7 @@ export default async function TransactionsPage({
       (reimbursementMappingCounts[allocation.expenseTxId] ?? 0) + 1
   }
 
-  for (const txn of txns) {
+  for (const txn of modules.divorce ? txns : []) {
     if (txn.kind === 'income' && txn.categoryId && reimbursementCategoryIds.has(txn.categoryId)) {
       const summary = getIncomeReimbursementSummary(
         txn,
@@ -150,6 +162,8 @@ export default async function TransactionsPage({
       instances={instancesList}
       reimbursementSummaries={reimbursementSummaries}
       reimbursementMappingCounts={reimbursementMappingCounts}
+      recurringEnabled={modules.recurring}
+      divorceEnabled={modules.divorce}
       initialMerchantId={merchant ?? 'all'}
       selectedYear={selectedYear}
       years={years}

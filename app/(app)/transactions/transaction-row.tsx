@@ -25,6 +25,8 @@ interface TransactionRowProps {
   selectionMode: boolean
   isSelected: boolean
   reimbursementSummary: { status: string; label: string } | undefined
+  recurringEnabled: boolean
+  divorceEnabled: boolean
   onClick: () => void
   onLink: () => void
   onClear: () => void
@@ -38,13 +40,15 @@ export function TransactionRow({
   selectionMode,
   isSelected,
   reimbursementSummary,
+  recurringEnabled,
+  divorceEnabled,
   onClick,
   onLink,
   onClear,
   onSettle,
 }: TransactionRowProps) {
   const isCleared = t.cleared === 1
-  const showManualSettlementAction = t.kind === 'expense' && t.reimbursable === 1
+  const showManualSettlementAction = divorceEnabled && t.kind === 'expense' && t.reimbursable === 1
   const isManuallySettled = reimbursementSummary?.status === 'manually_settled'
 
   return (
@@ -82,8 +86,8 @@ export function TransactionRow({
           <Chip tone="scheduled">
             <Icon name={paymentMethodIcon(t.method)} size={10} /> {paymentMethodLabel(t.method)}
           </Chip>
-          {t.recurringId && <Chip tone="recurring"><Icon name="repeat" size={10} /> recurring</Chip>}
-          {reimbursementSummary && (
+          {recurringEnabled && t.recurringId && <Chip tone="recurring"><Icon name="repeat" size={10} /> recurring</Chip>}
+          {divorceEnabled && reimbursementSummary && (
             <Chip tone={reimbursementSummary.status === 'reimbursed' || reimbursementSummary.status === 'fully_allocated' || reimbursementSummary.status === 'manually_settled' ? 'recurring' : 'scheduled'}>
               {reimbursementSummary.label}
             </Chip>
@@ -114,7 +118,7 @@ export function TransactionRow({
           <Icon name={isManuallySettled ? 'x' : 'check'} size={12} />
         </button>
       )}
-      {!selectionMode && (
+      {!selectionMode && recurringEnabled && (
         <button
           title={t.recurringId ? 'Manage recurring link' : 'Make recurring'}
           onClick={(e) => { e.stopPropagation(); onLink() }}

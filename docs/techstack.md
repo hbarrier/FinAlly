@@ -54,7 +54,6 @@ app/
     categories/
     merchants/
     budgets/
-    goals/
     reimbursements/
 components/
   fern/           # App-specific UI components

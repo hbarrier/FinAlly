@@ -15,12 +15,14 @@ import {
 import { getApplicableReimbursementRate } from '@/lib/reimbursement-mapping'
 import { REIMBURSEMENT_CATEGORY_NAME } from '@/lib/utils'
 import { ReimbursementsClient } from './reimbursements-client'
+import { requireModule } from '@/lib/modules'
 
 export default async function ReimbursementsPage({
   searchParams,
 }: {
   searchParams: Promise<{ year?: string }>
 }) {
+  await requireModule('divorce')
   const { year: yearParam } = await searchParams
   const year = Number(yearParam) || new Date().getFullYear()
   const from = `${year}-01-01`

@@ -61,6 +61,8 @@ interface TransactionFiltersProps {
   reimbFilterOpen: boolean
   onReimbFilterOpenChange: (v: boolean) => void
   onReimbursementFilterChange: (v: Set<string>) => void
+  showReimbursementFilter: boolean
+  showNaToggle: boolean
 }
 
 export function TransactionFilters({
@@ -72,6 +74,7 @@ export function TransactionFilters({
   merchantFilter, merchantFilterOpen, onMerchantFilterOpenChange, onMerchantFilterChange, merchants,
   methodFilter, methodFilterOpen, onMethodFilterOpenChange, onMethodFilterChange,
   reimbursementFilter, reimbFilterOpen, onReimbFilterOpenChange, onReimbursementFilterChange,
+  showReimbursementFilter, showNaToggle,
 }: TransactionFiltersProps) {
   const merchantsSortedByName = useMemo(
     () => [...merchants].sort((a, b) => a.name.localeCompare(b.name)),
@@ -126,11 +129,13 @@ export function TransactionFilters({
           onChange={(v) => onClearedFilterChange(v as 'all' | 'cleared' | 'uncleared')}
           options={[{ value: 'all', label: 'All' }, { value: 'cleared', label: 'Cleared' }, { value: 'uncleared', label: 'Pending' }]}
         />
-        <div className="fern-segmented">
-          <button type="button" className={showNa ? 'active' : ''} onClick={() => onShowNaChange(!showNa)}>
-            Show N/A
-          </button>
-        </div>
+        {showNaToggle && (
+          <div className="fern-segmented">
+            <button type="button" className={showNa ? 'active' : ''} onClick={() => onShowNaChange(!showNa)}>
+              Show N/A
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Row 3: Dropdown filters */}
@@ -246,6 +251,7 @@ export function TransactionFilters({
           )}
         </Popover>
 
+        {showReimbursementFilter && (
         <Popover open={reimbFilterOpen} onOpenChange={onReimbFilterOpenChange}>
           <PopoverTrigger asChild>
             <button type="button" className="fern-select" style={{ maxWidth: 260, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
@@ -283,6 +289,7 @@ export function TransactionFilters({
             </PopoverContent>
           )}
         </Popover>
+        )}
       </div>
     </>
   )

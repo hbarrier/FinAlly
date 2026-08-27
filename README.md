@@ -17,6 +17,19 @@ Local-only — no cloud sync, no subscriptions. The database is a SQLite file (`
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Open [http://localhost:3000](http://localhost:3000). First run walks through a
+short setup (name, currency, starting balance, modules).
 
-Run migrations with `npx drizzle-kit migrate` after schema changes.
+## Database
+
+`finance.db` is a SQLite file. To create or update it, run the Drizzle pipeline
+after any change to `lib/schema.ts`:
+
+```bash
+npm run db:generate   # writes a new drizzle/NNNN_*.sql from the schema diff
+npm run db:migrate    # applies pending migrations
+```
+
+`drizzle/0000_*.sql` is a squashed baseline (April–Aug 2025 history is in
+`drizzle/_archive/`). One hand edit lives in the baseline: the `transactions_fts`
+FTS5 virtual table and its triggers, which Drizzle cannot model.

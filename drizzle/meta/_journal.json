@@ -5,71 +5,8 @@
     {
       "idx": 0,
       "version": "6",
-      "when": 1776528707453,
-      "tag": "0000_yellow_smasher",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "6",
-      "when": 1776607331569,
-      "tag": "0001_abnormal_omega_flight",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "6",
-      "when": 1776675167091,
-      "tag": "0002_add_cleared_to_transactions",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "6",
-      "when": 1776683220395,
-      "tag": "0003_real_sir_ram",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "6",
-      "when": 1776710669461,
-      "tag": "0004_messy_human_torch",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "6",
-      "when": 1745276400000,
-      "tag": "0005_claimed_date",
-      "breakpoints": true
-    },
-    {
-      "idx": 6,
-      "version": "6",
-      "when": 1777208844924,
-      "tag": "0006_keen_chameleon",
-      "breakpoints": true
-    },
-    {
-      "idx": 7,
-      "version": "6",
-      "when": 1777222971046,
-      "tag": "0007_magenta_steve_rogers",
-      "breakpoints": true
-    },
-    {
-      "idx": 8,
-      "version": "6",
-      "when": 1777232193132,
-      "tag": "0008_sparkling_cobalt_man",
-      "breakpoints": true
-    },
-    {
-      "idx": 9,
-      "version": "6",
-      "when": 1778311950618,
-      "tag": "0009_spicy_the_spike",
+      "when": 1787825964320,
+      "tag": "0000_brainy_giant_man",
       "breakpoints": true
     }
   ]

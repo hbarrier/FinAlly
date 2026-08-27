@@ -5,8 +5,10 @@ export const metadata: Metadata = { title: 'Recurring | FinAlly' }
 import { asc, eq, inArray } from 'drizzle-orm'
 import { recurringAmounts, merchants as merchantsTable, transactions } from '@/lib/schema'
 import { RecurringClient } from './recurring-client'
+import { requireModule } from '@/lib/modules'
 
 export default async function RecurringPage() {
+  await requireModule('recurring')
   const [recurringItems, cats, merchants] = await Promise.all([
     db.query.recurring.findMany({
       with: { amounts: { orderBy: [asc(recurringAmounts.startDate)] } },

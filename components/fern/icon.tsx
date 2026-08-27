@@ -1,7 +1,7 @@
 import React from 'react'
 
 type IconName =
-  | 'home' | 'list' | 'repeat' | 'target' | 'pie' | 'plus' | 'minus'
+  | 'home' | 'list' | 'repeat' | 'pie' | 'plus' | 'minus'
   | 'search' | 'filter' | 'x' | 'check' | 'chevronDown' | 'chevronRight'
   | 'chevronLeft' | 'moon' | 'sun' | 'more' | 'trash' | 'edit' | 'calendar'
   | 'wallet' | 'arrowUp' | 'arrowDown' | 'sparkle' | 'bank' | 'tag' | 'store'
@@ -10,7 +10,7 @@ type IconName =
   | 'cat-pen' | 'cat-gift' | 'cat-chart' | 'cat-dots' | 'cat-coffee'
   | 'cat-phone' | 'cat-fuel' | 'cat-paw' | 'cat-seed' | 'cat-bank' | 'cat-education' | 'cat-gov'
   | 'cat-holidays' | 'cat-divorce' | 'cat-receipt'
-  | 'upload' | 'fileText' | string
+  | 'upload' | 'fileText' | 'flask' | 'target' | 'settings' | string
 
 interface IconProps extends React.SVGProps<SVGSVGElement> {
   name: IconName
@@ -21,7 +21,6 @@ const paths: Record<string, React.ReactNode> = {
   home: <><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-7h-6v7H4a1 1 0 0 1-1-1v-9.5Z" /></>,
   list: <><path d="M8 6h13M8 12h13M8 18h13" /><circle cx="3.5" cy="6" r="1.2" /><circle cx="3.5" cy="12" r="1.2" /><circle cx="3.5" cy="18" r="1.2" /></>,
   repeat: <><path d="M17 1l4 4-4 4" /><path d="M3 11V9a4 4 0 0 1 4-4h14" /><path d="M7 23l-4-4 4-4" /><path d="M21 13v2a4 4 0 0 1-4 4H3" /></>,
-  target: <><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="5" /><circle cx="12" cy="12" r="1.5" fill="currentColor" /></>,
   pie: <><path d="M21 12A9 9 0 1 1 12 3v9h9Z" /><path d="M15 3.5A9 9 0 0 1 20.5 9" /></>,
   plus: <><path d="M12 5v14M5 12h14" /></>,
   minus: <><path d="M5 12h14" /></>,
@@ -75,6 +74,9 @@ const paths: Record<string, React.ReactNode> = {
   'cat-holidays': <><path d="M13 8c0-2.76-2.46-5-5.5-5S2 5.24 2 8h2l1-1 1 1h4"/><path d="M13 7.14A5.82 5.82 0 0 1 16.5 6c3.04 0 5.5 2.24 5.5 5h-3l-1-1-1 1h-3"/><path d="M5.89 9.71c-2.15 2.15-2.3 5.47-.35 7.43l4.24-4.25.7-.7.71-.71 2.12-2.12c-1.95-1.96-5.27-1.8-7.42.35"/><path d="M11 15.5c.5 2.5-.17 4.5-1 6.5h4c2-5.5-.5-12-1-14"/></>,
   upload: <><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8 12 3 7 8"/><path d="M12 3v12" /></>,
   fileText: <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M16 13H8M16 17H8M10 9H8" /></>,
+  flask: <><path d="M9 3h6M10 3v6.5L4.5 18.5A2 2 0 0 0 6.2 21.5h11.6a2 2 0 0 0 1.7-3L14 9.5V3" /><path d="M7.5 15h9" /></>,
+  target: <><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="5" /><circle cx="12" cy="12" r="1.5" fill="currentColor" /></>,
+  settings: <><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" /></>,
 }
 
 export function Icon({ name, size = 18, ...rest }: IconProps) {

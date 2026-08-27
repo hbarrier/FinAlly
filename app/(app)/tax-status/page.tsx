@@ -3,12 +3,14 @@ import { getAvailableTaxYears, getTaxData, getExpenseTaxData } from '@/lib/queri
 
 export const metadata: Metadata = { title: 'Tax Status | FinAlly' }
 import { TaxStatusClient } from './tax-status-client'
+import { requireModule } from '@/lib/modules'
 
 export default async function TaxStatusPage({
   searchParams,
 }: {
   searchParams: Promise<{ year?: string }>
 }) {
+  await requireModule('divorce')
   const { year } = await searchParams
   const currentYear = new Date().getFullYear()
   const selectedYear = year ? parseInt(year, 10) : currentYear

@@ -2,10 +2,10 @@ import type { Metadata } from 'next'
 import { db } from '@/lib/db'
 
 export const metadata: Metadata = { title: 'Dashboard | FinAlly' }
-import { and, asc, gte, lt } from 'drizzle-orm'
-import { transactions } from '@/lib/schema'
+import { and, asc, eq, gte, lt } from 'drizzle-orm'
+import { transactions, recurringInstances } from '@/lib/schema'
 import { DashboardClient } from './dashboard-client'
-import { getUserSettings } from '@/lib/queries/user-settings'
+import { getUserSettings, getModules } from '@/lib/queries/user-settings'
 import { getMonthOpeningBalance } from '@/lib/queries/opening-balance'
 
 export default async function DashboardPage() {
@@ -22,15 +22,20 @@ export default async function DashboardPage() {
   const histMonthKey = `${histDate.getFullYear()}-${String(histDate.getMonth() + 1).padStart(2, '0')}`
   const histStart = `${histMonthKey}-01`
 
-  const [settings, allTxns, recurringItems, cats, merchantsList] = await Promise.all([
+  const modules = await getModules()
+
+  const [settings, allTxns, recurringItems, cats, merchantsList, monthInstances] = await Promise.all([
     getUserSettings(),
     db.query.transactions.findMany({
       where: and(gte(transactions.date, histStart), lt(transactions.date, nextMonthStart)),
       orderBy: [asc(transactions.date), asc(transactions.createdAt)],
     }),
-    db.query.recurring.findMany(),
+    modules.recurring ? db.query.recurring.findMany() : Promise.resolve([]),
     db.query.categories.findMany(),
     db.query.merchants.findMany(),
+    modules.recurring
+      ? db.select().from(recurringInstances).where(eq(recurringInstances.month, monthKey))
+      : Promise.resolve([]),
   ])
 
   const fallbackSettings = { id: 1, name: 'You', startingBalance: 0, currency: 'EUR' }
@@ -55,6 +60,9 @@ export default async function DashboardPage() {
       recurring={recurringItems}
       categories={cats}
       merchants={merchantsList}
+      instances={monthInstances}
+      recurringEnabled={modules.recurring}
+      divorceEnabled={modules.divorce}
     />
   )
 }
