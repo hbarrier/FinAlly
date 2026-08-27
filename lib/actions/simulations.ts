@@ -2,9 +2,10 @@
 
 import { revalidateApp } from './_shared'
 import { db } from '../db'
-import { simulations, simulationLines, recurring } from '../schema'
+import { simulations, simulationLines, recurring, transactions, categories, merchants } from '../schema'
 import { nanoid } from '../utils'
-import { eq, and, or, isNull, gte, ne } from 'drizzle-orm'
+import { eq, and, or, isNull, gte, lt, inArray } from 'drizzle-orm'
+import { completeMonthsWindow } from '../derive'
 
 export async function addSimulation(data: {
   name: string
@@ -79,25 +80,54 @@ export async function deleteSimulationLine(id: string) {
   revalidateApp()
 }
 
-export async function bulkAddSimulationLinesFromRecurring(simulationId: string) {
+export type SimulationInputs = {
+  recurring: {
+    monthlyExpenses: boolean
+    monthlyIncome: boolean
+    yearlyExpenses: boolean
+    yearlyIncome: boolean
+  }
+  avg: {
+    expenses: boolean
+    income: boolean
+    periodMonths: 1 | 6 | 12
+    rollup: 'all' | 'drop' | 'other'
+    thresholdMonthly: number
+  }
+}
+
+type NewLine = typeof simulationLines.$inferInsert
+
+async function recurringLines(
+  simulationId: string,
+  rec: SimulationInputs['recurring'],
+): Promise<NewLine[]> {
+  const wanted: { cadence: 'monthly' | 'yearly'; kind: 'expense' | 'income' }[] = []
+  if (rec.monthlyExpenses) wanted.push({ cadence: 'monthly', kind: 'expense' })
+  if (rec.monthlyIncome) wanted.push({ cadence: 'monthly', kind: 'income' })
+  if (rec.yearlyExpenses) wanted.push({ cadence: 'yearly', kind: 'expense' })
+  if (rec.yearlyIncome) wanted.push({ cadence: 'yearly', kind: 'income' })
+  if (wanted.length === 0) return []
+
+  const cadences = [...new Set(wanted.map((w) => w.cadence))]
+  const kinds = [...new Set(wanted.map((w) => w.kind))]
+  const wantedKeys = new Set(wanted.map((w) => `${w.cadence}:${w.kind}`))
   const today = new Date().toISOString().slice(0, 10)
-  const activeRecurring = await db
+
+  const rows = await db
     .select()
     .from(recurring)
     .where(
       and(
-        ne(recurring.cadence, 'weekly'),
+        inArray(recurring.cadence, cadences),
+        inArray(recurring.kind, kinds),
         or(isNull(recurring.endDate), gte(recurring.endDate, today)),
       ),
     )
 
-  if (activeRecurring.length === 0) {
-    revalidateApp()
-    return
-  }
-
-  await db.insert(simulationLines).values(
-    activeRecurring.map((r) => ({
+  return rows
+    .filter((r) => wantedKeys.has(`${r.cadence}:${r.kind}`))
+    .map((r) => ({
       id: nanoid(),
       simulationId,
       name: r.name,
@@ -105,10 +135,119 @@ export async function bulkAddSimulationLinesFromRecurring(simulationId: string) 
       categoryId: r.categoryId,
       merchantId: r.merchantId,
       amount: r.amount,
-      frequency: r.cadence as 'monthly' | 'yearly',
+      frequency: r.cadence,
       sourceRecurringId: r.id,
-    })),
-  )
+    }))
+}
+
+async function averagedLinesForKind(
+  simulationId: string,
+  kind: 'expense' | 'income',
+  avg: SimulationInputs['avg'],
+  categoryNames: Map<string, string>,
+  merchantNames: Map<string, string>,
+): Promise<NewLine[]> {
+  const { start, endExclusive } = completeMonthsWindow(avg.periodMonths)
+  const rows = await db
+    .select({
+      categoryId: transactions.categoryId,
+      merchantId: transactions.merchantId,
+      amount: transactions.amount,
+    })
+    .from(transactions)
+    .where(
+      and(
+        eq(transactions.kind, kind),
+        isNull(transactions.recurringId),
+        gte(transactions.date, start),
+        lt(transactions.date, endExclusive),
+      ),
+    )
+
+  const sums = new Map<string, { categoryId: string | null; merchantId: string | null; sum: number }>()
+  for (const r of rows) {
+    const key = `${r.categoryId ?? ''}|${r.merchantId ?? ''}`
+    const entry = sums.get(key) ?? { categoryId: r.categoryId, merchantId: r.merchantId, sum: 0 }
+    entry.sum += Number(r.amount || 0)
+    sums.set(key, entry)
+  }
+
+  const combos = [...sums.values()].map((c) => ({
+    categoryId: c.categoryId,
+    merchantId: c.merchantId,
+    avgMonthly: c.sum / avg.periodMonths,
+  }))
+
+  const otherLabel = (categoryId: string | null) =>
+    categoryId ? `Other ${categoryNames.get(categoryId) ?? 'category'}` : 'Other (uncategorized)'
+
+  const kept: typeof combos = []
+  const rolled = new Map<string, number>() // categoryId ('' for null) -> summed avg
+
+  for (const c of combos) {
+    if (avg.rollup === 'all' || c.avgMonthly >= avg.thresholdMonthly) {
+      kept.push(c)
+      continue
+    }
+    if (avg.rollup === 'other') {
+      const k = c.categoryId ?? ''
+      rolled.set(k, (rolled.get(k) ?? 0) + c.avgMonthly)
+    }
+    // 'drop' -> discard
+  }
+
+  const lines: NewLine[] = kept.map((c) => ({
+    id: nanoid(),
+    simulationId,
+    name: c.merchantId ? (merchantNames.get(c.merchantId) ?? null) : null,
+    kind,
+    categoryId: c.categoryId,
+    merchantId: c.merchantId,
+    amount: c.avgMonthly,
+    frequency: 'monthly',
+    sourceRecurringId: null,
+  }))
+
+  for (const [k, amount] of rolled) {
+    const categoryId = k === '' ? null : k
+    lines.push({
+      id: nanoid(),
+      simulationId,
+      name: otherLabel(categoryId),
+      kind,
+      categoryId,
+      merchantId: null,
+      amount,
+      frequency: 'monthly',
+      sourceRecurringId: null,
+    })
+  }
+
+  return lines
+}
+
+export async function populateSimulationFromInputs(
+  simulationId: string,
+  inputs: SimulationInputs,
+): Promise<void> {
+  const lines: NewLine[] = [...(await recurringLines(simulationId, inputs.recurring))]
+
+  if (inputs.avg.expenses || inputs.avg.income) {
+    const [cats, merchs] = await Promise.all([
+      db.select({ id: categories.id, name: categories.name }).from(categories),
+      db.select({ id: merchants.id, name: merchants.name }).from(merchants),
+    ])
+    const categoryNames = new Map(cats.map((c) => [c.id, c.name]))
+    const merchantNames = new Map(merchs.map((m) => [m.id, m.name]))
+    if (inputs.avg.expenses) {
+      lines.push(...(await averagedLinesForKind(simulationId, 'expense', inputs.avg, categoryNames, merchantNames)))
+    }
+    if (inputs.avg.income) {
+      lines.push(...(await averagedLinesForKind(simulationId, 'income', inputs.avg, categoryNames, merchantNames)))
+    }
+  }
+
+  if (lines.length > 0) await db.insert(simulationLines).values(lines)
   revalidateApp()
 }
 

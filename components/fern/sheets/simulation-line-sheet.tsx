@@ -127,7 +127,7 @@ export function SimulationLineSheet({
 
   const recurringSelectOptions = useMemo(
     () => recurringOptions
-      .filter((r) => r.kind === watchedKind && r.cadence !== 'weekly')
+      .filter((r) => r.kind === watchedKind)
       .sort((a, b) => a.name.localeCompare(b.name))
       .map((r) => ({ value: r.id, label: r.name })),
     [recurringOptions, watchedKind],

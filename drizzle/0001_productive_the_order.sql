@@ -1,0 +1,1 @@
+ALTER TABLE `recurring` DROP COLUMN `day_of_week`;

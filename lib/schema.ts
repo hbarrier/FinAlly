@@ -48,10 +48,9 @@ export const recurring = sqliteTable('recurring', {
     onDelete: 'set null',
   }),
   cadence: text('cadence', {
-    enum: ['weekly', 'monthly', 'yearly'],
+    enum: ['monthly', 'yearly'],
   }).notNull(),
   dayOfMonth: int('day_of_month'),
-  dayOfWeek: int('day_of_week'),
   startDate: text('start_date').notNull(),
   endDate: text('end_date'),
   monthRules: text('month_rules'),

@@ -20,9 +20,8 @@ export async function addRecurring(data: {
   kind: 'expense' | 'income'
   categoryId: string | null
   merchantId?: string | null
-  cadence: 'weekly' | 'monthly' | 'yearly'
+  cadence: 'monthly' | 'yearly'
   dayOfMonth?: number | null
-  dayOfWeek?: number | null
   startDate: string
   endDate?: string | null
   method?: PaymentMethod
@@ -57,9 +56,8 @@ export async function updateRecurring(
     method: PaymentMethod
     categoryId: string | null
     merchantId: string | null
-    cadence: 'weekly' | 'monthly' | 'yearly'
+    cadence: 'monthly' | 'yearly'
     dayOfMonth: number | null
-    dayOfWeek: number | null
     startDate: string
     endDate: string | null
   }>,
@@ -168,9 +166,8 @@ export async function promoteToRecurring(
     categoryId: string | null
     merchantId: string | null
     method?: PaymentMethod
-    cadence: 'weekly' | 'monthly' | 'yearly'
+    cadence: 'monthly' | 'yearly'
     dayOfMonth: number | null
-    dayOfWeek: number | null
     startDate: string
   },
 ): Promise<{ recurringId: string; linkedCount: number }> {
@@ -198,9 +195,6 @@ export async function promoteToRecurring(
         if (data.cadence === 'monthly') {
           const target = resolvedDayOfMonth(data.dayOfMonth ?? 1, d)
           return Math.abs(d.getDate() - target) <= 5
-        }
-        if (data.cadence === 'weekly') {
-          return d.getDay() === (data.dayOfWeek ?? 1)
         }
         if (data.cadence === 'yearly') {
           const src = new Date(data.startDate + 'T12:00:00')
@@ -255,9 +249,8 @@ export async function bulkPromoteToRecurring(
     categoryId: string | null
     merchantId: string | null
     method?: PaymentMethod
-    cadence: 'weekly' | 'monthly' | 'yearly'
+    cadence: 'monthly' | 'yearly'
     dayOfMonth: number | null
-    dayOfWeek: number | null
     startDate: string
   },
 ): Promise<{ recurringId: string; linkedCount: number }> {

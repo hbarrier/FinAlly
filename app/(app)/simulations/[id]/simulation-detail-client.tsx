@@ -104,7 +104,7 @@ export function SimulationDetailClient({
   const handleSaveSimulation = (data: { name: string; description: string | null }) => {
     startTransition(async () => {
       try {
-        await updateSimulation(simulation.id, data)
+        await updateSimulation(simulation.id, { name: data.name, description: data.description })
       } catch (e) {
         alert(e instanceof Error ? e.message : 'An error occurred')
       }

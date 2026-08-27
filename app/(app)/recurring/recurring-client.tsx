@@ -12,7 +12,6 @@ import { addRecurring, updateRecurring, deleteRecurring } from '@/lib/actions/re
 import { runAction } from '@/lib/utils'
 import type { Merchant } from '@/lib/db-types'
 
-const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
 interface RecurringClientProps {
@@ -234,7 +233,6 @@ function RecurringRow({
       const domLabel = dom === -1 ? 'last day' : dom === -2 ? '2nd to last' : `day ${dom}`
       return `Monthly · ${domLabel}`
     }
-    if (r.cadence === 'weekly') return `Weekly · ${DOW[r.dayOfWeek ?? 1]}`
     if (r.cadence === 'yearly') {
       const d = new Date(r.startDate)
       return `Yearly · ${MONTHS_SHORT[d.getMonth()]} ${d.getDate()}`

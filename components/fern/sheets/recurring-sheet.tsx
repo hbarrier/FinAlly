@@ -17,12 +17,9 @@ import { PAYMENT_METHODS, paymentMethodLabel, defaultPaymentMethodForKind, type 
 import { parseDecimal } from '@/lib/utils'
 
 const CADENCES = [
-  { value: 'weekly', label: 'Weekly' },
   { value: 'monthly', label: 'Monthly' },
   { value: 'yearly', label: 'Yearly' },
 ]
-
-const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 const MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -38,10 +35,9 @@ const recurringSchema = z.object({
   name: z.string().min(1, 'Name is required'),
   categoryId: z.string().min(1, 'Pick a category'),
   merchantId: z.string().nullable(),
-  cadence: z.enum(['weekly', 'monthly', 'yearly']),
+  cadence: z.enum(['monthly', 'yearly']),
   dayOfMonth: z.number().min(-2).max(31).nullable(),
   monthOfYear: z.number().min(1).max(12).nullable(),
-  dayOfWeek: z.number().min(0).max(6).nullable(),
   startDate: z.string().min(1, 'Start date is required'),
   endDate: z.string().nullable().optional(),
 }).superRefine((data, ctx) => {
@@ -71,7 +67,6 @@ function getDefaultValues(item?: Recurring | null): RecurringFormValues {
     cadence,
     dayOfMonth: cadence === 'yearly' ? d.getDate() : (item?.dayOfMonth ?? new Date().getDate()),
     monthOfYear: cadence === 'yearly' ? d.getMonth() + 1 : new Date().getMonth() + 1,
-    dayOfWeek: item?.dayOfWeek ?? 1,
     startDate,
     endDate: item?.endDate ?? null,
   }
@@ -92,9 +87,8 @@ interface RecurringSheetProps {
     method: PaymentMethod
     categoryId: string | null
     merchantId: string | null
-    cadence: 'weekly' | 'monthly' | 'yearly'
+    cadence: 'monthly' | 'yearly'
     dayOfMonth: number | null
-    dayOfWeek: number | null
     startDate: string
     endDate?: string | null
   }) => void
@@ -162,7 +156,6 @@ export function RecurringSheet({ open, onClose, categories, merchants, item, amo
       merchantId: data.merchantId,
       cadence: data.cadence,
       dayOfMonth: data.cadence === 'monthly' ? Number(data.dayOfMonth) : null,
-      dayOfWeek: data.cadence === 'weekly' ? Number(data.dayOfWeek) : null,
       startDate,
       endDate: data.endDate && data.endDate.length ? data.endDate : null,
     })
@@ -366,23 +359,6 @@ export function RecurringSheet({ open, onClose, categories, merchants, item, amo
               )}
             />
           </div>
-        </div>
-      )}
-
-      {watchedCadence === 'weekly' && (
-        <div>
-          <label className="fern-field-label wide">Day of week</label>
-          <Controller
-            control={control}
-            name="dayOfWeek"
-            render={({ field }) => (
-              <div className="fern-segmented">
-                {DOW.map((d, i) => (
-                  <button key={i} type="button" className={field.value === i ? 'active' : ''} onClick={() => field.onChange(i)}>{d}</button>
-                ))}
-              </div>
-            )}
-          />
         </div>
       )}
 

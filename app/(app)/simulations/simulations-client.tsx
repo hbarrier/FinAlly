@@ -10,7 +10,7 @@ import { EmptyState } from '@/components/fern/empty-state'
 import { SimulationSheet } from '@/components/fern/sheets/simulation-sheet'
 import { fmt, simulationTotals } from '@/lib/derive'
 import type { SimulationWithLines } from '@/lib/db-types'
-import { addSimulation, bulkAddSimulationLinesFromRecurring, deleteSimulation, duplicateSimulation } from '@/lib/actions/simulations'
+import { addSimulation, populateSimulationFromInputs, deleteSimulation, duplicateSimulation, type SimulationInputs } from '@/lib/actions/simulations'
 
 interface SimulationsClientProps {
   simulations: SimulationWithLines[]
@@ -22,11 +22,11 @@ export function SimulationsClient({ simulations, recurringEnabled }: Simulations
   const [, startTransition] = useTransition()
   const router = useRouter()
 
-  const handleCreate = (data: { name: string; description: string | null; startFromRecurring: boolean }) => {
+  const handleCreate = (data: { name: string; description: string | null; inputs: SimulationInputs | null }) => {
     startTransition(async () => {
       try {
         const { id } = await addSimulation({ name: data.name, description: data.description })
-        if (recurringEnabled && data.startFromRecurring) await bulkAddSimulationLinesFromRecurring(id)
+        if (data.inputs) await populateSimulationFromInputs(id, data.inputs)
         router.push(`/simulations/${id}`)
       } catch (e) {
         alert(e instanceof Error ? e.message : 'An error occurred')

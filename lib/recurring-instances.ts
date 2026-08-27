@@ -48,7 +48,7 @@ function recurringCoversMonth(r: Recurring, month: string): boolean {
     // Only fires in the same calendar month as startDate, each year
     return r.startDate.slice(5, 7) === month.slice(5, 7)
   }
-  // monthly and weekly fire every month within range
+  // monthly fires every month within range
   return true
 }
 

@@ -6,7 +6,9 @@
 
 Simulations model "what if" scenarios for future income and expenses — a raise, a new bill, a job change — without touching real transactions or recurring templates. A simulation is a named, optionally described container for independent revenue/expense lines, each with a category, optional merchant, an amount, and a monthly or yearly frequency.
 
-A line can be created from scratch or copied from an existing recurring item. The copy is a one-time snapshot: editing the line afterward does not affect the original recurring item, and vice versa.
+A line can be created from scratch, copied from an existing recurring item, or generated in bulk
+at creation time from an include-items checklist. Every generated line is a one-time snapshot:
+editing it afterward does not affect the source, and vice versa.
 
 ## Reference files
 
@@ -18,7 +20,7 @@ A line can be created from scratch or copied from an existing recurring item. Th
 | [app/(app)/simulations/[id]/simulation-detail-client.tsx](../../app/(app)/simulations/[id]/simulation-detail-client.tsx) | Client Component; view toggle, totals, balance projection, category breakdown, line list |
 | [lib/actions/simulations.ts](../../lib/actions/simulations.ts) | All simulation and line mutations |
 | [lib/derive.ts](../../lib/derive.ts) | `simulationTotals`, `simulationLinesByCategory`, `currentRecurringMonthlyNet`, `simulationBalanceProjection` |
-| [components/fern/sheets/simulation-sheet.tsx](../../components/fern/sheets/simulation-sheet.tsx) | Add / edit simulation name & description; create-time source toggle |
+| [components/fern/sheets/simulation-sheet.tsx](../../components/fern/sheets/simulation-sheet.tsx) | Add / edit simulation name & description; create-time include-items checklist |
 | [components/fern/sheets/simulation-line-sheet.tsx](../../components/fern/sheets/simulation-line-sheet.tsx) | Add / edit a line, with an optional "copy from recurring" picker |
 
 ## Fields
@@ -37,7 +39,7 @@ A line can be created from scratch or copied from an existing recurring item. Th
 | `categoryId` | Required |
 | `merchantId` | Optional |
 | `amount` | The entered amount, at the line's `frequency` |
-| `frequency` | `'monthly'` or `'yearly'` — no weekly, unlike recurring |
+| `frequency` | `'monthly'` or `'yearly'` |
 | `sourceRecurringId` | Set when the line was copied from a recurring item; purely informational (shows a "from X" note), never re-synced |
 
 ## Business rules
@@ -51,10 +53,27 @@ A line can be created from scratch or copied from an existing recurring item. Th
 The detail page exposes this as a Monthly/Yearly toggle, with an "Include yearly (amortized)" checkbox that switches between `'monthly'` and `'monthly-with-yearly'` while in Monthly mode.
 
 ### Copying from a recurring item
-When adding a line, picking "From recurring" prefills `name`/`categoryId`/`merchantId`/`amount`/`frequency` from the chosen recurring item (cadence maps 1:1 to frequency). Weekly-cadence recurring items are excluded from the picker — simulations don't model a weekly frequency, and converting weekly to monthly would be a lossy approximation. All fields stay editable after picking, and edits never write back to the source recurring item.
+When adding a line, picking "From recurring" prefills `name`/`categoryId`/`merchantId`/`amount`/`frequency` from the chosen recurring item (cadence maps 1:1 to frequency). All fields stay editable after picking, and edits never write back to the source recurring item.
 
-### Starting a simulation from current recurring
-At creation time, choosing "Start from current recurring" bulk-copies every recurring item that is non-weekly and not ended (`endDate IS NULL OR endDate >= today`) into the new simulation as independent lines.
+### Populating a new simulation from the include-items checklist
+The New simulation sheet has an **Include** checklist (`populateSimulationFromInputs` in
+`lib/actions/simulations.ts`). Nothing checked = start from scratch.
+
+- **Recurring monthly/yearly expenses/income** — four independent checkboxes (shown only when
+  the recurring module is enabled). Each copies matching recurring items that are not ended
+  (`endDate IS NULL OR endDate >= today`) as snapshot lines with `sourceRecurringId` set.
+- **Average non-recurring expenses / income** — two checkboxes. For each, the system takes all
+  non-recurring transactions (`recurringId IS NULL`) of that kind in the chosen window,
+  groups them by `(categoryId, merchantId)`, and creates one monthly line per group with
+  `amount = sum / periodMonths` (fixed divisor — a merchant seen once in a 6-month window
+  still divides by 6).
+  - **Averaging period:** 1 / 6 / 12 complete calendar months, default 6. The current
+    (incomplete) month is always excluded; "1 month" is the single previous complete month.
+    See `completeMonthsWindow` in `lib/derive.ts`.
+  - **Line handling:** `Include everything` (one line per group), `Drop below threshold`
+    (skip groups whose monthly average is under the threshold), or `Roll up remainder`
+    (keep above-threshold groups, collapse the rest into one `Other <category>` line per
+    category so category totals stay exact). Threshold is in €/month, default 50.
 
 ### Projected balance
 The detail page charts a linear 12-month balance projection: starting from today's actual balance (`currentBalance(startingBalance, transactions)`), each subsequent month adds the simulation's net monthly cashflow (always amortized — `'monthly-with-yearly'` — regardless of the active view toggle). This is deliberately linear, not a lump-sum-by-month timing model, since simulation lines carry no scheduling information.

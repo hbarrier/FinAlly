@@ -43,6 +43,18 @@ export function thisMonthTransactions<T extends { date: string }>(
   return txns.filter((t) => monthKey(t.date) === key)
 }
 
+/** The `periodMonths` complete calendar months immediately before the current month. */
+export function completeMonthsWindow(
+  periodMonths: number,
+  ref: Date = new Date(),
+): { start: string; endExclusive: string } {
+  const firstOfMonth = (monthsAgo: number) => {
+    const d = new Date(ref.getFullYear(), ref.getMonth() - monthsAgo, 1)
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
+  }
+  return { start: firstOfMonth(periodMonths), endExclusive: firstOfMonth(0) }
+}
+
 export function sumByKind(txns: Transaction[], kind: 'expense' | 'income') {
   return txns
     .filter((t) => t.kind === kind)
@@ -197,10 +209,8 @@ export function resolvedDayOfMonth(dayOfMonth: number, d: Date): number {
 }
 
 function matchesCadence(d: Date, r: Recurring): boolean {
-  const dow = d.getDay()
   const dom = d.getDate()
   if (r.cadence === 'monthly') return dom === resolvedDayOfMonth(r.dayOfMonth || 1, d)
-  if (r.cadence === 'weekly') return dow === (r.dayOfWeek ?? 1)
   if (r.cadence === 'yearly') {
     const s = new Date(r.startDate)
     return d.getMonth() === s.getMonth() && d.getDate() === s.getDate()
@@ -276,8 +286,6 @@ export function monthlyEstimate(r: Recurring, ref: Date = new Date()): number {
     if (r.endDate < refStr) return 0
   }
   const a = Number(r.amount || 0)
-  if (r.cadence === 'monthly') return a
-  if (r.cadence === 'weekly') return a * 4.33
   if (r.cadence === 'yearly') return a / 12
   return a
 }

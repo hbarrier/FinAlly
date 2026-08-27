@@ -20,19 +20,15 @@ import { linkTransactionToRecurring } from '@/lib/actions/transactions'
 import { PAYMENT_METHODS, paymentMethodLabel } from '@/lib/payment-method'
 
 const CADENCES = [
-  { value: 'weekly', label: 'Weekly' },
   { value: 'monthly', label: 'Monthly' },
   { value: 'yearly', label: 'Yearly' },
 ]
 
-const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-
 const createSchema = z.object({
   name: z.string().min(1, 'Name is required'),
   method: z.enum(PAYMENT_METHODS),
-  cadence: z.enum(['weekly', 'monthly', 'yearly']),
+  cadence: z.enum(['monthly', 'yearly']),
   dayOfMonth: z.number().min(1).max(28).nullable(),
-  dayOfWeek: z.number().min(0).max(6).nullable(),
   categoryId: z.string().nullable(),
 })
 
@@ -121,7 +117,6 @@ export function RecurringLinkSheet({
         method: data.method,
         cadence: data.cadence,
         dayOfMonth: data.cadence === 'monthly' ? (data.dayOfMonth ?? txnDate.getDate()) : null,
-        dayOfWeek: data.cadence === 'weekly' ? (data.dayOfWeek ?? txnDate.getDay()) : null,
         startDate: transaction.date,
       })
       setSuccessName(data.name.trim())
@@ -307,30 +302,6 @@ export function RecurringLinkSheet({
                       </Field>
                     )}
 
-                    {watchedCadence === 'weekly' && (
-                      <div>
-                        <label className="fern-field-label wide">Day of week</label>
-                        <Controller
-                          control={control}
-                          name="dayOfWeek"
-                          render={({ field }) => (
-                            <div className="fern-segmented">
-                              {DOW.map((d, i) => (
-                                <button
-                                  key={i}
-                                  type="button"
-                                  className={field.value === i ? 'active' : ''}
-                                  onClick={() => field.onChange(i)}
-                                >
-                                  {d}
-                                </button>
-                              ))}
-                            </div>
-                          )}
-                        />
-                      </div>
-                    )}
-
                     <Controller
                       control={control}
                       name="categoryId"
@@ -412,7 +383,6 @@ function getDefaults(transaction: Transaction): CreateFormValues {
     method: transaction.method,
     cadence: 'monthly',
     dayOfMonth: d.getDate(),
-    dayOfWeek: d.getDay(),
     categoryId: transaction.categoryId,
   }
 }

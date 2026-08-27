@@ -4,7 +4,7 @@
 
 ## Overview
 
-Recurring items represent income or expenses that happen on a predictable schedule — monthly rent, a weekly grocery run, an annual insurance premium. Fern tracks them separately from transactions so that you can see what to expect each month and compare planned vs. actual.
+Recurring items represent income or expenses that happen on a predictable schedule — monthly rent, an annual insurance premium. Fern tracks them separately from transactions so that you can see what to expect each month and compare planned vs. actual.
 
 A recurring item can be linked to individual transactions after the fact, giving you a history of actual payments for each bill.
 
@@ -29,9 +29,8 @@ A recurring item can be linked to individual transactions after the fact, giving
 | `method` | Payment method enum (same as transactions): `card`, `transfer`, `cash`, `check`, `debit`, `paypal`. Defaults to `card` for expenses, `transfer` for income. Propagated to linked transactions when changed. |
 | `categoryId` | Optional |
 | `merchantId` | Optional |
-| `cadence` | `'weekly'`, `'monthly'`, or `'yearly'` |
+| `cadence` | `'monthly'` or `'yearly'` |
 | `dayOfMonth` | 1–31; used for monthly cadence |
-| `dayOfWeek` | 0–6 (Sun–Sat); used for weekly cadence |
 | `startDate` | ISO date; item does not occur before this date. For yearly cadence, occurrences fire on the same month+day as `startDate` each year. |
 | `endDate` | ISO date (optional); item does not occur after this date |
 
@@ -41,7 +40,6 @@ A recurring item can be linked to individual transactions after the fact, giving
 `thisMonthRecurring` and `allOccurrencesInRange` in `lib/derive.ts` compute exact dates:
 
 - **Monthly:** fires on `dayOfMonth` every month within range.
-- **Weekly:** fires on `dayOfWeek` every week within range (0 = Sunday).
 - **Yearly:** fires on the anniversary of `startDate` (same month and day) each year.
 
 `startDate` and `endDate` are enforced: occurrences outside that window are omitted.
@@ -49,7 +47,6 @@ A recurring item can be linked to individual transactions after the fact, giving
 ### Monthly estimate
 `monthlyEstimate(item, ref)` normalises any cadence to a monthly amount for the summary cards:
 - Monthly → amount as-is
-- Weekly → amount × 4.33
 - Yearly → amount ÷ 12
 - Returns `0` if `endDate` is in the past relative to `ref`.
 

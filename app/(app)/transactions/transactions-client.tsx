@@ -167,14 +167,8 @@ export function TransactionsClient({
         if (r.cadence === 'monthly') {
           const dom = resolvedDayOfMonth(r.dayOfMonth ?? 1, new Date(inst.month + '-15'))
           date = `${inst.month}-${String(dom).padStart(2, '0')}`
-        } else if (r.cadence === 'yearly') {
-          date = `${inst.month.slice(0, 4)}-${r.startDate.slice(5)}`
         } else {
-          // weekly: first occurrence of dayOfWeek in the month
-          const d = new Date(inst.month + '-01T12:00:00')
-          const target = r.dayOfWeek ?? 1
-          while (d.getDay() !== target) d.setDate(d.getDate() + 1)
-          date = `${inst.month}-${String(d.getDate()).padStart(2, '0')}`
+          date = `${inst.month.slice(0, 4)}-${r.startDate.slice(5)}`
         }
         return [{
           _instance: true,
