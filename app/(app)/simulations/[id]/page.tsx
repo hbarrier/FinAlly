@@ -17,7 +17,9 @@ export default async function SimulationDetailPage({
   await requireModule('simulations')
   const { id } = await params
 
-  const recurringEnabled = (await getModules()).recurring
+  const modules = await getModules()
+  const recurringEnabled = modules.recurring
+  const budgetsEnabled = modules.budgets
 
   const [simulation, cats, merchantsList, recurringItems, settings, allTxns] = await Promise.all([
     db.query.simulations.findFirst({ where: eq(simulations.id, id), with: { lines: true } }),
@@ -39,6 +41,7 @@ export default async function SimulationDetailPage({
       merchants={merchantsList}
       recurringOptions={recurringItems}
       recurringEnabled={recurringEnabled}
+      budgetsEnabled={budgetsEnabled}
       startingBalance={startingBalance}
       transactions={allTxns}
     />

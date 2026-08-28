@@ -177,6 +177,7 @@ export function SimulationLineSheet({
     <SheetShell
       open={open}
       onClose={onClose}
+      modal={!averaged}
       title={item ? 'Edit line' : 'New line'}
       primary={{
         label: item ? 'Save' : 'Create',

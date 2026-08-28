@@ -43,6 +43,7 @@ import {
   updateSimulation,
   updateSimulationLine,
 } from '@/lib/actions/simulations'
+import { createBudgetFromSimulation } from '@/lib/actions/budgets'
 
 const VIEWS = [
   { value: 'monthly', label: 'Monthly' },
@@ -108,6 +109,7 @@ interface SimulationDetailClientProps {
   merchants: Merchant[]
   recurringOptions: Recurring[]
   recurringEnabled: boolean
+  budgetsEnabled: boolean
   startingBalance: number
   transactions: Transaction[]
 }
@@ -118,6 +120,7 @@ export function SimulationDetailClient({
   merchants,
   recurringOptions,
   recurringEnabled,
+  budgetsEnabled,
   startingBalance,
   transactions,
 }: SimulationDetailClientProps) {
@@ -130,6 +133,9 @@ export function SimulationDetailClient({
   const [viewMode, setViewMode] = useState<'monthly' | 'yearly'>('monthly')
   const [includeYearlySplit, setIncludeYearlySplit] = useState(false)
   const [lineView, setLineView] = useState<'amount' | 'category'>('amount')
+  const [pushing, setPushing] = useState(false)
+  const [roundUp, setRoundUp] = useState(true)
+  const [pushIncludeYearly, setPushIncludeYearly] = useState(false)
 
   const view: SimulationView =
     viewMode === 'yearly' ? 'yearly' : includeYearlySplit ? 'monthly-with-yearly' : 'monthly'
@@ -279,6 +285,23 @@ export function SimulationDetailClient({
     startTransition(async () => {
       try {
         await deleteSimulationLine(id)
+      } catch (e) {
+        void alertDialog(e instanceof Error ? e.message : 'An error occurred')
+      }
+    })
+  }
+
+  const handlePushToBudget = () => {
+    startTransition(async () => {
+      try {
+        const { id } = await createBudgetFromSimulation({
+          simulationId: simulation.id,
+          roundUp,
+          includeYearly: pushIncludeYearly,
+          createdOnLabel: new Date().toLocaleDateString(),
+        })
+        setPushing(false)
+        router.push(`/budgets?b=${id}`)
       } catch (e) {
         void alertDialog(e instanceof Error ? e.message : 'An error occurred')
       }
@@ -436,9 +459,16 @@ export function SimulationDetailClient({
         <div className="fern-card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
             <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: 'var(--ink)' }}>Expenses</h3>
-            <FernButton tone="outline" onClick={() => setAddingKind('expense')} style={{ padding: '6px 10px', fontSize: 12 }}>
-              <Icon name="plus" size={12} /> Add expense
-            </FernButton>
+            <div style={{ display: 'flex', gap: 6 }}>
+              {budgetsEnabled && (
+                <FernButton tone="outline" onClick={() => setPushing(true)} style={{ padding: '6px 10px', fontSize: 12 }}>
+                  <Icon name="pie" size={12} /> Push to budget
+                </FernButton>
+              )}
+              <FernButton tone="outline" onClick={() => setAddingKind('expense')} style={{ padding: '6px 10px', fontSize: 12 }}>
+                <Icon name="plus" size={12} /> Add expense
+              </FernButton>
+            </div>
           </div>
           {expenseBars.length === 0 ? (
             <div style={{ color: 'var(--ink-faint)', padding: '12px 0', fontSize: 13 }}>None yet</div>
@@ -504,6 +534,37 @@ export function SimulationDetailClient({
         pending={isPending}
         onSave={handleSaveLine}
       />
+
+      {budgetsEnabled && (
+        <Modal
+          open={pushing}
+          onClose={() => setPushing(false)}
+          title="Push to budget"
+          footer={
+            <>
+              <button type="button" className="fern-btn sheet-secondary" onClick={() => setPushing(false)}>
+                Cancel
+              </button>
+              <button type="button" className="fern-btn sheet-primary primary" onClick={handlePushToBudget} disabled={isPending}>
+                Create budget
+              </button>
+            </>
+          }
+        >
+          <p style={{ fontSize: 13, color: 'var(--ink-soft)', marginTop: 0 }}>
+            Create a new budget from this simulation&apos;s expense totals per category. Expense lines
+            without a category are skipped. The new budget is not made active.
+          </p>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--ink)', cursor: 'pointer', padding: '4px 0' }}>
+            <input type="checkbox" checked={roundUp} onChange={(e) => setRoundUp(e.target.checked)} />
+            Round each category up to the next 50 &euro;
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--ink)', cursor: 'pointer', padding: '4px 0' }}>
+            <input type="checkbox" checked={pushIncludeYearly} onChange={(e) => setPushIncludeYearly(e.target.checked)} />
+            Include yearly expenses (amortized to monthly)
+          </label>
+        </Modal>
+      )}
     </div>
   )
 }

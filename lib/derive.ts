@@ -301,6 +301,11 @@ export function roundToTen(n: number): number {
   return Math.round(n / 10) * 10
 }
 
+/** Rounds a budget amount up to the next multiple of 50 (401 -> 450, 451 -> 500). */
+export function roundUpToFifty(n: number): number {
+  return Math.ceil(n / 50) * 50
+}
+
 export function simulationTotals(
   lines: SimulationLine[],
   view: SimulationView,

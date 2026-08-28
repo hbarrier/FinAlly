@@ -222,17 +222,41 @@ export const transactionsFts = sqliteTable('transactions_fts', {
 })
 
 // --- budgets ---
-export const budgets = sqliteTable(
-  'budgets',
+export const budgets = sqliteTable('budgets', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  description: text('description'),
+  isActive: int('is_active').notNull().default(0),
+  createdAt: text('created_at')
+    .notNull()
+    .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
+})
+
+export const budgetAmounts = sqliteTable(
+  'budget_amounts',
   {
     id: text('id').primaryKey(),
+    budgetId: text('budget_id')
+      .notNull()
+      .references(() => budgets.id, { onDelete: 'cascade' }),
     categoryId: text('category_id')
       .notNull()
       .references(() => categories.id, { onDelete: 'cascade' }),
     limitAmount: real('limit_amount').notNull(),
   },
-  (t) => [unique('budgets_category_unique').on(t.categoryId)],
+  (t) => [unique('budget_amounts_budget_category_unique').on(t.budgetId, t.categoryId)],
 )
+
+export const budgetsRelations = relations(budgets, ({ many }) => ({
+  amounts: many(budgetAmounts),
+}))
+
+export const budgetAmountsRelations = relations(budgetAmounts, ({ one }) => ({
+  budget: one(budgets, {
+    fields: [budgetAmounts.budgetId],
+    references: [budgets.id],
+  }),
+}))
 
 // --- goals (savings targets) ---
 export const goals = sqliteTable('goals', {

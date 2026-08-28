@@ -16,6 +16,7 @@ interface SheetShellProps {
   onClose: () => void
   title: ReactNode
   compact?: boolean
+  modal?: boolean
   children: ReactNode
   primary: {
     label: ReactNode
@@ -33,6 +34,7 @@ export function SheetShell({
   onClose,
   title,
   compact,
+  modal,
   children,
   primary,
   cancelLabel = 'Cancel',
@@ -43,8 +45,12 @@ export function SheetShell({
     .join(' ')
   const primaryTone = primary.tone ?? 'primary'
   return (
-    <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
-      <SheetContent side="right" className={cls}>
+    <Sheet open={open} onOpenChange={(v) => !v && onClose()} modal={modal}>
+      <SheetContent
+        side="right"
+        className={cls}
+        onInteractOutside={modal === false ? (e) => e.preventDefault() : undefined}
+      >
         <SheetHeader>
           <SheetTitle className="fern-sheet-title">{title}</SheetTitle>
         </SheetHeader>
