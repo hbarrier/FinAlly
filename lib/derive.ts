@@ -897,12 +897,13 @@ export function fmtShort(amt: number | string): string {
 
 export function splitCents(amt: number | string) {
   const n = Math.abs(Number(amt || 0))
-  const whole = Math.floor(n)
-  const cents = Math.round((n - whole) * 100)
+  // Round to cents first, then split — otherwise a value like 2.999 yields
+  // whole=2, cents=100 and renders as "€2,100".
+  const totalCents = Math.round(n * 100)
   return {
     sign: Number(amt) < 0 ? '−' : '',
-    whole: whole.toLocaleString('de-DE'),
-    cents: String(cents).padStart(2, '0'),
+    whole: Math.floor(totalCents / 100).toLocaleString('de-DE'),
+    cents: String(totalCents % 100).padStart(2, '0'),
   }
 }
 

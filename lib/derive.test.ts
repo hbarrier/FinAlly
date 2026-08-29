@@ -366,4 +366,9 @@ describe('formatting', () => {
     expect(splitCents(1234.5)).toEqual({ sign: '', whole: '1.234', cents: '50' })
     expect(splitCents(-9.05)).toEqual({ sign: '−', whole: '9', cents: '05' })
   })
+
+  it('splitCents carries into the whole part instead of rendering ,100', () => {
+    expect(splitCents(2.999)).toEqual({ sign: '', whole: '3', cents: '00' })
+    expect(splitCents(0.999)).toEqual({ sign: '', whole: '1', cents: '00' })
+  })
 })
