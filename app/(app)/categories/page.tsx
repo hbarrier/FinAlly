@@ -1,13 +1,14 @@
 import type { Metadata } from 'next'
 import { db } from '@/lib/db'
-
-export const metadata: Metadata = { title: 'Categories | FinAlly' }
+import { getCategoryStats } from '@/lib/queries/category-stats'
 import { CategoriesClient } from './categories-client'
 
+export const metadata: Metadata = { title: 'Categories | FinAlly' }
+
 export default async function CategoriesPage() {
-  const [cats, txns] = await Promise.all([
+  const [cats, stats] = await Promise.all([
     db.query.categories.findMany(),
-    db.query.transactions.findMany({ columns: { id: true, categoryId: true, kind: true, amount: true, date: true } }),
+    getCategoryStats(),
   ])
-  return <CategoriesClient categories={cats} transactions={txns} />
+  return <CategoriesClient categories={cats} stats={stats} />
 }

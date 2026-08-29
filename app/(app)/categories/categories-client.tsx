@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState, useTransition } from 'react'
+import { useState, useTransition } from 'react'
 import { Icon } from '@/components/fern/icon'
 import { CatSwatch } from '@/components/fern/cat-swatch'
 import { SegmentedControl } from '@/components/fern/segmented-control'
@@ -8,46 +8,24 @@ import { CategorySheet } from '@/components/fern/sheets/category-sheet'
 import { PageHeader } from '@/components/fern/page-header'
 import { FernButton } from '@/components/fern/button'
 import { EmptyState } from '@/components/fern/empty-state'
-import { fmt, thisMonthTransactions, isPlannedDate, type Category } from '@/lib/derive'
+import { fmt, type Category } from '@/lib/derive'
+import type { CategoryStats } from '@/lib/queries/category-stats'
 import { addCategory, updateCategory, deleteCategory, setCategoryActive } from '@/lib/actions/categories'
 import { runAction, REIMBURSEMENT_CATEGORY_NAME } from '@/lib/utils'
 import { confirmDialog } from '@/lib/dialogs-store'
 
-type TransactionSlice = {
-  id: string
-  date: string
-  amount: number
-  kind: 'expense' | 'income'
-  categoryId: string | null
-}
-
 interface CategoriesClientProps {
   categories: Category[]
-  transactions: TransactionSlice[]
+  stats: CategoryStats
 }
 
-export function CategoriesClient({ categories, transactions: txns }: CategoriesClientProps) {
+export function CategoriesClient({ categories, stats }: CategoriesClientProps) {
   const [kindTab, setKindTab] = useState('all')
   const [editing, setEditing] = useState<string | 'new' | null>(null)
   const [, startTransition] = useTransition()
 
-  const spending = useMemo(() => {
-    const map: Record<string, number> = {}
-    thisMonthTransactions(txns)
-      .filter((t) => t.kind === 'expense' && !isPlannedDate(t.date))
-      .forEach((t) => {
-        if (t.categoryId) map[t.categoryId] = (map[t.categoryId] ?? 0) + Number(t.amount ?? 0)
-      })
-    return map
-  }, [txns])
-
-  const usageById = useMemo(() => {
-    const map: Record<string, number> = {}
-    txns.forEach((t) => {
-      if (t.categoryId) map[t.categoryId] = (map[t.categoryId] ?? 0) + 1
-    })
-    return map
-  }, [txns])
+  const spending = stats.monthSpend
+  const usageById = stats.usage
 
   const filtered = categories
     .filter((c) => kindTab === 'all' || c.kind === kindTab)

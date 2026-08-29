@@ -18,25 +18,17 @@ import { confirmDialog } from '@/lib/dialogs-store'
 interface MerchantsClientProps {
   merchants: Merchant[]
   categories: Category[]
-  transactions: { id: string; merchantId: string | null }[]
+  usage: Record<string, number>
 }
 
 type FilterMode = 'active' | 'inactive' | 'all'
 
-export function MerchantsClient({ merchants: merchantsList, categories, transactions }: MerchantsClientProps) {
+export function MerchantsClient({ merchants: merchantsList, categories, usage: usageById }: MerchantsClientProps) {
   const [editing, setEditing] = useState<string | 'new' | null>(null)
   const [filter, setFilter] = useState<FilterMode>('active')
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<string[]>([])
   const [, startTransition] = useTransition()
-
-  const usageById = useMemo(() => {
-    const map: Record<string, number> = {}
-    transactions.forEach((t) => {
-      if (t.merchantId) map[t.merchantId] = (map[t.merchantId] ?? 0) + 1
-    })
-    return map
-  }, [transactions])
 
   const categoryById = useMemo(
     () => new Map(categories.map((c) => [c.id, c])),

@@ -15,9 +15,9 @@ import {
   fmt,
   budgetCategoryMonthly,
   budgetLineMonthly,
-  monthActualByCategory,
   type Category,
 } from '@/lib/derive'
+import type { MonthActuals } from '@/lib/queries/month-actuals'
 import type { Merchant, BudgetLine, BudgetWithLines } from '@/lib/db-types'
 import { confirmDialog } from '@/lib/dialogs-store'
 import {
@@ -30,34 +30,23 @@ import {
 } from '@/lib/actions/budgets'
 import { runAction } from '@/lib/utils'
 
-type TransactionSlice = {
-  id: string
-  date: string
-  amount: number
-  kind: 'expense' | 'income'
-  categoryId: string | null
-  merchantId: string | null
-  recurringId: string | null
-}
-
 interface BudgetsClientProps {
   categories: Category[]
   merchants: Merchant[]
   budget: BudgetWithLines | null
-  transactions: TransactionSlice[]
+  actuals: MonthActuals
 }
 
 const barState = (spent: number, limit: number): 'ok' | 'warn' | 'over' =>
   limit > 0 && spent > limit ? 'over' : limit > 0 && spent > limit * 0.8 ? 'warn' : 'ok'
 
-export function BudgetsClient({ categories, merchants, budget, transactions: txns }: BudgetsClientProps) {
+export function BudgetsClient({ categories, merchants, budget, actuals }: BudgetsClientProps) {
   const router = useRouter()
   const [, startTransition] = useTransition()
   const [editingBudget, setEditingBudget] = useState<'new' | 'edit' | null>(null)
   const [editingLine, setEditingLine] = useState<{ line: BudgetLine | null; category: Category } | null>(null)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
 
-  const nowMonth = new Date().toISOString().slice(0, 7)
   const lines = useMemo(() => budget?.lines ?? [], [budget])
   const merchantById = useMemo(() => new Map(merchants.map((m) => [m.id, m])), [merchants])
 
@@ -71,8 +60,8 @@ export function BudgetsClient({ categories, merchants, budget, transactions: txn
     return map
   }, [lines])
 
-  const expenseActual = useMemo(() => monthActualByCategory(txns, nowMonth, 'expense'), [txns, nowMonth])
-  const incomeActual = useMemo(() => monthActualByCategory(txns, nowMonth, 'income'), [txns, nowMonth])
+  const expenseActual = actuals.expense
+  const incomeActual = actuals.income
 
   const plannedFor = useCallback(
     (catId: string) => budgetCategoryMonthly(lines, catId, true),

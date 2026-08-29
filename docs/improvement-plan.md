@@ -72,11 +72,18 @@ Status key: `[x]` done · `[~]` in progress · `[ ]` todo · `⏸` blocked
   `importTransactions` (lookups + inserts + instance-linking in one txn — was 1.10).
   **Remaining:** fold `simulations-client` `handleCreate`'s 3 awaits into one action.
   (No unique index on `simulation_lines` — legit duplicate category lines exist.)
-- [ ] **2.3** push per-page full-table scans into SQL aggregates (`dashboard`,
-  `categories`, `merchants`, `budgets`, `simulations/[id]`, `applySimulationLineAverage`)
-- [ ] **2.4** `revalidateTag` per domain + `unstable_cache` on `lib/queries/*`
-- [ ] **2.5** scope `updateRecurring` method propagation to "from date X"; make
-  `promoteToRecurring` return matches for confirmation
+- [~] **2.3** `categories` / `merchants` / `budgets` pages + `applySimulationLineAverage`
+  now use SQL aggregates (`lib/queries/category-stats.ts`, `merchant-usage.ts`,
+  `month-actuals.ts`) instead of shipping the whole transactions table.
+  **Remaining:** `dashboard` (5yr window → server-computed chart series) and
+  `simulations/[id]` (all-txns for the drill-down) — bigger client refactors.
+- [ ] **2.4** `revalidateTag` per domain + `unstable_cache` on `lib/queries/*` —
+  deferred: current `revalidatePath('/', 'layout')` is correct for the single-user
+  case; real value is deployed-multi-user perf. Revisit if/when deploying.
+- [~] **2.5** `promoteToRecurring` — deferred: the fuzzy ±5-day match is a UX concern,
+  not corruption. `updateRecurring` method-overwrite is **not a bug**: the
+  transaction sheet locks `method` on recurring-linked rows, so there's nothing
+  hand-edited to clobber.
 
 ## Phase 3 — DRY / reuse
 

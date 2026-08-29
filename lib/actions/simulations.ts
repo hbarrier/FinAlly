@@ -194,10 +194,19 @@ export async function applySimulationLineAverage(
 
   const simulation = await db.query.simulations.findFirst({ where: eq(simulations.id, line.simulationId) })
   if (!simulation?.inputs) throw new Error('Simulation was not seeded from inputs')
-  const inputs = JSON.parse(simulation.inputs) as SimulationInputs
+  const inputs = parse(simulationInputsSchema, JSON.parse(simulation.inputs))
 
-  const allTxns = await db.query.transactions.findMany()
-  const source = simulationLineSourceTransactions(line, inputs, allTxns, undefined, data.months)
+  // Only the look-back window's non-recurring transactions of this kind feed the average.
+  const { start, endExclusive } = completeMonthsWindow(data.months)
+  const windowTxns = await db.query.transactions.findMany({
+    where: and(
+      eq(transactions.kind, line.kind),
+      isNull(transactions.recurringId),
+      gte(transactions.date, start),
+      lt(transactions.date, endExclusive),
+    ),
+  })
+  const source = simulationLineSourceTransactions(line, inputs, windowTxns, undefined, data.months)
 
   const excluded = new Set(data.excludedTxnIds)
   const sum = source
