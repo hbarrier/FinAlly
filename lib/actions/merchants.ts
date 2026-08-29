@@ -2,7 +2,7 @@
 
 import { revalidateApp } from './_shared'
 import { db } from '../db'
-import { merchants, transactions } from '../schema'
+import { merchants, transactions, recurring, budgetLines, simulationLines } from '../schema'
 import { nanoid } from '../utils'
 import { and, eq, inArray, isNull } from 'drizzle-orm'
 
@@ -39,12 +39,18 @@ export async function deleteMerchant(id: string) {
 }
 
 export async function mergeMerchants(keepId: string, mergeIds: string[]) {
+  const toMerge = mergeIds.filter((id) => id !== keepId)
+  if (toMerge.length === 0) return
+
   await db.transaction(async (tx) => {
-    await tx
-      .update(transactions)
-      .set({ merchantId: keepId })
-      .where(inArray(transactions.merchantId, mergeIds))
-    await tx.delete(merchants).where(inArray(merchants.id, mergeIds))
+    // Repoint every table that references a merchant, not just transactions.
+    for (const table of [transactions, recurring, budgetLines, simulationLines]) {
+      await tx
+        .update(table)
+        .set({ merchantId: keepId })
+        .where(inArray(table.merchantId, toMerge))
+    }
+    await tx.delete(merchants).where(inArray(merchants.id, toMerge))
   })
   revalidateApp()
 }

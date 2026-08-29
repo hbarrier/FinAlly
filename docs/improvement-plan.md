@@ -19,15 +19,17 @@ Status key: `[x]` done · `[~]` in progress · `[ ]` todo · `⏸` blocked
 - [x] GitHub Actions CI (typecheck + lint + test + build)
 - [ ] Prettier / `format` script (or document its absence)
 - [ ] lint-staged pre-commit (optional)
+- [x] action integration-test harness (`test/helpers/db.ts` — temp DB + migrations,
+  `test/vitest.setup.ts` — `next/cache` no-op mock)
 
 ## Phase 1 — Correctness bugs (each gets a failing test first)
 
 - [x] **1.1** ~~enable `PRAGMA foreign_keys = ON`~~ — **false positive**: `@libsql/client`
   enables FKs by default (verified empirically), cascades fire through
   `db.transaction()`. Locked with a tripwire test (`lib/db-foreign-keys.test.ts`).
-- ⏸ **1.2** `mergeMerchants` (`lib/actions/merchants.ts`) — repoint `recurring` /
-  `budgetLines` / `simulationLines` merchantId too; reject `keepId ∈ mergeIds`
-  — *`budgetLines.merchantId` is WIP-only; do the whole fix once WIP lands*
+- [x] **1.2** `mergeMerchants` now repoints `transactions` + `recurring` +
+  `budgetLines` + `simulationLines`, and drops `keepId` from `mergeIds` so it can't
+  delete the survivor. Integration-tested (`test/actions/merchants.test.ts`).
 - [~] **1.10** `importTransactions` (`lib/actions/import.ts`) — move lookups inside
   the txn; create linked instances for `recurringId` rows. **Moved to Phase 2.2**
   (fits the transaction-wrapping work; needs the action integration-test harness).
