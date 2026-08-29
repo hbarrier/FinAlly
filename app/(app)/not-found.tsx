@@ -1,18 +1,7 @@
-'use client'
+import Link from 'next/link'
 
-import { useEffect } from 'react'
-
-export default function Error({
-  error,
-  reset,
-}: {
-  error: Error & { digest?: string }
-  reset: () => void
-}) {
-  useEffect(() => {
-    console.error(error)
-  }, [error])
-
+/** Renders inside the app shell, so a missing record / disabled module keeps the sidebar. */
+export default function NotFound() {
   return (
     <div
       style={{
@@ -25,17 +14,14 @@ export default function Error({
         textAlign: 'center',
       }}
     >
-      <div style={{ fontSize: 32 }}>⚠</div>
+      <p style={{ margin: 0, fontSize: 48, fontFamily: 'var(--serif)', fontStyle: 'italic', color: 'var(--ink-faint)' }}>
+        404
+      </p>
       <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: 'var(--ink)' }}>
-        Something went wrong
+        Not found
       </h2>
-      {error.digest && (
-        <p style={{ margin: 0, fontSize: 12, color: 'var(--ink-faint)', fontFamily: 'var(--mono-fern)' }}>
-          {error.digest}
-        </p>
-      )}
-      <button
-        onClick={reset}
+      <Link
+        href="/dashboard"
         style={{
           marginTop: 8,
           padding: '8px 20px',
@@ -45,11 +31,11 @@ export default function Error({
           color: 'var(--ink)',
           fontSize: 14,
           fontWeight: 500,
-          cursor: 'pointer',
+          textDecoration: 'none',
         }}
       >
-        Try again
-      </button>
+        Back to dashboard
+      </Link>
     </div>
   )
 }

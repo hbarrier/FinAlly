@@ -113,12 +113,33 @@ Status key: `[x]` done · `[~]` in progress · `[ ]` todo · `⏸` blocked
 
 ## Phase 4 — Structural
 
-- [ ] **4.1** money as integer cents (schema migration + all math + format at edge)
-- [ ] **4.2** fully derive type layer; zod schemas for `SimulationInputs` / `MonthRules` / `ModuleKey`
+- [ ] **4.1 — DEFERRED (do not drop).** Money as integer cents: add `*_cents int`
+  columns across ~8 tables (`transactions`, `recurring`, `recurring_amounts`,
+  `simulation_lines`, `budget_lines`, `goals`, `user_settings`,
+  `monthly_opening_balances`, `reimbursement_allocations`,
+  `transactions.reimbursement_amount_override`), backfill `ROUND(amount*100)`,
+  migrate every read/write + `lib/derive.ts` math + `lib/actions/*`, format at the
+  edge, drop the `real` columns. Needs a hand-written table-rebuild migration
+  (db:generate needs a TTY), verified against a copy of `finance.db` first, with a
+  `backups/` snapshot. Deferred 2026-08 by explicit decision — the `AMOUNT_EPSILON`
+  guards keep comparisons safe today; the risk/effort of the migration on live data
+  is not worth it yet. **Revisit before any real multi-user deployment.**
+- [~] **4.2** `TaxAllocation` / `TaxAllocationValue` now derived via `InferSelectModel`;
+  `SimulationInputs` is `z.infer<typeof simulationInputsSchema>` (schema in
+  `lib/schemas.ts`, the single source); `monthRulesSchema` validates
+  `recurring.monthRules` JSON in `parseMonthRules`. **Remaining:** `ModuleKey` still
+  a hand union (low value — a wrong key in `MODULE_META` is already a type error).
 - [ ] **4.3** wire up the configurable `currency` setting; one `LOCALE` constant
-- [ ] **4.4** startup migration runner; reconcile dialect naming; `DATABASE_URL` env
+  (best done with 4.1 — formatting touches the same `fmt`/`splitCents` surface)
+- [~] **4.4** startup pending-migration **warning** (`lib/migrations-check.ts`, called
+  from `instrumentation.ts` — doesn't auto-apply, per AGENTS.md §5); `DATABASE_URL` /
+  `DATABASE_AUTH_TOKEN` env with `.env.example`; `lib/db.ts` + `drizzle.config.ts`
+  read it. Dialect stays `turso` (works; the journal's `sqlite` marker is internal).
 - [ ] **4.5** decompose `transactions-client` / `reimbursements-client` /
   `simulation-detail-client`; restore `react-hooks/set-state-in-effect` to `error`
-- [ ] **4.6** per-route `error.tsx` / `loading.tsx` for `simulations/[id]`;
-  `not-found` inside app shell; guard/batch `ensureInstancesUpTo`; log errors
-- [ ] **4.7** pick one app name (Fern vs FinAlly)
+- [~] **4.6** `app/(app)/not-found.tsx` — `notFound()` (missing record / disabled
+  module) now renders inside the app shell instead of the full-screen root 404.
+  `ensureInstancesUpTo` guarded by a per-process/month flag (was re-sweeping on
+  every layout render). `app/(app)/error.tsx` now `console.error`s the error.
+  (Per-route `loading.tsx` not needed — the group's already covers children.)
+- [ ] **4.7** pick one app name (Fern vs FinAlly) — **product decision, needs the user**

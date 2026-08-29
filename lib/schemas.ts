@@ -40,6 +40,29 @@ export const zFlag = z.union([z.literal(0), z.literal(1)])
 export const zName = z.string().trim().min(1, 'Name is required')
 export const zOptionalText = z.string().nullable().optional()
 
+/** Wizard inputs stored as JSON in `simulations.inputs`. */
+export const simulationInputsSchema = z.object({
+  recurring: z.object({
+    monthlyExpenses: z.boolean(),
+    monthlyIncome: z.boolean(),
+    yearlyExpenses: z.boolean(),
+    yearlyIncome: z.boolean(),
+  }),
+  avg: z.object({
+    expenses: z.boolean(),
+    income: z.boolean(),
+    periodMonths: z.union([z.literal(1), z.literal(6), z.literal(12)]),
+    rollup: z.enum(['all', 'drop', 'other']),
+    thresholdMonthly: z.number().finite().nonnegative(),
+  }),
+})
+
+/** Per-month-of-year overrides stored as JSON in `recurring.monthRules`. */
+export const monthRulesSchema = z.record(
+  z.string(),
+  z.object({ notApplicable: z.boolean().optional(), amount: z.number().finite().optional() }),
+)
+
 /**
  * Parse `input` against `schema`, throwing an `Error` whose message is the first
  * validation issue. Keeps action bodies to a single `const data = parse(...)` line.

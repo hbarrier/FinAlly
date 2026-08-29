@@ -1,4 +1,6 @@
 import type { InferSelectModel } from 'drizzle-orm'
+import type { z } from 'zod'
+import type { simulationInputsSchema } from './schemas'
 import type {
   categories,
   merchants,
@@ -15,6 +17,7 @@ import type {
   reimbursementAllocations,
   reimbursementClaims,
   reimbursementClaimAllocations,
+  taxAllocations,
   simulations,
   simulationLines,
 } from './schema'
@@ -45,7 +48,8 @@ export type RecurringWithAmounts = Recurring & { amounts: RecurringAmount[] }
 export type TransactionKind = Transaction['kind']
 export type RecurringCadence = Recurring['cadence']
 
-export type TaxAllocationValue = 'audrey' | 'lucie' | 'split'
+export type TaxAllocation = InferSelectModel<typeof taxAllocations>
+export type TaxAllocationValue = TaxAllocation['allocation']
 
 export type Simulation = InferSelectModel<typeof simulations>
 export type SimulationLine = InferSelectModel<typeof simulationLines>
@@ -53,18 +57,5 @@ export type SimulationWithLines = Simulation & { lines: SimulationLine[] }
 export type SimulationLineFrequency = SimulationLine['frequency']
 export type SimulationLinePriority = SimulationLine['priority']
 
-export type SimulationInputs = {
-  recurring: {
-    monthlyExpenses: boolean
-    monthlyIncome: boolean
-    yearlyExpenses: boolean
-    yearlyIncome: boolean
-  }
-  avg: {
-    expenses: boolean
-    income: boolean
-    periodMonths: 1 | 6 | 12
-    rollup: 'all' | 'drop' | 'other'
-    thresholdMonthly: number
-  }
-}
+/** The wizard inputs a simulation was seeded from — validated by `simulationInputsSchema`. */
+export type SimulationInputs = z.infer<typeof simulationInputsSchema>

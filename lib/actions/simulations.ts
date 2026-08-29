@@ -7,28 +7,15 @@ import { simulations, simulationLines, recurring, transactions, categories, merc
 import { nanoid } from '../utils'
 import { eq, and, or, isNull, gte, lt, inArray, sql } from 'drizzle-orm'
 import { completeMonthsWindow, roundToTen, simulationLineSourceTransactions } from '../derive'
-import { parse, zId, zName, zKind, zFrequency, zPriority, zAmountOrZero, zNullableId, zOptionalId } from '../schemas'
+import {
+  parse, simulationInputsSchema,
+  zId, zName, zKind, zFrequency, zPriority, zAmountOrZero, zNullableId, zOptionalId,
+} from '../schemas'
 import type { SimulationInputs } from '../db-types'
 
 export type { SimulationInputs } from '../db-types'
 
 const simMetaSchema = z.object({ name: zName, description: z.string().nullable() })
-
-const simulationInputsSchema = z.object({
-  recurring: z.object({
-    monthlyExpenses: z.boolean(),
-    monthlyIncome: z.boolean(),
-    yearlyExpenses: z.boolean(),
-    yearlyIncome: z.boolean(),
-  }),
-  avg: z.object({
-    expenses: z.boolean(),
-    income: z.boolean(),
-    periodMonths: z.union([z.literal(1), z.literal(6), z.literal(12)]),
-    rollup: z.enum(['all', 'drop', 'other']),
-    thresholdMonthly: z.number().finite().nonnegative(),
-  }),
-})
 const simLineSchema = z.object({
   name: z.string().nullable(),
   kind: zKind,

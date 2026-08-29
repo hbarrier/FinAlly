@@ -4,14 +4,18 @@ import { nanoid } from './utils'
 import { sql } from 'drizzle-orm'
 import type { Recurring } from './db-types'
 import { monthsBetween } from './dates'
+import { monthRulesSchema } from './schemas'
 
 export { monthsBetween, currentMonth } from './dates'
 
-type MonthRules = Record<string, { notApplicable?: boolean; amount?: number }>
-
-function parseMonthRules(raw: string | null): MonthRules {
+function parseMonthRules(raw: string | null) {
   if (!raw) return {}
-  try { return JSON.parse(raw) as MonthRules } catch { return {} }
+  try {
+    const parsed = monthRulesSchema.safeParse(JSON.parse(raw))
+    return parsed.success ? parsed.data : {}
+  } catch {
+    return {}
+  }
 }
 
 /** Returns false if the template's monthRules marks this month-of-year as not applicable. */
@@ -65,8 +69,13 @@ export async function ensureInstancesForRecurring(
   }
 }
 
+// Skip the full instance-generation sweep when it already ran for this month in
+// this server process — the app layout calls ensureInstancesUpTo on every render.
+let lastEnsuredMonth: string | null = null
+
 /** Creates expected instances for all active recurring items up to and including `toMonth`. */
 export async function ensureInstancesUpTo(toMonth: string): Promise<void> {
+  if (lastEnsuredMonth === toMonth) return
   const items = await db.select().from(recurring)
   await db.transaction(async (tx) => {
     for (const r of items) {
@@ -74,6 +83,7 @@ export async function ensureInstancesUpTo(toMonth: string): Promise<void> {
       await ensureInstancesForRecurring(tx, r, fromMonth, toMonth)
     }
   })
+  lastEnsuredMonth = toMonth
 }
 
 /** Upserts an instance to 'linked' status for a given (recurringId, month). */
