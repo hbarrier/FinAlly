@@ -48,14 +48,16 @@ Status key: `[x]` done · `[~]` in progress · `[ ]` todo · `⏸` blocked
 - [x] **1.7** `currentBalance` (`lib/derive.ts`) — **no callers** (dead code);
   every live balance calc already inlines its own planned-row filter. Left as-is
   (surgical-changes rule); documented by a test. Delete if still unused at Phase 4.
-- ⏸ **1.8** `splitCents` can render `,100` (`lib/derive.ts`) — folds into 4.1
+- [x] **1.8** `splitCents` now rounds to cents before splitting, so `2.999` renders
+  `€3,00` not `€2,100` (`lib/derive.ts`). Full float→int fix still tracked in 4.1.
 - [x] **1.9** `getExpectedReimbursementAmount` now rounds to the nearest **cent**,
   not the nearest euro (`lib/reimbursement-mapping.ts`); covered by
   `lib/reimbursement-mapping.test.ts`
-- ⏸ **1.11** migration data-loss rule → `AGENTS.md`; document hand-written
-  migration workflow — *do alongside committing migrations 0008–0011*
-- ⏸ **1.12** drop unused `transactions_fts` virtual table + triggers + schema decl
-  (needs a migration) — *blocked on WIP / migration chain*
+- [x] **1.11** migration rules added to `AGENTS.md` §5 (data-preserving copy before
+  any DROP; hand-write migration + snapshot; backups; FTS out of drizzle)
+- [x] **1.12** `transactions_fts` virtual table + 3 triggers dropped
+  (`drizzle/0012_drop_transactions_fts.sql`, applied); `transactionsFts` removed
+  from `lib/schema.ts`; `drizzle-kit check` clean
 
 > **Blocked items** wait until the in-progress feature work (budget lines,
 > category `isActive`, sim `amountManual`) and migrations `0008–0011` are committed

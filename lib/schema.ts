@@ -216,13 +216,6 @@ export const transactions = sqliteTable(
   ],
 )
 
-// --- transactions FTS (full-text search on note) ---
-// Backed by SQLite FTS5 virtual table (created in a SQL migration).
-export const transactionsFts = sqliteTable('transactions_fts', {
-  transactionId: text('transaction_id').notNull(),
-  note: text('note').notNull(),
-})
-
 // --- budgets ---
 export const budgets = sqliteTable('budgets', {
   id: text('id').primaryKey(),
