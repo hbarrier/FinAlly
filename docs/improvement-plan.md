@@ -34,8 +34,13 @@ Status key: `[x]` done · `[~]` in progress · `[ ]` todo · `⏸` blocked
   *Not* supporting income rows — the wizard is expense-only by design.
 - [x] **1.3** `resolvedDayOfMonth` now clamps positive days to the month length
   (`lib/derive.ts`) — a day-31 bill fires on the 30th/28th instead of being skipped
-- [ ] **1.4 / 1.5** UTC-vs-local date basis — new `lib/dates.ts`, route all callers
-  through it (`lib/derive.ts`, `lib/recurring-instances.ts`)
+- [x] **1.4 / 1.5** UTC-vs-local date basis — `lib/dates.ts` (local wall-clock basis);
+  `lib/derive.ts` (`effectiveAmount`, `thisMonthTransactions`, `isPlannedDate`,
+  `monthlyEstimate`, `completeMonthsWindow`, recurring cursor loops, `simulationBalanceProjection`)
+  and `lib/recurring-instances.ts` (`currentMonth`, `monthsBetween`) now route through it.
+  Shadowing `monthKey` param renamed. **Remaining call sites** (client components,
+  `transactions/page.tsx`, `dashboard/page.tsx`, `recurring.ts` actions) are DRY-only,
+  tracked under Phase 3.1.
 - [x] **1.6** `recurringExpensesByCategory` no longer shows yearly bills as a full
   lump when "+ Yearly" is off — excluded entirely, or folded in amortized when on
 - [x] **1.7** `currentBalance` (`lib/derive.ts`) — **no callers** (dead code);
@@ -70,7 +75,9 @@ Status key: `[x]` done · `[~]` in progress · `[ ]` todo · `⏸` blocked
 
 ## Phase 3 — DRY / reuse
 
-- [ ] **3.1** `lib/dates.ts` single date module (also the 1.4/1.5 mechanism)
+- [~] **3.1** `lib/dates.ts` created + `lib/derive.ts` / `lib/recurring-instances.ts`
+  migrated. **Remaining:** client components + `*/page.tsx` + `lib/actions/recurring.ts`
+  still hand-roll `toISOString().slice()` / `padStart` — route through `lib/dates.ts`.
 - [ ] **3.2** `useSheetForm` hook + `<AmountField>` / `<KindToggle>` + select-option builders
 - [ ] **3.3** `useServerAction()` → `{ run, pending }`; thread `pending` into buttons/SheetShell
 - [ ] **3.4** `<IconButton>`, `FernButton tone="outline-sm"`, `<ScrollTopButton>`,

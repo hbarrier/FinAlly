@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, afterEach, vi } from 'vitest'
 import {
   effectiveAmount,
   monthTransactions,
@@ -94,6 +94,23 @@ describe('isPlannedDate', () => {
     expect(isPlannedDate('2026-01-16', ref)).toBe(true)
     expect(isPlannedDate('2026-01-15', ref)).toBe(false)
     expect(isPlannedDate('2026-01-14', ref)).toBe(false)
+  })
+
+  it('uses the local calendar day, not UTC (suite TZ = America/New_York)', () => {
+    // 2026-01-16T02:00Z is still 2026-01-15 21:00 EST.
+    const ref = new Date('2026-01-16T02:00:00Z')
+    expect(isPlannedDate('2026-01-16', ref)).toBe(true) // tomorrow, locally
+    expect(isPlannedDate('2026-01-15', ref)).toBe(false) // today, locally
+  })
+})
+
+describe('thisMonthTransactions (local basis)', () => {
+  afterEach(() => vi.useRealTimers())
+
+  it('bins by the local month even near a UTC boundary', () => {
+    vi.setSystemTime(new Date('2026-02-01T02:00:00Z')) // 2026-01-31 21:00 EST
+    const rows = [txn({ id: 'jan', date: '2026-01-31' }), txn({ id: 'feb', date: '2026-02-01' })]
+    expect(thisMonthTransactions(rows).map((t) => t.id)).toEqual(['jan'])
   })
 })
 

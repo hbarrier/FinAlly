@@ -3,19 +3,9 @@ import { recurring } from './schema'
 import { nanoid } from './utils'
 import { sql } from 'drizzle-orm'
 import type { Recurring } from './db-types'
+import { monthsBetween } from './dates'
 
-/** Returns an array of YYYY-MM strings from `from` to `to` inclusive. */
-export function monthsBetween(from: string, to: string): string[] {
-  const result: string[] = []
-  let [y, m] = from.split('-').map(Number)
-  const [ey, em] = to.split('-').map(Number)
-  while (y < ey || (y === ey && m <= em)) {
-    result.push(`${y}-${String(m).padStart(2, '0')}`)
-    m++
-    if (m > 12) { m = 1; y++ }
-  }
-  return result
-}
+export { monthsBetween, currentMonth } from './dates'
 
 type MonthRules = Record<string, { notApplicable?: boolean; amount?: number }>
 
@@ -112,7 +102,3 @@ export async function revertInstanceToExpected(
   `)
 }
 
-/** Current month as YYYY-MM. */
-export function currentMonth(): string {
-  return new Date().toISOString().slice(0, 7)
-}

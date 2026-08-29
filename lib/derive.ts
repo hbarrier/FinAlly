@@ -22,10 +22,21 @@ import type {
   SimulationLine,
   SimulationInputs,
 } from './db-types'
+import {
+  todayISO,
+  currentMonth,
+  monthOf,
+  addMonths,
+  firstDayOfMonth,
+  parseLocalDate,
+  completeMonthsWindow,
+} from './dates'
+
+export { completeMonthsWindow } from './dates'
 
 export function effectiveAmount(amounts: RecurringAmount[], date: Date = new Date()): number {
   if (amounts.length === 0) return 0
-  const dateStr = date.toISOString().slice(0, 10)
+  const dateStr = todayISO(date)
   const sorted = [...amounts].sort((a, b) => a.startDate.localeCompare(b.startDate))
   const past = sorted.filter((a) => a.startDate <= dateStr)
   return past.length > 0 ? past[past.length - 1].amount : sorted[0].amount
@@ -33,36 +44,20 @@ export function effectiveAmount(amounts: RecurringAmount[], date: Date = new Dat
 
 // ---- date helpers ----
 
-function monthKey(iso: string) {
-  return iso.slice(0, 7)
-}
-
 export function monthTransactions<T extends { date: string }>(txns: T[], month: string): T[] {
-  return txns.filter((t) => monthKey(t.date) === month)
+  return txns.filter((t) => monthOf(t.date) === month)
 }
 
 export function thisMonthTransactions<T extends { date: string }>(
   txns: T[],
   ref: Date = new Date(),
 ): T[] {
-  return monthTransactions(txns, ref.toISOString().slice(0, 7))
+  return monthTransactions(txns, currentMonth(ref))
 }
 
 /** True when the date is strictly after `ref` (a not-yet-happened / planned transaction). */
 export function isPlannedDate(date: string, ref: Date = new Date()): boolean {
-  return date.slice(0, 10) > ref.toISOString().slice(0, 10)
-}
-
-/** The `periodMonths` complete calendar months immediately before the current month. */
-export function completeMonthsWindow(
-  periodMonths: number,
-  ref: Date = new Date(),
-): { start: string; endExclusive: string } {
-  const firstOfMonth = (monthsAgo: number) => {
-    const d = new Date(ref.getFullYear(), ref.getMonth() - monthsAgo, 1)
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
-  }
-  return { start: firstOfMonth(periodMonths), endExclusive: firstOfMonth(0) }
+  return date.slice(0, 10) > todayISO(ref)
 }
 
 export function sumByKind(txns: Transaction[], kind: 'expense' | 'income') {
@@ -145,7 +140,7 @@ export function recurringExpensesByCategory(
   categories: Category[],
   instances: RecurringInstance[],
   transactions: Transaction[],
-  monthKey: string,
+  month: string,
   includeYearlyAmortized: boolean = false,
 ): RecurringCategoryGroup[] {
   const recurringById = new Map(recurring.map((r) => [r.id, r]))
@@ -154,7 +149,7 @@ export function recurringExpensesByCategory(
   const groups = new Map<string, RecurringCategoryGroup>()
 
   instances
-    .filter((i) => i.month === monthKey && i.status !== 'not_applicable')
+    .filter((i) => i.month === month && i.status !== 'not_applicable')
     .forEach((i) => {
       const r = recurringById.get(i.recurringId)
       if (!r || r.kind !== 'expense') return
@@ -181,12 +176,10 @@ export function recurringExpensesByCategory(
     })
 
   if (includeYearlyAmortized) {
-    const [wy, wm] = monthKey.split('-').map(Number)
-    const windowStartDate = new Date(wy, wm - 1 - 11, 1)
-    const windowStart = `${windowStartDate.getFullYear()}-${String(windowStartDate.getMonth() + 1).padStart(2, '0')}`
+    const windowStart = addMonths(month, -11)
     const paidRecently = new Set(
       transactions
-        .filter((t) => t.recurringId && t.kind === 'expense' && t.date.slice(0, 7) >= windowStart && t.date.slice(0, 7) <= monthKey)
+        .filter((t) => t.recurringId && t.kind === 'expense' && monthOf(t.date) >= windowStart && monthOf(t.date) <= month)
         .map((t) => t.recurringId as string),
     )
 
@@ -226,7 +219,7 @@ function matchesCadence(d: Date, r: Recurring): boolean {
   const dom = d.getDate()
   if (r.cadence === 'monthly') return dom === resolvedDayOfMonth(r.dayOfMonth || 1, d)
   if (r.cadence === 'yearly') {
-    const s = new Date(r.startDate)
+    const s = parseLocalDate(r.startDate)
     return d.getMonth() === s.getMonth() && d.getDate() === s.getDate()
   }
   return false
@@ -251,8 +244,8 @@ export function thisMonthRecurring(
   const out: UpcomingItem[] = []
 
   items.forEach((r) => {
-    const itemStart = r.startDate ? new Date(r.startDate) : monthStart
-    const itemEnd = r.endDate ? new Date(r.endDate) : monthEnd
+    const itemStart = r.startDate ? parseLocalDate(r.startDate) : monthStart
+    const itemEnd = r.endDate ? parseLocalDate(r.endDate) : monthEnd
 
     const effectiveStart = new Date(Math.max(monthStart.getTime(), itemStart.getTime()))
     const effectiveEnd = new Date(Math.min(monthEnd.getTime(), itemEnd.getTime()))
@@ -278,8 +271,8 @@ export function allOccurrencesInRange<T extends Recurring>(
 ): (T & { date: Date })[] {
   const out: (T & { date: Date })[] = []
   items.forEach((r) => {
-    const itemStart = new Date(r.startDate)
-    const itemEnd = r.endDate ? new Date(r.endDate) : to
+    const itemStart = parseLocalDate(r.startDate)
+    const itemEnd = r.endDate ? parseLocalDate(r.endDate) : to
     const effectiveStart = new Date(Math.max(from.getTime(), itemStart.getTime()))
     const effectiveEnd = new Date(Math.min(to.getTime(), itemEnd.getTime()))
     if (effectiveStart > effectiveEnd) return
@@ -296,8 +289,7 @@ export function allOccurrencesInRange<T extends Recurring>(
 
 export function monthlyEstimate(r: Recurring, ref: Date = new Date()): number {
   if (r.endDate) {
-    const refStr = ref.toISOString().slice(0, 10)
-    if (r.endDate < refStr) return 0
+    if (r.endDate < todayISO(ref)) return 0
   }
   const a = Number(r.amount || 0)
   if (r.cadence === 'yearly') return a / 12
@@ -662,7 +654,7 @@ export function groupTransactionsByMonth(
 ): { month: string; total: number; txns: Transaction[] }[] {
   const byMonth = new Map<string, Transaction[]>()
   for (const t of txns) {
-    const key = monthKey(t.date)
+    const key = monthOf(t.date)
     const list = byMonth.get(key) ?? []
     list.push(t)
     byMonth.set(key, list)
@@ -708,13 +700,15 @@ export function simulationBalanceProjection(
   netMonthly: number,
   months: number = 12,
 ): { date: string; balance: number }[] {
-  const today = new Date()
+  const thisMonth = currentMonth()
   const points: { date: string; balance: number }[] = [
-    { date: today.toISOString().slice(0, 10), balance: startingBalance },
+    { date: todayISO(), balance: startingBalance },
   ]
   for (let i = 1; i <= months; i++) {
-    const d = new Date(today.getFullYear(), today.getMonth() + i, 1)
-    points.push({ date: d.toISOString().slice(0, 10), balance: startingBalance + netMonthly * i })
+    points.push({
+      date: firstDayOfMonth(addMonths(thisMonth, i)),
+      balance: startingBalance + netMonthly * i,
+    })
   }
   return points
 }
