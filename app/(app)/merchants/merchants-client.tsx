@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState, useTransition } from 'react'
+import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { Icon } from '@/components/fern/icon'
 import { CatSwatch } from '@/components/fern/cat-swatch'
@@ -12,8 +12,8 @@ import { EmptyState } from '@/components/fern/empty-state'
 import type { Category } from '@/lib/derive'
 import type { Merchant } from '@/lib/db-types'
 import { addMerchant, updateMerchant, deleteMerchant, mergeMerchants } from '@/lib/actions/merchants'
-import { runAction } from '@/lib/utils'
 import { confirmDialog } from '@/lib/dialogs-store'
+import { useServerAction } from '@/hooks/use-server-action'
 
 interface MerchantsClientProps {
   merchants: Merchant[]
@@ -28,7 +28,7 @@ export function MerchantsClient({ merchants: merchantsList, categories, usage: u
   const [filter, setFilter] = useState<FilterMode>('active')
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<string[]>([])
-  const [, startTransition] = useTransition()
+  const { run, pending } = useServerAction()
 
   const categoryById = useMemo(
     () => new Map(categories.map((c) => [c.id, c])),
@@ -52,14 +52,14 @@ export function MerchantsClient({ merchants: merchantsList, categories, usage: u
     setSelected((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id])
   }
 
-  const handleSave = async (data: Parameters<typeof addMerchant>[0] & { isActive?: number }) => {
-    startTransition(runAction(async () => {
+  const handleSave = (data: Parameters<typeof addMerchant>[0] & { isActive?: number }) => {
+    run(async () => {
       if (editing && editing !== 'new') {
         await updateMerchant(editing, data)
       } else {
         await addMerchant(data)
       }
-    }))
+    })
     setEditing(null)
   }
 
@@ -69,7 +69,7 @@ export function MerchantsClient({ merchants: merchantsList, categories, usage: u
       ? `This merchant is used in ${used} transaction${used === 1 ? '' : 's'}. Delete anyway?`
       : `Delete "${m.name}"?`
     if (!(await confirmDialog({ message: msg, confirmLabel: 'Delete', tone: 'danger' }))) return
-    startTransition(runAction(async () => { await deleteMerchant(m.id) }))
+    run(() => deleteMerchant(m.id))
   }
 
   const handleMerge = async () => {
@@ -77,7 +77,7 @@ export function MerchantsClient({ merchants: merchantsList, categories, usage: u
     const keeper = merchantsList.find((m) => m.id === keepId)!
     const mergeCount = mergeIds.length
     if (!(await confirmDialog({ message: `Merge ${mergeCount} merchant${mergeCount > 1 ? 's' : ''} into "${keeper.name}"? This cannot be undone.`, confirmLabel: 'Merge' }))) return
-    startTransition(runAction(async () => { await mergeMerchants(keepId, mergeIds) }))
+    run(() => mergeMerchants(keepId, mergeIds))
     setSelected([])
   }
 
@@ -121,6 +121,7 @@ export function MerchantsClient({ merchants: merchantsList, categories, usage: u
           </span>
           <button
             onClick={handleMerge}
+            disabled={pending}
             style={{ padding: '7px 14px', borderRadius: 9, background: 'var(--terracotta)', color: 'white', border: 'none', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
           >
             Merge
@@ -211,7 +212,7 @@ export function MerchantsClient({ merchants: merchantsList, categories, usage: u
                   <button onClick={() => setEditing(m.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-faint)', padding: 4, display: 'grid', placeItems: 'center', borderRadius: 6 }}>
                     <Icon name="edit" size={14} />
                   </button>
-                  <button onClick={() => handleDelete(m)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-faint)', padding: 4, display: 'grid', placeItems: 'center', borderRadius: 6 }}>
+                  <button onClick={() => handleDelete(m)} disabled={pending} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-faint)', padding: 4, display: 'grid', placeItems: 'center', borderRadius: 6 }}>
                     <Icon name="trash" size={14} />
                   </button>
                 </div>

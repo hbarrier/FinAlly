@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useMemo, useState, useTransition } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { CatSwatch } from '@/components/fern/cat-swatch'
 import { Chip } from '@/components/fern/chip'
@@ -28,7 +28,7 @@ import {
   updateBudgetLine,
   deleteBudgetLine,
 } from '@/lib/actions/budgets'
-import { runAction } from '@/lib/utils'
+import { useServerAction } from '@/hooks/use-server-action'
 
 interface BudgetsClientProps {
   categories: Category[]
@@ -42,7 +42,7 @@ const barState = (spent: number, limit: number): 'ok' | 'warn' | 'over' =>
 
 export function BudgetsClient({ categories, merchants, budget, actuals }: BudgetsClientProps) {
   const router = useRouter()
-  const [, startTransition] = useTransition()
+  const { run, pending } = useServerAction()
   const [editingBudget, setEditingBudget] = useState<'new' | 'edit' | null>(null)
   const [editingLine, setEditingLine] = useState<{ line: BudgetLine | null; category: Category } | null>(null)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
@@ -86,16 +86,14 @@ export function BudgetsClient({ categories, merchants, budget, actuals }: Budget
   const totalSpent = expenseCats.reduce((s, c) => s + (expenseActual[c.id] ?? 0), 0)
 
   const handleSaveBudget = (data: { name: string; description: string | null }) => {
-    startTransition(
-      runAction(async () => {
-        if (editingBudget === 'edit' && budget) {
-          await updateBudget(budget.id, data)
-        } else {
-          await createBudget(data)
-          router.push('/budgets')
-        }
-      }),
-    )
+    run(async () => {
+      if (editingBudget === 'edit' && budget) {
+        await updateBudget(budget.id, data)
+      } else {
+        await createBudget(data)
+        router.push('/budgets')
+      }
+    })
     setEditingBudget(null)
   }
 
@@ -111,7 +109,7 @@ export function BudgetsClient({ categories, merchants, budget, actuals }: Budget
   const handleDelete = async () => {
     if (!budget) return
     if (!(await confirmDialog({ message: `Delete budget "${budget.name}"?`, confirmLabel: 'Delete', tone: 'danger' }))) return
-    startTransition(runAction(async () => { await deleteBudget(budget.id) }))
+    run(() => deleteBudget(budget.id))
   }
 
   const toggle = (catId: string) =>
@@ -174,7 +172,8 @@ export function BudgetsClient({ categories, merchants, budget, actuals }: Budget
                   </span>
                   <button
                     type="button"
-                    onClick={() => startTransition(runAction(async () => { await deleteBudgetLine(l.id) }))}
+                    disabled={pending}
+                    onClick={() => run(() => deleteBudgetLine(l.id))}
                     style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-faint)', padding: 2 }}
                     aria-label="Delete line"
                   >
@@ -301,29 +300,27 @@ export function BudgetsClient({ categories, merchants, budget, actuals }: Budget
         onSave={(data) => {
           if (!budget || !editingLine) return
           const { category, line } = editingLine
-          startTransition(
-            runAction(async () => {
-              if (line) {
-                await updateBudgetLine(line.id, {
-                  name: data.name,
-                  merchantId: data.merchantId,
-                  amount: data.amount,
-                  frequency: data.frequency,
-                  recurring: data.recurring,
-                })
-              } else {
-                await addBudgetLine(budget.id, {
-                  name: data.name,
-                  kind: category.kind,
-                  categoryId: category.id,
-                  merchantId: data.merchantId,
-                  amount: data.amount,
-                  frequency: data.frequency,
-                  recurring: data.recurring,
-                })
-              }
-            }),
-          )
+          run(async () => {
+            if (line) {
+              await updateBudgetLine(line.id, {
+                name: data.name,
+                merchantId: data.merchantId,
+                amount: data.amount,
+                frequency: data.frequency,
+                recurring: data.recurring,
+              })
+            } else {
+              await addBudgetLine(budget.id, {
+                name: data.name,
+                kind: category.kind,
+                categoryId: category.id,
+                merchantId: data.merchantId,
+                amount: data.amount,
+                frequency: data.frequency,
+                recurring: data.recurring,
+              })
+            }
+          })
         }}
       />
     </div>

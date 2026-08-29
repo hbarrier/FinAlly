@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Icon } from '@/components/fern/icon'
@@ -10,8 +10,9 @@ import { EmptyState } from '@/components/fern/empty-state'
 import { SimulationSheet } from '@/components/fern/sheets/simulation-sheet'
 import { fmt, simulationTotals } from '@/lib/derive'
 import type { SimulationWithLines } from '@/lib/db-types'
-import { addSimulation, populateSimulationFromInputs, seedZeroCategoryLines, deleteSimulation, duplicateSimulation, type SimulationInputs } from '@/lib/actions/simulations'
-import { alertDialog, confirmDialog } from '@/lib/dialogs-store'
+import { createSimulation, deleteSimulation, duplicateSimulation, type SimulationInputs } from '@/lib/actions/simulations'
+import { confirmDialog } from '@/lib/dialogs-store'
+import { useServerAction } from '@/hooks/use-server-action'
 
 interface SimulationsClientProps {
   simulations: SimulationWithLines[]
@@ -20,42 +21,26 @@ interface SimulationsClientProps {
 
 export function SimulationsClient({ simulations, recurringEnabled }: SimulationsClientProps) {
   const [creating, setCreating] = useState(false)
-  const [, startTransition] = useTransition()
+  const { run, pending } = useServerAction()
   const router = useRouter()
 
   const handleCreate = (data: { name: string; description: string | null; inputs: SimulationInputs | null }) => {
-    startTransition(async () => {
-      try {
-        const { id } = await addSimulation({ name: data.name, description: data.description })
-        if (data.inputs) await populateSimulationFromInputs(id, data.inputs)
-        else await seedZeroCategoryLines(id)
-        router.push(`/simulations/${id}`)
-      } catch (e) {
-        void alertDialog(e instanceof Error ? e.message : 'An error occurred')
-      }
+    run(async () => {
+      const { id } = await createSimulation(data)
+      router.push(`/simulations/${id}`)
     })
   }
 
   const handleDuplicate = (id: string) => {
-    startTransition(async () => {
-      try {
-        const clone = await duplicateSimulation(id)
-        router.push(`/simulations/${clone.id}`)
-      } catch (e) {
-        void alertDialog(e instanceof Error ? e.message : 'An error occurred')
-      }
+    run(async () => {
+      const clone = await duplicateSimulation(id)
+      router.push(`/simulations/${clone.id}`)
     })
   }
 
   const handleDelete = async (id: string) => {
     if (!(await confirmDialog({ message: 'Delete this simulation?', confirmLabel: 'Delete', tone: 'danger' }))) return
-    startTransition(async () => {
-      try {
-        await deleteSimulation(id)
-      } catch (e) {
-        void alertDialog(e instanceof Error ? e.message : 'An error occurred')
-      }
-    })
+    run(() => deleteSimulation(id))
   }
 
   return (
@@ -101,12 +86,14 @@ export function SimulationsClient({ simulations, recurringEnabled }: Simulations
                   </div>
                   <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
                     <button
+                      disabled={pending}
                       onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleDuplicate(s.id) }}
                       style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-faint)', padding: 4, display: 'grid', placeItems: 'center', borderRadius: 6 }}
                     >
                       <Icon name="repeat" size={14} />
                     </button>
                     <button
+                      disabled={pending}
                       onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleDelete(s.id) }}
                       style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-faint)', padding: 4, display: 'grid', placeItems: 'center', borderRadius: 6 }}
                     >

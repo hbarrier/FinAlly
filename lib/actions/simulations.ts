@@ -99,6 +99,26 @@ export async function addSimulation(input: {
   return { id }
 }
 
+/**
+ * Creates a simulation and seeds it in one call, so a mid-way failure can't leave
+ * an empty orphan simulation. `inputs` null = a hand-built simulation (zero-lines only).
+ */
+export async function createSimulation(input: {
+  name: string
+  description: string | null
+  inputs: SimulationInputs | null
+}): Promise<{ id: string }> {
+  const meta = parse(simMetaSchema, { name: input.name, description: input.description })
+  const inputs = input.inputs === null ? null : parse(simulationInputsSchema, input.inputs)
+
+  const id = nanoid()
+  await db.insert(simulations).values({ id, name: meta.name, description: meta.description })
+  if (inputs) await populateSimulationFromInputs(id, inputs)
+  else await seedZeroCategoryLines(id)
+  revalidateApp()
+  return { id }
+}
+
 export async function updateSimulation(
   id: string,
   input: Partial<{ name: string; description: string | null }>,

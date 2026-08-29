@@ -91,7 +91,12 @@ Status key: `[x]` done · `[~]` in progress · `[ ]` todo · `⏸` blocked
   migrated. **Remaining:** client components + `*/page.tsx` + `lib/actions/recurring.ts`
   still hand-roll `toISOString().slice()` / `padStart` — route through `lib/dates.ts`.
 - [ ] **3.2** `useSheetForm` hook + `<AmountField>` / `<KindToggle>` + select-option builders
-- [ ] **3.3** `useServerAction()` → `{ run, pending }`; thread `pending` into buttons/SheetShell
+- [~] **3.3** `hooks/use-server-action.ts` → `{ run, pending }`. Migrated
+  categories / goals / simulations / merchants / budgets clients (buttons now
+  disable while pending); ended the hand-rolled try/catch in simulations-client.
+  New `createSimulation` action folds the 3-await create flow into one (was 2.2).
+  **Remaining:** transactions / reimbursements / dashboard / simulation-detail /
+  recurring clients + thread `pending` into `SheetShell.primary`.
 - [ ] **3.4** `<IconButton>`, `FernButton tone="outline-sm"`, `<ScrollTopButton>`,
   `useToggleSet()`, `signedFmt`, `paymentMethodIcon`
 - [ ] **3.5** data-layer: `sumAmount`, one `factor()`, `isReimbursementCategory`,

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState } from 'react'
 import { Icon } from '@/components/fern/icon'
 import { GoalRing } from '@/components/fern/goal-ring'
 import { GoalSheet } from '@/components/fern/sheets/goal-sheet'
@@ -9,8 +9,8 @@ import { FernButton } from '@/components/fern/button'
 import { EmptyState } from '@/components/fern/empty-state'
 import { fmt, formatDate } from '@/lib/derive'
 import { addGoal, updateGoal, deleteGoal } from '@/lib/actions/goals'
-import { runAction } from '@/lib/utils'
 import { confirmDialog, promptDialog } from '@/lib/dialogs-store'
+import { useServerAction } from '@/hooks/use-server-action'
 import type { Goal } from '@/lib/db-types'
 
 interface GoalsClientProps {
@@ -19,18 +19,18 @@ interface GoalsClientProps {
 
 export function GoalsClient({ goals: goalsList }: GoalsClientProps) {
   const [editing, setEditing] = useState<string | 'new' | null>(null)
-  const [, startTransition] = useTransition()
+  const { run, pending } = useServerAction()
 
   const editingItem = editing && editing !== 'new' ? goalsList.find((g) => g.id === editing) : null
 
-  const handleSave = async (data: Parameters<typeof addGoal>[0]) => {
-    startTransition(runAction(async () => {
+  const handleSave = (data: Parameters<typeof addGoal>[0]) => {
+    run(async () => {
       if (editing && editing !== 'new') {
         await updateGoal(editing, data)
       } else {
         await addGoal(data)
       }
-    }))
+    })
     setEditing(null)
   }
 
@@ -38,9 +38,7 @@ export function GoalsClient({ goals: goalsList }: GoalsClientProps) {
     const add = await promptDialog({ title: 'Add a contribution', message: 'Add to this goal (€)', defaultValue: '50', confirmLabel: 'Add' })
     const n = Number(add)
     if (n > 0) {
-      startTransition(runAction(async () => {
-        await updateGoal(g.id, { saved: (g.saved ?? 0) + n })
-      }))
+      run(() => updateGoal(g.id, { saved: (g.saved ?? 0) + n }))
     }
   }
 
@@ -103,7 +101,7 @@ export function GoalsClient({ goals: goalsList }: GoalsClientProps) {
                   <button onClick={() => setEditing(g.id)} style={{ background: 'none', border: '1.5px solid var(--line)', borderRadius: 10, cursor: 'pointer', color: 'var(--ink-soft)', padding: '7px 10px', display: 'grid', placeItems: 'center' }}>
                     <Icon name="edit" size={14} />
                   </button>
-                  <button onClick={async () => { if (await confirmDialog({ message: 'Delete this goal?', confirmLabel: 'Delete', tone: 'danger' })) startTransition(runAction(async () => { await deleteGoal(g.id) })) }} style={{ background: 'none', border: '1.5px solid var(--line)', borderRadius: 10, cursor: 'pointer', color: 'var(--ink-soft)', padding: '7px 10px', display: 'grid', placeItems: 'center' }}>
+                  <button disabled={pending} onClick={async () => { if (await confirmDialog({ message: 'Delete this goal?', confirmLabel: 'Delete', tone: 'danger' })) run(() => deleteGoal(g.id)) }} style={{ background: 'none', border: '1.5px solid var(--line)', borderRadius: 10, cursor: 'pointer', color: 'var(--ink-soft)', padding: '7px 10px', display: 'grid', placeItems: 'center' }}>
                     <Icon name="trash" size={14} />
                   </button>
                 </div>

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState } from 'react'
 import { Icon } from '@/components/fern/icon'
 import { CatSwatch } from '@/components/fern/cat-swatch'
 import { SegmentedControl } from '@/components/fern/segmented-control'
@@ -11,8 +11,9 @@ import { EmptyState } from '@/components/fern/empty-state'
 import { fmt, type Category } from '@/lib/derive'
 import type { CategoryStats } from '@/lib/queries/category-stats'
 import { addCategory, updateCategory, deleteCategory, setCategoryActive } from '@/lib/actions/categories'
-import { runAction, REIMBURSEMENT_CATEGORY_NAME } from '@/lib/utils'
+import { REIMBURSEMENT_CATEGORY_NAME } from '@/lib/utils'
 import { confirmDialog } from '@/lib/dialogs-store'
+import { useServerAction } from '@/hooks/use-server-action'
 
 interface CategoriesClientProps {
   categories: Category[]
@@ -22,7 +23,7 @@ interface CategoriesClientProps {
 export function CategoriesClient({ categories, stats }: CategoriesClientProps) {
   const [kindTab, setKindTab] = useState('all')
   const [editing, setEditing] = useState<string | 'new' | null>(null)
-  const [, startTransition] = useTransition()
+  const { run, pending } = useServerAction()
 
   const spending = stats.monthSpend
   const usageById = stats.usage
@@ -37,14 +38,14 @@ export function CategoriesClient({ categories, stats }: CategoriesClientProps) {
 
   const editingItem = editing && editing !== 'new' ? categories.find((c) => c.id === editing) : null
 
-  const handleSave = async (data: Parameters<typeof addCategory>[0]) => {
-    startTransition(runAction(async () => {
+  const handleSave = (data: Parameters<typeof addCategory>[0]) => {
+    run(async () => {
       if (editing && editing !== 'new') {
         await updateCategory(editing, data)
       } else {
         await addCategory(data)
       }
-    }))
+    })
     setEditing(null)
   }
 
@@ -53,7 +54,7 @@ export function CategoriesClient({ categories, stats }: CategoriesClientProps) {
 
   const handleDelete = async (cat: Category) => {
     if (!(await confirmDialog({ message: `Delete "${cat.name}"?`, confirmLabel: 'Delete', tone: 'danger' }))) return
-    startTransition(runAction(async () => { await deleteCategory(cat.id) }))
+    run(() => deleteCategory(cat.id))
   }
 
   const handleToggleActive = async (cat: Category) => {
@@ -65,7 +66,7 @@ export function CategoriesClient({ categories, stats }: CategoriesClientProps) {
         : `Deactivate "${cat.name}" so it can't be picked anymore?`
       if (!(await confirmDialog({ message: msg, confirmLabel: 'Deactivate', tone: 'danger' }))) return
     }
-    startTransition(runAction(async () => { await setCategoryActive(cat.id, !active) }))
+    run(() => setCategoryActive(cat.id, !active))
   }
 
   return (
@@ -130,15 +131,15 @@ export function CategoriesClient({ categories, stats }: CategoriesClientProps) {
                       <Icon name="edit" size={14} />
                     </button>
                     {inactive ? (
-                      <button onClick={() => handleToggleActive(c)} style={iconBtn} aria-label="Reactivate">
+                      <button onClick={() => handleToggleActive(c)} disabled={pending} style={iconBtn} aria-label="Reactivate">
                         <Icon name="check" size={14} />
                       </button>
                     ) : protectedCat ? null : used > 0 ? (
-                      <button onClick={() => handleToggleActive(c)} style={iconBtn} aria-label="Deactivate">
+                      <button onClick={() => handleToggleActive(c)} disabled={pending} style={iconBtn} aria-label="Deactivate">
                         <Icon name="x" size={14} />
                       </button>
                     ) : (
-                      <button onClick={() => handleDelete(c)} style={iconBtn} aria-label="Delete">
+                      <button onClick={() => handleDelete(c)} disabled={pending} style={iconBtn} aria-label="Delete">
                         <Icon name="trash" size={14} />
                       </button>
                     )}
