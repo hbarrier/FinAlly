@@ -15,6 +15,7 @@ import { SimulationSheet } from '@/components/fern/sheets/simulation-sheet'
 import { SimulationLineSheet } from '@/components/fern/sheets/simulation-line-sheet'
 import {
   fmt,
+  signedFmt,
   simulationTotals,
   simulationExpenseByPriority,
   simulationLinesByCategory,
@@ -89,8 +90,6 @@ function PriorityBadge({ priority, onCycle }: { priority: Priority; onCycle: (ne
     </button>
   )
 }
-
-const signedFmt = (n: number) => (n >= 0 ? '+' : '−') + fmt(Math.abs(n))
 
 const chipStyle = (bg: string, ink: string) => ({
   fontSize: 10, textTransform: 'uppercase' as const, letterSpacing: '0.04em',

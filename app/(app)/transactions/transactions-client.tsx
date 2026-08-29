@@ -12,7 +12,7 @@ import { PageHeader } from '@/components/fern/page-header'
 import { FernButton } from '@/components/fern/button'
 import { EmptyState } from '@/components/fern/empty-state'
 import { Fab } from '@/components/fern/fab'
-import { paymentMethodLabel, type PaymentMethod } from '@/lib/payment-method'
+import { paymentMethodLabel, paymentMethodIcon, type PaymentMethod } from '@/lib/payment-method'
 import {
   addTransaction,
   updateTransactionWithRecurringAmountOption,
@@ -59,22 +59,6 @@ function isInstance(m: Movement): m is InstanceEntry {
   return '_instance' in m
 }
 
-function paymentMethodIcon(method: PaymentMethod): string {
-  switch (method) {
-    case 'card':
-      return 'wallet'
-    case 'transfer':
-      return 'bank'
-    case 'cash':
-      return 'sparkle'
-    case 'check':
-      return 'fileText'
-    case 'debit':
-      return 'bank'
-    case 'paypal':
-      return 'wallet'
-  }
-}
 
 function isUnresolvedReimbursementStatus(status: string) {
   return (

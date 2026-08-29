@@ -5,6 +5,24 @@ export function defaultPaymentMethodForKind(kind: 'expense' | 'income'): Payment
   return kind === 'income' ? 'transfer' : 'card'
 }
 
+/** `<Icon>` name for a payment method. */
+export function paymentMethodIcon(method: PaymentMethod): string {
+  switch (method) {
+    case 'card':
+      return 'wallet'
+    case 'transfer':
+      return 'bank'
+    case 'cash':
+      return 'sparkle'
+    case 'check':
+      return 'fileText'
+    case 'debit':
+      return 'bank'
+    case 'paypal':
+      return 'wallet'
+  }
+}
+
 export function paymentMethodLabel(method: PaymentMethod): string {
   switch (method) {
     case 'card':

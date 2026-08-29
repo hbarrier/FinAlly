@@ -6,7 +6,7 @@ import { CatSwatch } from '@/components/fern/cat-swatch'
 import { SegmentedControl } from '@/components/fern/segmented-control'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
-import { PAYMENT_METHODS, paymentMethodLabel, type PaymentMethod } from '@/lib/payment-method'
+import { PAYMENT_METHODS, paymentMethodLabel, paymentMethodIcon, type PaymentMethod } from '@/lib/payment-method'
 import type { Category } from '@/lib/derive'
 import type { Merchant } from '@/lib/db-types'
 
@@ -22,17 +22,6 @@ const REIMB_OPTIONS = [
   { group: 'Income', value: 'income:partially_allocated', label: 'Partially allocated' },
   { group: 'Income', value: 'income:fully_allocated', label: 'Fully allocated' },
 ] as const
-
-function paymentMethodIcon(method: PaymentMethod): string {
-  switch (method) {
-    case 'card': return 'wallet'
-    case 'transfer': return 'bank'
-    case 'cash': return 'sparkle'
-    case 'check': return 'fileText'
-    case 'debit': return 'bank'
-    case 'paypal': return 'wallet'
-  }
-}
 
 interface TransactionFiltersProps {
   q: string

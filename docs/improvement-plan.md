@@ -102,10 +102,12 @@ Status key: `[x]` done · `[~]` in progress · `[ ]` todo · `⏸` blocked
   New `createSimulation` action folds the 3-await create flow into one (was 2.2).
   **Remaining:** transactions / reimbursements / dashboard / simulation-detail /
   recurring clients + thread `pending` into `SheetShell.primary`.
-- [ ] **3.4** `<IconButton>`, `FernButton tone="outline-sm"`, `<ScrollTopButton>`,
-  `useToggleSet()`, `signedFmt`, `paymentMethodIcon`
-- [ ] **3.5** data-layer: `sumAmount`, one `factor()`, `isReimbursementCategory`,
-  dedupe recurring-amount upsert + payment-method resolution, unify effective-amount pickers
+- [~] **3.4** `signedFmt` moved to `lib/derive.ts`; `paymentMethodIcon` moved to
+  `lib/payment-method.ts` (was byte-identical in 2 files). **Remaining:**
+  `<IconButton>`, `FernButton tone="outline-sm"`, `<ScrollTopButton>`, `useToggleSet()`.
+- [~] **3.5** one `viewFactor(line, view)` replaces the 3 verbatim `factor` closures
+  in `lib/derive.ts`. **Remaining:** `sumAmount`, `isReimbursementCategory`,
+  dedupe recurring-amount upsert + payment-method resolution, unify effective-amount pickers.
 - [ ] **3.6** drop needless `'use client'` (modal, sheet-shell, sim-comparison-chart);
   `useTransactionFilters`; simulation-line context
 

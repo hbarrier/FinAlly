@@ -481,15 +481,18 @@ export function monthBudgetComparison(
   }
 }
 
+/** How much a line's amount counts under a given simulation view. */
+function viewFactor(line: { frequency: 'monthly' | 'yearly' }, view: SimulationView): number {
+  if (view === 'yearly') return line.frequency === 'yearly' ? 1 : 12
+  return line.frequency === 'monthly' ? 1 : 1 / 12
+}
+
 export function simulationTotals(
   lines: SimulationLine[],
   view: SimulationView,
 ): { income: number; expense: number } {
   const relevant = view === 'monthly' ? lines.filter((l) => l.frequency === 'monthly') : lines
-  const factor = (l: SimulationLine) => {
-    if (view === 'yearly') return l.frequency === 'yearly' ? 1 : 12
-    return l.frequency === 'monthly' ? 1 : 1 / 12
-  }
+  const factor = (l: SimulationLine) => viewFactor(l, view)
   return relevant.reduce(
     (acc, l) => {
       const amt = Number(l.amount || 0) * factor(l)
@@ -508,10 +511,7 @@ export function simulationExpenseByPriority(
   const relevant = (view === 'monthly' ? lines.filter((l) => l.frequency === 'monthly') : lines).filter(
     (l) => l.kind === 'expense',
   )
-  const factor = (l: SimulationLine) => {
-    if (view === 'yearly') return l.frequency === 'yearly' ? 1 : 12
-    return l.frequency === 'monthly' ? 1 : 1 / 12
-  }
+  const factor = (l: SimulationLine) => viewFactor(l, view)
   return relevant.reduce(
     (acc, l) => {
       const key = l.priority ?? 'should'
@@ -533,10 +533,7 @@ export function simulationLinesByCategory(
     if (view === 'monthly') return l.frequency === 'monthly'
     return true
   })
-  const factor = (l: SimulationLine) => {
-    if (view === 'yearly') return l.frequency === 'yearly' ? 1 : 12
-    return l.frequency === 'monthly' ? 1 : 1 / 12
-  }
+  const factor = (l: SimulationLine) => viewFactor(l, view)
   const catById = new Map(cats.map((c) => [c.id, c]))
   const map: Record<string, number> = {}
   relevant.forEach((l) => {
@@ -887,6 +884,11 @@ export function fmt(amt: number | string, opts: { noSymbol?: boolean } = {}): st
     maximumFractionDigits: 2,
   })
   return (n < 0 ? '−' : '') + (opts.noSymbol ? s : '€' + s)
+}
+
+/** `fmt` with an explicit leading `+` for non-negative amounts. */
+export function signedFmt(amt: number): string {
+  return (amt >= 0 ? '+' : '−') + fmt(Math.abs(amt))
 }
 
 export function fmtShort(amt: number | string): string {
