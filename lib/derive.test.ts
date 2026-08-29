@@ -9,6 +9,8 @@ import {
   spendingByCategory,
   monthlyEstimate,
   resolvedDayOfMonth,
+  thisMonthRecurring,
+  recurringExpensesByCategory,
   roundToTen,
   budgetLineMonthly,
   budgetCategoryMonthly,
@@ -21,7 +23,9 @@ import {
   fmtShort,
   splitCents,
 } from './derive'
-import type { Category, Transaction, RecurringAmount, Recurring, SimulationLine } from './db-types'
+import type {
+  Category, Transaction, RecurringAmount, Recurring, RecurringInstance, SimulationLine,
+} from './db-types'
 
 /** Minimal row factories — derive functions only touch a handful of fields. */
 const txn = (o: Partial<Transaction>): Transaction =>
@@ -146,14 +150,95 @@ describe('monthlyEstimate', () => {
 })
 
 describe('resolvedDayOfMonth', () => {
-  it('passes positive days through', () => {
+  it('passes positive days through when the month is long enough', () => {
     expect(resolvedDayOfMonth(15, new Date('2026-02-10'))).toBe(15)
+  })
+
+  it('clamps a day past the end of a short month (31 -> 30 in April, 28 in Feb)', () => {
+    expect(resolvedDayOfMonth(31, new Date('2026-04-10'))).toBe(30)
+    expect(resolvedDayOfMonth(31, new Date('2026-02-10'))).toBe(28)
+    expect(resolvedDayOfMonth(29, new Date('2026-02-10'))).toBe(28)
   })
 
   it('counts negative days back from the end of the month', () => {
     // -1 => last day; February 2026 has 28 days
     expect(resolvedDayOfMonth(-1, new Date('2026-02-10'))).toBe(28)
-    expect(resolvedDayOfMonth(0, new Date('2026-02-10'))).toBe(29) // documents current behaviour
+  })
+})
+
+describe('recurringExpensesByCategory', () => {
+  const rec = (o: Partial<Recurring>): Recurring =>
+    ({
+      id: 'r', name: 'Bill', amount: 0, kind: 'expense', method: 'card',
+      categoryId: 'c1', merchantId: null, cadence: 'monthly', dayOfMonth: 1,
+      startDate: '2020-01-01', endDate: null, monthRules: null, ...o,
+    }) as Recurring
+  const inst = (o: Partial<RecurringInstance>): RecurringInstance =>
+    ({ id: 'i', recurringId: 'r', month: '2026-03', status: 'expected', transactionId: null, ...o }) as RecurringInstance
+  const cats = [cat({ id: 'c1', name: 'Insurance' })]
+
+  it('excludes a yearly bill entirely when "+ Yearly" is off (no full lump)', () => {
+    const groups = recurringExpensesByCategory(
+      [rec({ id: 'y', cadence: 'yearly', amount: 1200 })],
+      cats,
+      [inst({ id: 'i1', recurringId: 'y' })],
+      [],
+      '2026-03',
+      false,
+    )
+    expect(groups).toHaveLength(0)
+  })
+
+  it('folds a recently-paid yearly bill in at 1/12 when "+ Yearly" is on', () => {
+    const groups = recurringExpensesByCategory(
+      [rec({ id: 'y', cadence: 'yearly', amount: 1200 })],
+      cats,
+      [inst({ id: 'i1', recurringId: 'y' })],
+      [txn({ id: 'p', recurringId: 'y', kind: 'expense', date: '2026-03-02', amount: 1200 })],
+      '2026-03',
+      true,
+    )
+    expect(groups).toHaveLength(1)
+    expect(groups[0].total).toBeCloseTo(100, 2)
+    expect(groups[0].amortized).toBeCloseTo(100, 2)
+  })
+
+  it('counts a monthly bill at face value', () => {
+    const groups = recurringExpensesByCategory(
+      [rec({ id: 'm', amount: 40 })],
+      cats,
+      [inst({ id: 'i1', recurringId: 'm' })],
+      [],
+      '2026-03',
+      false,
+    )
+    expect(groups[0].total).toBe(40)
+  })
+})
+
+describe('thisMonthRecurring', () => {
+  const rec = (o: Partial<Recurring>): Recurring =>
+    ({
+      id: 'r', name: 'Bill', amount: 50, kind: 'expense', method: 'card',
+      categoryId: null, merchantId: null, cadence: 'monthly', dayOfMonth: 1,
+      startDate: '2020-01-01', endDate: null, monthRules: null,
+      ...o,
+    }) as Recurring
+
+  it('still fires a day-31 monthly bill in a 30-day month', () => {
+    const out = thisMonthRecurring([rec({ dayOfMonth: 31 })], new Date('2026-04-15'))
+    expect(out).toHaveLength(1)
+    expect(out[0].date.getDate()).toBe(30)
+  })
+
+  it('includes earlier-in-month occurrences that have already passed', () => {
+    const out = thisMonthRecurring([rec({ dayOfMonth: 3 })], new Date('2026-04-20'))
+    expect(out.map((o) => o.date.getDate())).toEqual([3])
+  })
+
+  it('excludes items whose end date is before the month', () => {
+    const out = thisMonthRecurring([rec({ dayOfMonth: 10, endDate: '2026-03-01' })], new Date('2026-04-20'))
+    expect(out).toHaveLength(0)
   })
 })
 

@@ -32,11 +32,15 @@ Status key: `[x]` done · `[~]` in progress · `[ ]` todo · `⏸` blocked
   the txn; create linked instances for `recurringId` rows. **Moved to Phase 2.2**
   (fits the transaction-wrapping work; needs the action integration-test harness).
   *Not* supporting income rows — the wizard is expense-only by design.
-- ⏸ **1.3** `resolvedDayOfMonth` clamp positive days (`lib/derive.ts`) — *blocked on WIP*
-- ⏸ **1.4 / 1.5** UTC-vs-local date basis — new `lib/dates.ts`, route all callers
-  through it (`lib/derive.ts`, `lib/recurring-instances.ts`) — *blocked on WIP*
-- ⏸ **1.6** `recurringExpensesByCategory` yearly-lump in monthly view (`lib/derive.ts`) — *blocked on WIP*
-- ⏸ **1.7** `currentBalance` counts planned transactions (`lib/derive.ts`) — *blocked on WIP*
+- [x] **1.3** `resolvedDayOfMonth` now clamps positive days to the month length
+  (`lib/derive.ts`) — a day-31 bill fires on the 30th/28th instead of being skipped
+- [ ] **1.4 / 1.5** UTC-vs-local date basis — new `lib/dates.ts`, route all callers
+  through it (`lib/derive.ts`, `lib/recurring-instances.ts`)
+- [x] **1.6** `recurringExpensesByCategory` no longer shows yearly bills as a full
+  lump when "+ Yearly" is off — excluded entirely, or folded in amortized when on
+- [x] **1.7** `currentBalance` (`lib/derive.ts`) — **no callers** (dead code);
+  every live balance calc already inlines its own planned-row filter. Left as-is
+  (surgical-changes rule); documented by a test. Delete if still unused at Phase 4.
 - ⏸ **1.8** `splitCents` can render `,100` (`lib/derive.ts`) — folds into 4.1
 - [x] **1.9** `getExpectedReimbursementAmount` now rounds to the nearest **cent**,
   not the nearest euro (`lib/reimbursement-mapping.ts`); covered by

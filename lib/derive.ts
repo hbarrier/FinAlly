@@ -158,7 +158,9 @@ export function recurringExpensesByCategory(
     .forEach((i) => {
       const r = recurringById.get(i.recurringId)
       if (!r || r.kind !== 'expense') return
-      if (includeYearlyAmortized && r.cadence === 'yearly') return
+      // Yearly bills are never shown as a full lump here: excluded entirely when
+      // the "+ Yearly" toggle is off, folded in amortized (1/12) below when on.
+      if (r.cadence === 'yearly') return
 
       let amount = r.amount
       let tier: 'cleared' | 'pending' = 'pending'
@@ -214,7 +216,9 @@ function lastDayOf(d: Date): number {
 }
 
 export function resolvedDayOfMonth(dayOfMonth: number, d: Date): number {
-  if (dayOfMonth >= 1) return dayOfMonth
+  // Clamp to the month's real length so a "31st" bill still fires on the 30th /
+  // 28th in shorter months instead of being skipped entirely.
+  if (dayOfMonth >= 1) return Math.min(dayOfMonth, lastDayOf(d))
   return lastDayOf(d) + dayOfMonth + 1
 }
 
