@@ -13,10 +13,10 @@
 # testing
 /coverage
 
-# local database — live user data, never committed
-finance.db
-finance.db-shm
-finance.db-wal
+# local + test databases — never committed
+*.db
+*.db-shm
+*.db-wal
 finance.db.*
 /backups/
 

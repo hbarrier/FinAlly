@@ -67,7 +67,8 @@ export function getExpectedReimbursementAmount(
   rates: RateLike[],
 ): number | null {
   const rate = getApplicableReimbursementRate(rates, expense.date)
-  return rate ? Math.round(Number(expense.amount) * rate.percent / 100) : null
+  // Round to the nearest cent, not the nearest euro.
+  return rate ? Math.round(Number(expense.amount) * rate.percent) / 100 : null
 }
 
 export function sumAllocationAmounts(allocations: AllocationLike[]): number {
