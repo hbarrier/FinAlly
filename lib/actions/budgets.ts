@@ -1,10 +1,12 @@
 'use server'
 
+import { z } from 'zod'
 import { revalidateApp } from './_shared'
 import { db } from '../db'
 import { budgets, budgetLines, simulations } from '../schema'
 import { nanoid } from '../utils'
 import { eq } from 'drizzle-orm'
+import { parse, zId, zName, zKind, zAmount, zFrequency, zNullableId } from '../schemas'
 
 type BudgetLineInput = {
   name: string | null
@@ -16,11 +18,27 @@ type BudgetLineInput = {
   recurring: boolean
 }
 
+const budgetMetaSchema = z.object({
+  name: zName,
+  description: z.string().nullable(),
+})
+
+const budgetLineSchema = z.object({
+  name: z.string().nullable(),
+  kind: zKind,
+  categoryId: zId,
+  merchantId: zNullableId,
+  amount: zAmount,
+  frequency: zFrequency,
+  recurring: z.boolean(),
+})
+
 /** Creates the single budget, replacing any existing one (lines cascade). */
-export async function createBudget(data: {
+export async function createBudget(input: {
   name: string
   description: string | null
 }): Promise<{ id: string }> {
+  const data = parse(budgetMetaSchema, input)
   const id = nanoid()
   await db.transaction(async (tx) => {
     await tx.delete(budgets)
@@ -37,18 +55,23 @@ export async function createBudget(data: {
 
 export async function updateBudget(
   id: string,
-  data: Partial<{ name: string; description: string | null }>,
+  input: Partial<{ name: string; description: string | null }>,
 ) {
+  parse(zId, id)
+  const data = parse(budgetMetaSchema.partial(), input)
   await db.update(budgets).set(data).where(eq(budgets.id, id))
   revalidateApp()
 }
 
 export async function deleteBudget(id: string) {
+  parse(zId, id)
   await db.delete(budgets).where(eq(budgets.id, id))
   revalidateApp()
 }
 
-export async function addBudgetLine(budgetId: string, data: BudgetLineInput) {
+export async function addBudgetLine(budgetId: string, input: BudgetLineInput) {
+  parse(zId, budgetId)
+  const data = parse(budgetLineSchema, input)
   await db.insert(budgetLines).values({
     id: nanoid(),
     budgetId,
@@ -65,8 +88,10 @@ export async function addBudgetLine(budgetId: string, data: BudgetLineInput) {
 
 export async function updateBudgetLine(
   id: string,
-  data: Partial<Omit<BudgetLineInput, 'kind' | 'categoryId'>>,
+  input: Partial<Omit<BudgetLineInput, 'kind' | 'categoryId'>>,
 ) {
+  parse(zId, id)
+  const data = parse(budgetLineSchema.omit({ kind: true, categoryId: true }).partial(), input)
   const { recurring, ...rest } = data
   await db
     .update(budgetLines)
@@ -76,6 +101,7 @@ export async function updateBudgetLine(
 }
 
 export async function deleteBudgetLine(id: string) {
+  parse(zId, id)
   await db.delete(budgetLines).where(eq(budgetLines.id, id))
   revalidateApp()
 }
@@ -86,10 +112,14 @@ export async function deleteBudgetLine(id: string) {
  * lines are marked recurring, the rest ad-hoc.
  * `createdOnLabel` is the current date formatted on the client (locale + timezone).
  */
-export async function createBudgetFromSimulation(data: {
+export async function createBudgetFromSimulation(input: {
   simulationId: string
   createdOnLabel: string
 }): Promise<{ id: string }> {
+  const data = parse(
+    z.object({ simulationId: zId, createdOnLabel: z.string().min(1) }),
+    input,
+  )
   const simulation = await db.query.simulations.findFirst({
     where: eq(simulations.id, data.simulationId),
     with: { lines: true },

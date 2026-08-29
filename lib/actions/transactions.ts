@@ -1,10 +1,14 @@
 'use server'
 
+import { z } from 'zod'
 import { db } from '../db'
 import { categories, reimbursementAllocations, transactions } from '../schema'
 import { nanoid, REIMBURSEMENT_CATEGORY_NAME } from '../utils'
 import { and, eq, inArray, or } from 'drizzle-orm'
 import { revalidateApp } from './_shared'
+import {
+  parse, zId, zNullableId, zOptionalId, zDateISO, zAmount, zKind, zPaymentMethod, zFlag, zOptionalText,
+} from '../schemas'
 import { defaultPaymentMethodForKind, type PaymentMethod } from '../payment-method'
 import { upsertLinkedInstance, revertInstanceToExpected } from '../recurring-instances'
 import {
@@ -14,7 +18,32 @@ import {
   upsertRecurringAmountEntryTx,
 } from '../recurring-amounts'
 
-export async function addTransaction(data: {
+const addTransactionSchema = z.object({
+  date: zDateISO,
+  amount: zAmount,
+  kind: zKind,
+  categoryId: zNullableId,
+  merchantId: zOptionalId,
+  note: zOptionalText,
+  recurringId: zOptionalId,
+  recurringAmountId: zOptionalId,
+  reimbursable: zFlag.optional(),
+  cleared: zFlag.optional(),
+  method: zPaymentMethod.optional(),
+})
+
+const updateTransactionSchema = z.object({
+  date: zDateISO.optional(),
+  amount: zAmount.optional(),
+  kind: zKind.optional(),
+  categoryId: zNullableId.optional(),
+  merchantId: zNullableId.optional(),
+  note: zOptionalText,
+  reimbursable: zFlag.optional(),
+  method: zPaymentMethod.optional(),
+})
+
+export async function addTransaction(input: {
   date: string
   amount: number
   kind: 'expense' | 'income'
@@ -27,6 +56,7 @@ export async function addTransaction(data: {
   cleared?: number
   method?: PaymentMethod
 }) {
+  const data = parse(addTransactionSchema, input)
   const method = data.method ?? defaultPaymentMethodForKind(data.kind)
   const cleared =
     typeof data.cleared === 'number'
@@ -69,7 +99,7 @@ export async function updateTransaction(
 
 export async function updateTransactionWithRecurringAmountOption(
   id: string,
-  data: {
+  input: {
     date?: string
     amount?: number
     kind?: 'expense' | 'income'
@@ -83,6 +113,8 @@ export async function updateTransactionWithRecurringAmountOption(
     propagateRecurringAmount?: boolean
   },
 ) {
+  parse(zId, id)
+  const data = parse(updateTransactionSchema, input)
   await db.transaction(async (tx) => {
     const [existing] = await tx
       .select({
@@ -199,6 +231,7 @@ export async function updateTransactionWithRecurringAmountOption(
 }
 
 export async function deleteTransaction(id: string) {
+  parse(zId, id)
   await db.transaction(async (tx) => {
     await revertInstanceToExpected(tx, id)
     await tx
@@ -213,11 +246,14 @@ export async function deleteTransaction(id: string) {
 }
 
 export async function clearTransaction(id: string, cleared: boolean) {
+  parse(zId, id)
   await db.update(transactions).set({ cleared: cleared ? 1 : 0 }).where(eq(transactions.id, id))
   revalidateApp()
 }
 
 export async function linkTransactionToRecurring(id: string, recurringId: string) {
+  parse(zId, id)
+  parse(zId, recurringId)
   await db.transaction(async (tx) => {
     const r = await tx.query.recurring.findFirst({
       where: (rr, { eq }) => eq(rr.id, recurringId),
@@ -247,6 +283,7 @@ export async function linkTransactionToRecurring(id: string, recurringId: string
 }
 
 export async function detachTransactionFromRecurring(id: string) {
+  parse(zId, id)
   await db.transaction(async (tx) => {
     await revertInstanceToExpected(tx, id)
     await tx.update(transactions).set({ recurringId: null }).where(eq(transactions.id, id))
@@ -259,6 +296,8 @@ export async function bulkLinkTransactionsToRecurring(
   recurringId: string,
 ): Promise<void> {
   if (ids.length === 0) return
+  parse(z.array(zId), ids)
+  parse(zId, recurringId)
   await db.transaction(async (tx) => {
     const r = await tx.query.recurring.findFirst({
       where: (rr, { eq }) => eq(rr.id, recurringId),

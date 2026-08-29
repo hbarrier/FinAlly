@@ -14,23 +14,34 @@ import {
   getExpectedReimbursementAmount,
 } from '../reimbursement-mapping'
 import { nanoid, REIMBURSEMENT_CATEGORY_NAME } from '../utils'
+import { parse, zId, zDateISO } from '../schemas'
+import { z } from 'zod'
+
+const zPercent = z.number().finite().gt(0).max(100)
 
 export async function addReimbursementRate(percent: number, startDate: string) {
+  parse(zPercent, percent)
+  parse(zDateISO, startDate)
   await db.insert(reimbursementRates).values({ id: nanoid(), percent, startDate })
   revalidateApp()
 }
 
 export async function updateReimbursementRate(id: string, percent: number, startDate: string) {
+  parse(zId, id)
+  parse(zPercent, percent)
+  parse(zDateISO, startDate)
   await db.update(reimbursementRates).set({ percent, startDate }).where(eq(reimbursementRates.id, id))
   revalidateApp()
 }
 
 export async function deleteReimbursementRate(id: string) {
+  parse(zId, id)
   await db.delete(reimbursementRates).where(eq(reimbursementRates.id, id))
   revalidateApp()
 }
 
 export async function setExpenseManualSettlement(expenseTxId: string, settled: boolean) {
+  parse(zId, expenseTxId)
   const [expense] = await db
     .select({
       id: transactions.id,
@@ -65,6 +76,8 @@ export async function mapReimbursementIncomeToExpenses(
   reimbursementTxId: string,
   expenseTxIds: string[],
 ) {
+  parse(zId, reimbursementTxId)
+  parse(z.array(zId), expenseTxIds)
   await db.transaction(async (tx) => {
     const uniqueExpenseTxIds = [...new Set(expenseTxIds)]
 

@@ -1,11 +1,15 @@
 'use server'
 
+import { z } from 'zod'
 import { revalidateApp } from './_shared'
 import { db } from '../db'
 import { recurring, recurringAmounts, transactions } from '../schema'
 import { nanoid } from '../utils'
 import { eq, and, isNull, inArray } from 'drizzle-orm'
 import { resolvedDayOfMonth } from '../derive'
+import {
+  parse, zId, zName, zKind, zCadence, zAmount, zDateISO, zPaymentMethod, zNullableId, zOptionalId,
+} from '../schemas'
 import { defaultPaymentMethodForKind, type PaymentMethod } from '../payment-method'
 import {
   ensureInstancesForRecurring,
@@ -14,7 +18,47 @@ import {
 } from '../recurring-instances'
 import { syncRecurringEffectiveAmountTx } from '../recurring-amounts'
 
-export async function addRecurring(data: {
+const zDayOfMonth = z.number().int().min(-2).max(31)
+
+const recurringCreateSchema = z.object({
+  name: zName,
+  amount: zAmount,
+  kind: zKind,
+  categoryId: zNullableId,
+  merchantId: zOptionalId,
+  cadence: zCadence,
+  dayOfMonth: zDayOfMonth.nullable().optional(),
+  startDate: zDateISO,
+  endDate: zDateISO.nullable().optional(),
+  method: zPaymentMethod.optional(),
+})
+
+const recurringUpdateSchema = z.object({
+  name: zName.optional(),
+  amount: zAmount.optional(),
+  kind: zKind.optional(),
+  method: zPaymentMethod.optional(),
+  categoryId: zNullableId.optional(),
+  merchantId: zNullableId.optional(),
+  cadence: zCadence.optional(),
+  dayOfMonth: zDayOfMonth.nullable().optional(),
+  startDate: zDateISO.optional(),
+  endDate: zDateISO.nullable().optional(),
+})
+
+const promoteSchema = z.object({
+  name: zName,
+  amount: zAmount,
+  kind: zKind,
+  categoryId: zNullableId,
+  merchantId: zNullableId,
+  method: zPaymentMethod.optional(),
+  cadence: zCadence,
+  dayOfMonth: zDayOfMonth.nullable(),
+  startDate: zDateISO,
+})
+
+export async function addRecurring(input: {
   name: string
   amount: number
   kind: 'expense' | 'income'
@@ -26,6 +70,7 @@ export async function addRecurring(data: {
   endDate?: string | null
   method?: PaymentMethod
 }) {
+  const data = parse(recurringCreateSchema, input)
   const id = nanoid()
   const method = data.method ?? defaultPaymentMethodForKind(data.kind)
   await db.transaction(async (tx) => {
@@ -49,7 +94,7 @@ export async function addRecurring(data: {
 
 export async function updateRecurring(
   id: string,
-  data: Partial<{
+  input: Partial<{
     name: string
     amount: number
     kind: 'expense' | 'income'
@@ -62,6 +107,8 @@ export async function updateRecurring(
     endDate: string | null
   }>,
 ) {
+  parse(zId, id)
+  const data = parse(recurringUpdateSchema, input)
   await db.transaction(async (tx) => {
     const current = await tx.query.recurring.findFirst({
       where: eq(recurring.id, id),
@@ -128,6 +175,7 @@ export async function updateRecurring(
 }
 
 export async function deleteRecurring(id: string) {
+  parse(zId, id)
   await db.delete(recurring).where(eq(recurring.id, id))
   revalidateApp()
 }
@@ -137,6 +185,9 @@ export async function addRecurringAmount(
   amount: number,
   startDate: string,
 ) {
+  parse(zId, recurringId)
+  parse(zAmount, amount)
+  parse(zDateISO, startDate)
   await db.transaction(async (tx) => {
     await tx.insert(recurringAmounts).values({
       id: nanoid(),
@@ -150,6 +201,8 @@ export async function addRecurringAmount(
 }
 
 export async function deleteRecurringAmount(entryId: string, recurringId: string) {
+  parse(zId, entryId)
+  parse(zId, recurringId)
   await db.transaction(async (tx) => {
     await tx.delete(recurringAmounts).where(eq(recurringAmounts.id, entryId))
     await syncRecurringEffectiveAmountTx(tx, recurringId)
@@ -159,7 +212,7 @@ export async function deleteRecurringAmount(entryId: string, recurringId: string
 
 export async function promoteToRecurring(
   txnId: string,
-  data: {
+  input: {
     name: string
     amount: number
     kind: 'expense' | 'income'
@@ -171,6 +224,8 @@ export async function promoteToRecurring(
     startDate: string
   },
 ): Promise<{ recurringId: string; linkedCount: number }> {
+  parse(zId, txnId)
+  const data = parse(promoteSchema, input)
   const newId = nanoid()
   const method = data.method ?? defaultPaymentMethodForKind(data.kind)
 
@@ -242,7 +297,7 @@ export async function promoteToRecurring(
 
 export async function bulkPromoteToRecurring(
   txnIds: string[],
-  data: {
+  input: {
     name: string
     amount: number
     kind: 'expense' | 'income'
@@ -255,6 +310,8 @@ export async function bulkPromoteToRecurring(
   },
 ): Promise<{ recurringId: string; linkedCount: number }> {
   if (txnIds.length === 0) throw new Error('No transactions provided')
+  parse(z.array(zId), txnIds)
+  const data = parse(promoteSchema, input)
   const newId = nanoid()
   const method = data.method ?? defaultPaymentMethodForKind(data.kind)
 

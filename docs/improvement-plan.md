@@ -59,18 +59,19 @@ Status key: `[x]` done · `[~]` in progress · `[ ]` todo · `⏸` blocked
   (`drizzle/0012_drop_transactions_fts.sql`, applied); `transactionsFts` removed
   from `lib/schema.ts`; `drizzle-kit check` clean
 
-> **Blocked items** wait until the in-progress feature work (budget lines,
-> category `isActive`, sim `amountManual`) and migrations `0008–0011` are committed
-> and applied, so new schema/derive changes don't tangle with that diff.
-
 ## Phase 2 — Server-side validation & data-layer robustness
 
-- [ ] **2.1** `defineAction(schema, handler)` wrapper + `lib/schemas/` shared with sheets;
-  standardise return envelope + missing-row handling
-- [ ] **2.2** transaction-wrap + idempotency: `seedZeroCategoryLines` (+ unique index),
-  `populateSimulationFromInputs`, `linkIncomeToClaim` / `unlinkAllFromClaim`,
-  `simulations-client` `handleCreate`, **`importTransactions`** (lookups inside txn +
-  link recurring instances — was 1.10)
+- [x] **2.1** `lib/schemas.ts` (shared zod primitives + `parse()` helper); every
+  action in `lib/actions/*.ts` now parses its input before touching the DB
+  (13 files). Throws on invalid → surfaced by `runAction`. **Not** the full
+  discriminated-envelope rewrite (return types unchanged) — that's deferred as
+  2.1b if a deployed multi-user setup needs field-level errors.
+- [~] **2.2** done: `seedZeroCategoryLines` (transactional), `populateSimulationFromInputs`
+  (idempotency guard — skips if the sim already has lines), `linkIncomeToClaim` /
+  `unlinkAllFromClaim` (transactional, shared `claimIdForMonth` helper),
+  `importTransactions` (lookups + inserts + instance-linking in one txn — was 1.10).
+  **Remaining:** fold `simulations-client` `handleCreate`'s 3 awaits into one action.
+  (No unique index on `simulation_lines` — legit duplicate category lines exist.)
 - [ ] **2.3** push per-page full-table scans into SQL aggregates (`dashboard`,
   `categories`, `merchants`, `budgets`, `simulations/[id]`, `applySimulationLineAverage`)
 - [ ] **2.4** `revalidateTag` per domain + `unstable_cache` on `lib/queries/*`

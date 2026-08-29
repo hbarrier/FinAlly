@@ -1,11 +1,20 @@
 'use server'
 
+import { z } from 'zod'
 import { revalidateApp } from './_shared'
 import { db } from '../db'
 import { userSettings } from '../schema'
 import { eq } from 'drizzle-orm'
 import type { Modules } from '../db-types'
-import { CURRENCIES } from '../settings-options'
+import { parse, zName, zCurrency, zSignedAmount } from '../schemas'
+
+const zModules = z.object({
+  recurring: z.boolean(),
+  divorce: z.boolean(),
+  budgets: z.boolean(),
+  simulations: z.boolean(),
+  objectives: z.boolean(),
+})
 
 function moduleFlags(modules: Modules) {
   return {
@@ -17,34 +26,28 @@ function moduleFlags(modules: Modules) {
   }
 }
 
-function cleanName(name: string) {
-  const trimmed = name.trim()
-  if (!trimmed) throw new Error('Name is required')
-  return trimmed
-}
-
-function cleanCurrency(currency: string) {
-  if (!(CURRENCIES as readonly string[]).includes(currency)) {
-    throw new Error(`Unsupported currency: ${currency}`)
-  }
-  return currency
-}
-
-export async function completeOnboarding(data: {
+export async function completeOnboarding(input: {
   name: string
   currency: string
   startingBalance: number
   modules: Modules
 }) {
-  const startingBalance = Number(data.startingBalance)
-  if (!Number.isFinite(startingBalance)) throw new Error('Initial balance must be a number')
+  const data = parse(
+    z.object({
+      name: zName,
+      currency: zCurrency,
+      startingBalance: zSignedAmount,
+      modules: zModules,
+    }),
+    input,
+  )
 
   await db
     .update(userSettings)
     .set({
-      name: cleanName(data.name),
-      currency: cleanCurrency(data.currency),
-      startingBalance,
+      name: data.name,
+      currency: data.currency,
+      startingBalance: data.startingBalance,
       onboarded: 1,
       ...moduleFlags(data.modules),
     })
@@ -53,16 +56,20 @@ export async function completeOnboarding(data: {
   revalidateApp()
 }
 
-export async function updateSettings(data: {
+export async function updateSettings(input: {
   name: string
   currency: string
   modules: Modules
 }) {
+  const data = parse(
+    z.object({ name: zName, currency: zCurrency, modules: zModules }),
+    input,
+  )
   await db
     .update(userSettings)
     .set({
-      name: cleanName(data.name),
-      currency: cleanCurrency(data.currency),
+      name: data.name,
+      currency: data.currency,
       ...moduleFlags(data.modules),
     })
     .where(eq(userSettings.id, 1))

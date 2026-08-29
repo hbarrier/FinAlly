@@ -4,15 +4,11 @@ import { sql } from 'drizzle-orm'
 import { db } from '../db'
 import { monthlyOpeningBalances } from '../schema'
 import { revalidateApp } from './_shared'
-
-function assertMonthKey(month: string) {
-  if (!/^\d{4}-\d{2}$/.test(month)) throw new Error(`Invalid month key: ${month}`)
-}
+import { parse, zMonth, zSignedAmount } from '../schemas'
 
 export async function upsertMonthlyOpeningBalance(month: string, openingBalance: number) {
-  assertMonthKey(month)
-  const n = Number(openingBalance)
-  if (!Number.isFinite(n)) throw new Error('Opening balance must be a number')
+  parse(zMonth, month)
+  const n = parse(zSignedAmount, openingBalance)
 
   await db
     .insert(monthlyOpeningBalances)

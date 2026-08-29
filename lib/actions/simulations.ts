@@ -1,14 +1,52 @@
 'use server'
 
+import { z } from 'zod'
 import { revalidateApp } from './_shared'
 import { db } from '../db'
 import { simulations, simulationLines, recurring, transactions, categories, merchants } from '../schema'
 import { nanoid } from '../utils'
-import { eq, and, or, isNull, gte, lt, inArray } from 'drizzle-orm'
+import { eq, and, or, isNull, gte, lt, inArray, sql } from 'drizzle-orm'
 import { completeMonthsWindow, roundToTen, simulationLineSourceTransactions } from '../derive'
+import { parse, zId, zName, zKind, zFrequency, zPriority, zAmountOrZero, zNullableId, zOptionalId } from '../schemas'
 import type { SimulationInputs } from '../db-types'
 
 export type { SimulationInputs } from '../db-types'
+
+const simMetaSchema = z.object({ name: zName, description: z.string().nullable() })
+
+const simulationInputsSchema = z.object({
+  recurring: z.object({
+    monthlyExpenses: z.boolean(),
+    monthlyIncome: z.boolean(),
+    yearlyExpenses: z.boolean(),
+    yearlyIncome: z.boolean(),
+  }),
+  avg: z.object({
+    expenses: z.boolean(),
+    income: z.boolean(),
+    periodMonths: z.union([z.literal(1), z.literal(6), z.literal(12)]),
+    rollup: z.enum(['all', 'drop', 'other']),
+    thresholdMonthly: z.number().finite().nonnegative(),
+  }),
+})
+const simLineSchema = z.object({
+  name: z.string().nullable(),
+  kind: zKind,
+  categoryId: zNullableId,
+  merchantId: zNullableId,
+  amount: zAmountOrZero,
+  frequency: zFrequency,
+  sourceRecurringId: zOptionalId,
+})
+const simLineUpdateSchema = z.object({
+  name: z.string().nullable(),
+  kind: zKind,
+  categoryId: zNullableId,
+  merchantId: zNullableId,
+  amount: zAmountOrZero,
+  frequency: zFrequency,
+  priority: zPriority,
+}).partial()
 
 /**
  * Adds an amount-0 line for every active category not yet represented in the
@@ -16,35 +54,41 @@ export type { SimulationInputs } from '../db-types'
  * active categories the way the budget does. Idempotent.
  */
 export async function seedZeroCategoryLines(simulationId: string): Promise<void> {
-  const [existing, activeCats] = await Promise.all([
-    db.select({ kind: simulationLines.kind, categoryId: simulationLines.categoryId })
-      .from(simulationLines)
-      .where(eq(simulationLines.simulationId, simulationId)),
-    db.select().from(categories).where(eq(categories.isActive, 1)),
-  ])
-  const present = new Set(existing.map((l) => `${l.kind}:${l.categoryId ?? ''}`))
-  const rows = activeCats
-    .filter((c) => !present.has(`${c.kind}:${c.id}`))
-    .map((c) => ({
-      id: nanoid(),
-      simulationId,
-      name: null,
-      kind: c.kind,
-      categoryId: c.id,
-      merchantId: null,
-      amount: 0,
-      frequency: 'monthly' as const,
-      sourceRecurringId: null,
-      origin: 'manual' as const,
-    }))
-  if (rows.length > 0) await db.insert(simulationLines).values(rows)
+  parse(zId, simulationId)
+  // One transaction so a double-submit (or concurrent populateSimulationFromInputs)
+  // can't both read "no lines yet" and both insert the placeholder set.
+  await db.transaction(async (tx) => {
+    const [existing, activeCats] = await Promise.all([
+      tx.select({ kind: simulationLines.kind, categoryId: simulationLines.categoryId })
+        .from(simulationLines)
+        .where(eq(simulationLines.simulationId, simulationId)),
+      tx.select().from(categories).where(eq(categories.isActive, 1)),
+    ])
+    const present = new Set(existing.map((l) => `${l.kind}:${l.categoryId ?? ''}`))
+    const rows = activeCats
+      .filter((c) => !present.has(`${c.kind}:${c.id}`))
+      .map((c) => ({
+        id: nanoid(),
+        simulationId,
+        name: null,
+        kind: c.kind,
+        categoryId: c.id,
+        merchantId: null,
+        amount: 0,
+        frequency: 'monthly' as const,
+        sourceRecurringId: null,
+        origin: 'manual' as const,
+      }))
+    if (rows.length > 0) await tx.insert(simulationLines).values(rows)
+  })
   revalidateApp()
 }
 
-export async function addSimulation(data: {
+export async function addSimulation(input: {
   name: string
   description: string | null
 }): Promise<{ id: string }> {
+  const data = parse(simMetaSchema, input)
   const id = nanoid()
   await db.insert(simulations).values({
     id,
@@ -57,20 +101,23 @@ export async function addSimulation(data: {
 
 export async function updateSimulation(
   id: string,
-  data: Partial<{ name: string; description: string | null }>,
+  input: Partial<{ name: string; description: string | null }>,
 ) {
+  parse(zId, id)
+  const data = parse(simMetaSchema.partial(), input)
   await db.update(simulations).set(data).where(eq(simulations.id, id))
   revalidateApp()
 }
 
 export async function deleteSimulation(id: string) {
+  parse(zId, id)
   await db.delete(simulations).where(eq(simulations.id, id))
   revalidateApp()
 }
 
 export async function addSimulationLine(
   simulationId: string,
-  data: {
+  input: {
     name: string | null
     kind: 'expense' | 'income'
     categoryId: string | null
@@ -80,6 +127,8 @@ export async function addSimulationLine(
     sourceRecurringId?: string | null
   },
 ) {
+  parse(zId, simulationId)
+  const data = parse(simLineSchema, input)
   await db.insert(simulationLines).values({
     id: nanoid(),
     simulationId,
@@ -97,7 +146,7 @@ export async function addSimulationLine(
 
 export async function updateSimulationLine(
   id: string,
-  data: Partial<{
+  input: Partial<{
     name: string | null
     kind: 'expense' | 'income'
     categoryId: string | null
@@ -107,6 +156,8 @@ export async function updateSimulationLine(
     priority: 'must' | 'should' | 'nice'
   }>,
 ) {
+  parse(zId, id)
+  const data = parse(simLineUpdateSchema, input)
   const patch: Record<string, unknown> = { ...data }
   if (data.amount !== undefined) {
     const line = await db.query.simulationLines.findFirst({ where: eq(simulationLines.id, id) })
@@ -119,6 +170,7 @@ export async function updateSimulationLine(
 }
 
 export async function deleteSimulationLine(id: string) {
+  parse(zId, id)
   await db.delete(simulationLines).where(eq(simulationLines.id, id))
   revalidateApp()
 }
@@ -130,8 +182,13 @@ export async function deleteSimulationLine(id: string) {
  */
 export async function applySimulationLineAverage(
   lineId: string,
-  data: { months: number; excludedTxnIds: string[] },
+  input: { months: number; excludedTxnIds: string[] },
 ) {
+  parse(zId, lineId)
+  const data = parse(
+    z.object({ months: z.number().int().positive().max(120), excludedTxnIds: z.array(zId) }),
+    input,
+  )
   const line = await db.query.simulationLines.findFirst({ where: eq(simulationLines.id, lineId) })
   if (!line) throw new Error('Simulation line not found')
 
@@ -295,8 +352,21 @@ async function averagedLinesForKind(
 
 export async function populateSimulationFromInputs(
   simulationId: string,
-  inputs: SimulationInputs,
+  rawInputs: SimulationInputs,
 ): Promise<void> {
+  parse(zId, simulationId)
+  const inputs = parse(simulationInputsSchema, rawInputs)
+
+  // Idempotent: never double-seed a simulation that already has lines.
+  const [{ n }] = await db
+    .select({ n: sql<number>`count(*)` })
+    .from(simulationLines)
+    .where(eq(simulationLines.simulationId, simulationId))
+  if (n > 0) {
+    revalidateApp()
+    return
+  }
+
   const lines: NewLine[] = [...(await recurringLines(simulationId, inputs.recurring))]
 
   if (inputs.avg.expenses || inputs.avg.income) {
@@ -321,6 +391,7 @@ export async function populateSimulationFromInputs(
 }
 
 export async function duplicateSimulation(id: string): Promise<{ id: string }> {
+  parse(zId, id)
   const newId = await db.transaction(async (tx) => {
     const original = await tx.query.simulations.findFirst({
       where: eq(simulations.id, id),
