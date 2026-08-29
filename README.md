@@ -22,13 +22,22 @@ short setup (name, currency, starting balance, modules).
 
 ## Database
 
-`finance.db` is a SQLite file. To create or update it, run the Drizzle pipeline
-after any change to `lib/schema.ts`:
+`finance.db` is a local SQLite file and is **not** committed (it holds real data).
+On a fresh clone it is created by the first migration run:
+
+```bash
+npm run db:migrate    # applies pending migrations, creating finance.db if absent
+npm run dev           # seeds settings + default categories on first boot
+```
+
+After any change to `lib/schema.ts`:
 
 ```bash
 npm run db:generate   # writes a new drizzle/NNNN_*.sql from the schema diff
 npm run db:migrate    # applies pending migrations
 ```
+
+Manual save-points before risky migrations go in `backups/` (gitignored).
 
 `drizzle/0000_*.sql` is a squashed baseline (April–Aug 2025 history is in
 `drizzle/_archive/`). One hand edit lives in the baseline: the `transactions_fts`

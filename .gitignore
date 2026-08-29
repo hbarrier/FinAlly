@@ -13,6 +13,16 @@
 # testing
 /coverage
 
+# local database — live user data, never committed
+finance.db
+finance.db-shm
+finance.db-wal
+finance.db.*
+/backups/
+
+# graphify skill output
+/graphify-out/
+
 # next.js
 /.next/
 /out/
