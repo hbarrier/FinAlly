@@ -1,14 +1,15 @@
 'use client'
 
-import { useEffect, useMemo } from 'react'
-import { useForm, Controller } from 'react-hook-form'
-import { zodResolver } from '@hookform/resolvers/zod'
+import { useMemo } from 'react'
+import { Controller } from 'react-hook-form'
 import { z } from 'zod'
 import { Field, FieldError } from '@/components/ui/field'
 import { Icon } from '../icon'
 import { CatSwatch } from '../cat-swatch'
 import { SearchableSelect } from '../searchable-select'
 import { SheetShell } from '../sheet-shell'
+import { AmountField } from '../amount-field'
+import { useSheetForm } from '@/hooks/use-sheet-form'
 import type { Category, Transaction } from '@/lib/derive'
 import type { Merchant } from '@/lib/db-types'
 import { PAYMENT_METHODS, paymentMethodLabel, type PaymentMethod, defaultPaymentMethodForKind } from '@/lib/payment-method'
@@ -89,28 +90,15 @@ export function TransactionSheet({
     register,
     control,
     handleSubmit,
-    reset,
     watch,
     setValue,
     getValues,
-    trigger,
-    formState: { errors, isValid, dirtyFields, isSubmitted },
-  } = useForm<TransactionFormValues>({
-    resolver: zodResolver(transactionSchema),
-    defaultValues: getDefaultValues(item, prefill),
-    mode: 'onChange',
+    showErr,
+    formState: { errors, isValid, isSubmitted },
+  } = useSheetForm(transactionSchema, () => getDefaultValues(item, prefill), {
+    open,
+    resetDeps: [item, prefill],
   })
-
-  useEffect(() => {
-    if (open) {
-      reset(getDefaultValues(item, prefill))
-      // Re-run validation so isValid reflects the pre-filled state (especially for edits).
-      setTimeout(() => trigger(), 0)
-    }
-  }, [open, item, prefill, reset, trigger])
-
-  const showErr = (field: keyof TransactionFormValues) =>
-    !!(errors[field] && (dirtyFields[field] || isSubmitted))
 
   const watchedKind = watch('kind')
   const watchedMethod = watch('method')
@@ -241,20 +229,7 @@ export function TransactionSheet({
         )}
       </Field>
 
-      <Field data-invalid={showErr('amount')}>
-        <div style={{ position: 'relative' }}>
-          <span style={{ position: 'absolute', left: 0, top: '50%', transform: 'translateY(-50%)', fontSize: 28, color: 'var(--ink-soft)', fontFamily: 'var(--serif)' }}>€</span>
-          <input
-            className="fern-input big"
-            style={{ paddingLeft: 28 }}
-            placeholder="0,00"
-            inputMode="decimal"
-            autoFocus
-            {...register('amount')}
-          />
-        </div>
-        {showErr('amount') && <FieldError>{errors.amount?.message}</FieldError>}
-      </Field>
+      <AmountField register={register('amount')} invalid={showErr('amount')} error={errors.amount?.message} autoFocus />
 
       {merchants.length > 0 && (
         <div>

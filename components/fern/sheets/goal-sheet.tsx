@@ -1,14 +1,12 @@
 'use client'
 
-import { useEffect } from 'react'
-import { useForm } from 'react-hook-form'
-import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { Field, FieldError } from '@/components/ui/field'
 import { Icon } from '../icon'
 import { GoalRing } from '../goal-ring'
 import { SheetShell } from '../sheet-shell'
 import { CategoryAppearanceFields } from '../category-appearance-fields'
+import { useSheetForm } from '@/hooks/use-sheet-form'
 import type { Goal } from '@/lib/db-types'
 import { parseDecimal } from '@/lib/utils'
 
@@ -49,25 +47,10 @@ export function GoalSheet({ open, onClose, item, onSave }: GoalSheetProps) {
     register,
     control,
     handleSubmit,
-    reset,
-    trigger,
     watch,
-    formState: { errors, isValid, dirtyFields, isSubmitted },
-  } = useForm<GoalFormValues>({
-    resolver: zodResolver(goalSchema),
-    defaultValues: getDefaultValues(item),
-    mode: 'onChange',
-  })
-
-  useEffect(() => {
-    if (open) {
-      reset(getDefaultValues(item))
-      trigger()
-    }
-  }, [open, item, reset, trigger])
-
-  const showErr = (field: keyof GoalFormValues) =>
-    !!(errors[field] && (dirtyFields[field] || isSubmitted))
+    showErr,
+    formState: { errors, isValid },
+  } = useSheetForm(goalSchema, () => getDefaultValues(item), { open, resetDeps: [item] })
 
   const watchedTarget = watch('target')
   const watchedSaved = watch('saved')

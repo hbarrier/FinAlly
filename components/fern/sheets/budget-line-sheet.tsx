@@ -1,13 +1,14 @@
 'use client'
 
-import { useEffect, useMemo } from 'react'
-import { useForm, Controller } from 'react-hook-form'
-import { zodResolver } from '@hookform/resolvers/zod'
+import { useMemo } from 'react'
+import { Controller } from 'react-hook-form'
 import { z } from 'zod'
 import { Field, FieldError } from '@/components/ui/field'
 import { SegmentedControl } from '../segmented-control'
 import { SearchableSelect } from '../searchable-select'
 import { SheetShell } from '../sheet-shell'
+import { AmountField } from '../amount-field'
+import { useSheetForm } from '@/hooks/use-sheet-form'
 import type { Category } from '@/lib/derive'
 import type { Merchant, BudgetLine } from '@/lib/db-types'
 import { parseDecimal } from '@/lib/utils'
@@ -70,24 +71,10 @@ export function BudgetLineSheet({ open, onClose, category, merchants, item, onSa
     register,
     control,
     handleSubmit,
-    reset,
     trigger,
-    formState: { errors, isValid, dirtyFields, isSubmitted },
-  } = useForm<LineFormValues>({
-    resolver: zodResolver(lineSchema),
-    defaultValues: getDefaultValues(item),
-    mode: 'onChange',
-  })
-
-  useEffect(() => {
-    if (open) {
-      reset(getDefaultValues(item))
-      trigger()
-    }
-  }, [open, item, reset, trigger])
-
-  const showErr = (field: keyof LineFormValues) =>
-    !!(errors[field] && (dirtyFields[field] || isSubmitted))
+    showErr,
+    formState: { errors, isValid },
+  } = useSheetForm(lineSchema, () => getDefaultValues(item), { open, resetDeps: [item] })
 
   const merchantOptions = useMemo(
     () => [...merchants].sort((a, b) => a.name.localeCompare(b.name)).map((m) => ({ value: m.id, label: m.name })),
@@ -121,13 +108,7 @@ export function BudgetLineSheet({ open, onClose, category, merchants, item, onSa
         </Field>
       )}
 
-      <Field data-invalid={showErr('amount')}>
-        <div style={{ position: 'relative' }}>
-          <span style={{ position: 'absolute', left: 0, top: '50%', transform: 'translateY(-50%)', fontSize: 28, color: 'var(--ink-soft)', fontFamily: 'var(--serif)' }}>€</span>
-          <input className="fern-input big" style={{ paddingLeft: 28 }} placeholder="0,00" inputMode="decimal" {...register('amount')} />
-        </div>
-        {showErr('amount') && <FieldError>{errors.amount?.message}</FieldError>}
-      </Field>
+      <AmountField register={register('amount')} invalid={showErr('amount')} error={errors.amount?.message} />
 
       {merchants.length > 0 && (
         <div>

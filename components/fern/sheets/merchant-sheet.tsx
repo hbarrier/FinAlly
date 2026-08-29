@@ -1,12 +1,12 @@
 'use client'
 
-import { useEffect, useMemo } from 'react'
-import { useForm, Controller } from 'react-hook-form'
-import { zodResolver } from '@hookform/resolvers/zod'
+import { useMemo } from 'react'
+import { Controller } from 'react-hook-form'
 import { z } from 'zod'
 import { Field, FieldError } from '@/components/ui/field'
 import { SearchableSelect } from '../searchable-select'
 import { SheetShell } from '../sheet-shell'
+import { useSheetForm } from '@/hooks/use-sheet-form'
 import { buildCategorySelectOptions, type Category } from '@/lib/derive'
 import type { Merchant } from '@/lib/db-types'
 
@@ -41,24 +41,9 @@ export function MerchantSheet({ open, onClose, categories, item, onSave }: Merch
     register,
     control,
     handleSubmit,
-    reset,
-    trigger,
-    formState: { errors, isValid, dirtyFields, isSubmitted },
-  } = useForm<MerchantFormValues>({
-    resolver: zodResolver(merchantSchema),
-    defaultValues: getDefaultValues(item),
-    mode: 'onChange',
-  })
-
-  useEffect(() => {
-    if (open) {
-      reset(getDefaultValues(item))
-      trigger()
-    }
-  }, [open, item, reset, trigger])
-
-  const showErr = (field: keyof MerchantFormValues) =>
-    !!(errors[field] && (dirtyFields[field] || isSubmitted))
+    showErr,
+    formState: { errors, isValid },
+  } = useSheetForm(merchantSchema, () => getDefaultValues(item), { open, resetDeps: [item] })
 
   const onSubmit = (data: MerchantFormValues) => {
     onSave({

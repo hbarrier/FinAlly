@@ -1,12 +1,12 @@
 'use client'
 
-import { useEffect, type CSSProperties } from 'react'
-import { useForm, Controller } from 'react-hook-form'
-import { zodResolver } from '@hookform/resolvers/zod'
+import { type CSSProperties } from 'react'
+import { Controller } from 'react-hook-form'
 import { z } from 'zod'
 import { Field, FieldError } from '@/components/ui/field'
 import { SegmentedControl } from '../segmented-control'
 import { SheetShell } from '../sheet-shell'
+import { useSheetForm } from '@/hooks/use-sheet-form'
 import type { Simulation } from '@/lib/db-types'
 import type { SimulationInputs } from '@/lib/actions/simulations'
 import { parseDecimal } from '@/lib/utils'
@@ -100,25 +100,10 @@ export function SimulationSheet({ open, onClose, item, recurringEnabled = false,
     register,
     control,
     handleSubmit,
-    reset,
-    trigger,
     watch,
-    formState: { errors, isValid, dirtyFields, isSubmitted },
-  } = useForm<SimulationFormValues>({
-    resolver: zodResolver(simulationSchema),
-    defaultValues: getDefaultValues(item),
-    mode: 'onChange',
-  })
-
-  useEffect(() => {
-    if (open) {
-      reset(getDefaultValues(item))
-      trigger()
-    }
-  }, [open, item, reset, trigger])
-
-  const showErr = (field: keyof SimulationFormValues) =>
-    !!(errors[field] && (dirtyFields[field] || isSubmitted))
+    showErr,
+    formState: { errors, isValid },
+  } = useSheetForm(simulationSchema, () => getDefaultValues(item), { open, resetDeps: [item] })
 
   const avgActive = watch('avgExpenses') || watch('avgIncome')
   const rollup = watch('avgRollup')

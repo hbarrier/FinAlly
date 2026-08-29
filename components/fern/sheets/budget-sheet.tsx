@@ -1,11 +1,9 @@
 'use client'
 
-import { useEffect } from 'react'
-import { useForm } from 'react-hook-form'
-import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { Field, FieldError } from '@/components/ui/field'
 import { SheetShell } from '../sheet-shell'
+import { useSheetForm } from '@/hooks/use-sheet-form'
 import type { Budget } from '@/lib/db-types'
 
 const budgetSchema = z.object({
@@ -33,24 +31,9 @@ export function BudgetSheet({ open, onClose, item, onSave }: BudgetSheetProps) {
   const {
     register,
     handleSubmit,
-    reset,
-    trigger,
-    formState: { errors, isValid, dirtyFields, isSubmitted },
-  } = useForm<BudgetFormValues>({
-    resolver: zodResolver(budgetSchema),
-    defaultValues: getDefaultValues(item),
-    mode: 'onChange',
-  })
-
-  useEffect(() => {
-    if (open) {
-      reset(getDefaultValues(item))
-      trigger()
-    }
-  }, [open, item, reset, trigger])
-
-  const showErr = (field: keyof BudgetFormValues) =>
-    !!(errors[field] && (dirtyFields[field] || isSubmitted))
+    showErr,
+    formState: { errors, isValid },
+  } = useSheetForm(budgetSchema, () => getDefaultValues(item), { open, resetDeps: [item] })
 
   const onSubmit = (data: BudgetFormValues) => {
     onSave({

@@ -1,14 +1,13 @@
 'use client'
 
-import { useEffect } from 'react'
-import { useForm, Controller } from 'react-hook-form'
-import { zodResolver } from '@hookform/resolvers/zod'
+import { Controller } from 'react-hook-form'
 import { z } from 'zod'
 import { Field, FieldError } from '@/components/ui/field'
 import { Icon } from '../icon'
 import { CatSwatch } from '../cat-swatch'
 import { SheetShell } from '../sheet-shell'
 import { CategoryAppearanceFields } from '../category-appearance-fields'
+import { useSheetForm } from '@/hooks/use-sheet-form'
 import type { Category } from '@/lib/derive'
 
 const categorySchema = z.object({
@@ -41,25 +40,10 @@ export function CategorySheet({ open, onClose, item, onSave }: CategorySheetProp
     register,
     control,
     handleSubmit,
-    reset,
-    trigger,
     watch,
-    formState: { errors, isValid, dirtyFields, isSubmitted },
-  } = useForm<CategoryFormValues>({
-    resolver: zodResolver(categorySchema),
-    defaultValues: getDefaultValues(item),
-    mode: 'onChange',
-  })
-
-  useEffect(() => {
-    if (open) {
-      reset(getDefaultValues(item))
-      trigger()
-    }
-  }, [open, item, reset, trigger])
-
-  const showErr = (field: keyof CategoryFormValues) =>
-    !!(errors[field] && (dirtyFields[field] || isSubmitted))
+    showErr,
+    formState: { errors, isValid },
+  } = useSheetForm(categorySchema, () => getDefaultValues(item), { open, resetDeps: [item] })
 
   const watchedColor = watch('color')
   const watchedIcon = watch('icon')

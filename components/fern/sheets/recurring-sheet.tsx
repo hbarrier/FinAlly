@@ -1,8 +1,7 @@
 'use client'
 
-import { useEffect, useMemo, useState, useTransition } from 'react'
-import { useForm, Controller } from 'react-hook-form'
-import { zodResolver } from '@hookform/resolvers/zod'
+import { useMemo, useState, useTransition } from 'react'
+import { Controller } from 'react-hook-form'
 import { z } from 'zod'
 import { Field, FieldError } from '@/components/ui/field'
 import { Icon } from '../icon'
@@ -10,6 +9,8 @@ import { SegmentedControl } from '../segmented-control'
 import { SearchableSelect } from '../searchable-select'
 import { AmountHistoryChart } from '../amount-history-chart'
 import { SheetShell } from '../sheet-shell'
+import { AmountField } from '../amount-field'
+import { useSheetForm } from '@/hooks/use-sheet-form'
 import { fmt, type Category, type Recurring, type RecurringAmount } from '@/lib/derive'
 import { addRecurringAmount, deleteRecurringAmount } from '@/lib/actions/recurring'
 import type { Merchant } from '@/lib/db-types'
@@ -99,26 +100,11 @@ export function RecurringSheet({ open, onClose, categories, merchants, item, amo
     register,
     control,
     handleSubmit,
-    reset,
-    trigger,
     watch,
     setValue,
-    formState: { errors, isValid, dirtyFields, isSubmitted },
-  } = useForm<RecurringFormValues>({
-    resolver: zodResolver(recurringSchema),
-    defaultValues: getDefaultValues(item),
-    mode: 'onChange',
-  })
-
-  useEffect(() => {
-    if (open) {
-      reset(getDefaultValues(item))
-      trigger()
-    }
-  }, [open, item, reset, trigger])
-
-  const showErr = (field: keyof RecurringFormValues) =>
-    !!(errors[field] && (dirtyFields[field] || isSubmitted))
+    showErr,
+    formState: { errors, isValid, isSubmitted },
+  } = useSheetForm(recurringSchema, () => getDefaultValues(item), { open, resetDeps: [item] })
 
   const watchedKind = watch('kind')
   const watchedMethod = watch('method')
@@ -243,13 +229,7 @@ export function RecurringSheet({ open, onClose, categories, merchants, item, amo
         )}
       </Field>
 
-      <Field data-invalid={showErr('amount')}>
-        <div style={{ position: 'relative' }}>
-          <span style={{ position: 'absolute', left: 0, top: '50%', transform: 'translateY(-50%)', fontSize: 28, color: 'var(--ink-soft)', fontFamily: 'var(--serif)' }}>€</span>
-          <input className="fern-input big" style={{ paddingLeft: 28 }} placeholder="0,00" inputMode="decimal" {...register('amount')} />
-        </div>
-        {showErr('amount') && <FieldError>{errors.amount?.message}</FieldError>}
-      </Field>
+      <AmountField register={register('amount')} invalid={showErr('amount')} error={errors.amount?.message} />
 
       <Field data-invalid={showErr('name')}>
         <label className="fern-field-label">Name</label>

@@ -90,7 +90,12 @@ Status key: `[x]` done · `[~]` in progress · `[ ]` todo · `⏸` blocked
 - [~] **3.1** `lib/dates.ts` created + `lib/derive.ts` / `lib/recurring-instances.ts`
   migrated. **Remaining:** client components + `*/page.tsx` + `lib/actions/recurring.ts`
   still hand-roll `toISOString().slice()` / `padStart` — route through `lib/dates.ts`.
-- [ ] **3.2** `useSheetForm` hook + `<AmountField>` / `<KindToggle>` + select-option builders
+- [~] **3.2** `hooks/use-sheet-form.ts` (useForm + zodResolver + reset-on-open +
+  `showErr`) — adopted by all 9 CRUD sheets, removing the verbatim block + its
+  drift (`setTimeout(trigger)` etc.). `components/fern/amount-field.tsx` replaces
+  the 4 copies of the `€ 0,00` input. **Remaining:** `<KindToggle>` (expense/income
+  toggle with side-effects, duplicated transaction↔recurring), shared
+  merchant/category select-option builders.
 - [~] **3.3** `hooks/use-server-action.ts` → `{ run, pending }`. Migrated
   categories / goals / simulations / merchants / budgets clients (buttons now
   disable while pending); ended the hand-rolled try/catch in simulations-client.
