@@ -57,6 +57,34 @@
       "when": 1787902346145,
       "tag": "0007_multi_budget",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1787920470711,
+      "tag": "0008_budget_recurring_adhoc",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1787931518107,
+      "tag": "0009_budget_lines",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1788480000000,
+      "tag": "0010_category_is_active",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1788826000000,
+      "tag": "0011_simulation_line_amount_manual",
+      "breakpoints": true
     }
   ]
 }

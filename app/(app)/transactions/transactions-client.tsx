@@ -7,7 +7,7 @@ import { Icon } from '@/components/fern/icon'
 import { CatSwatch } from '@/components/fern/cat-swatch'
 import { Chip } from '@/components/fern/chip'
 import { TransactionSheet } from '@/components/fern/sheets/transaction-sheet'
-import { fmt, resolvedDayOfMonth, formatDate, type Category, type Transaction, type RecurringWithAmounts } from '@/lib/derive'
+import { fmt, resolvedDayOfMonth, formatDate, isPlannedDate, type Category, type Transaction, type RecurringWithAmounts } from '@/lib/derive'
 import { PageHeader } from '@/components/fern/page-header'
 import { FernButton } from '@/components/fern/button'
 import { EmptyState } from '@/components/fern/empty-state'
@@ -24,7 +24,8 @@ import { markInstanceNotApplicable, unmarkInstanceNotApplicable } from '@/lib/ac
 import { setExpenseManualSettlement } from '@/lib/actions/reimbursements'
 import { RecurringLinkSheet } from '@/components/fern/sheets/recurring-link-sheet'
 import { BulkRecurringLinkSheet } from '@/components/fern/sheets/bulk-recurring-link-sheet'
-import type { Merchant, RecurringInstance } from '@/lib/db-types'
+import { MonthBudgetComparisonModal } from '@/components/fern/month-budget-comparison-modal'
+import type { Merchant, RecurringInstance, BudgetWithLines } from '@/lib/db-types'
 import { runAction, REIMBURSEMENT_CATEGORY_NAME } from '@/lib/utils'
 import { confirmDialog } from '@/lib/dialogs-store'
 import { YearPicker } from '@/components/fern/year-picker'
@@ -95,6 +96,8 @@ interface TransactionsClientProps {
   reimbursementMappingCounts: Record<string, number>
   recurringEnabled: boolean
   divorceEnabled: boolean
+  budgetEnabled: boolean
+  budget: BudgetWithLines | null
   initialMerchantId?: string
   selectedYear: number
   years: string[]
@@ -112,6 +115,8 @@ export function TransactionsClient({
   reimbursementMappingCounts,
   recurringEnabled,
   divorceEnabled,
+  budgetEnabled,
+  budget,
   initialMerchantId = 'all',
   selectedYear,
   years,
@@ -119,6 +124,9 @@ export function TransactionsClient({
 }: TransactionsClientProps) {
   const router = useRouter()
   const currentYear = new Date().getFullYear()
+  const nowMonth = new Date().toISOString().slice(0, 7)
+  const [expandedMonths, setExpandedMonths] = useState<Set<string>>(new Set([nowMonth]))
+  const [compareMonth, setCompareMonth] = useState<string | null>(null)
   const [q, setQ] = useState('')
   const [kindFilter, setKindFilter] = useState('all')
   const [catFilter, setCatFilter] = useState<Set<string>>(new Set())
@@ -264,22 +272,45 @@ export function TransactionsClient({
     merchantById,
   ])
 
-  // All months in the loaded data (unfiltered), sorted newest-first
+  // All months in the loaded data (unfiltered), sorted newest-first.
+  // Fill any gap between the newest month present (e.g. a planned expense a few
+  // months out) and the current month so future sections stay contiguous.
   const allMonths = useMemo(() => {
     const monthSet = new Set<string>()
     txns.forEach((t) => monthSet.add(t.date.slice(0, 7)))
     instanceEntries.forEach((t) => monthSet.add(t.date.slice(0, 7)))
+    const nowMonth = new Date().toISOString().slice(0, 7)
+    const newest = [...monthSet].sort((a, b) => b.localeCompare(a))[0]
+    if (newest && newest > nowMonth) {
+      let [y, m] = nowMonth.split('-').map(Number)
+      const [ny, nm] = newest.split('-').map(Number)
+      while (y < ny || (y === ny && m <= nm)) {
+        monthSet.add(`${y}-${String(m).padStart(2, '0')}`)
+        m++
+        if (m > 12) { m = 1; y++ }
+      }
+    }
     return [...monthSet].sort((a, b) => b.localeCompare(a))
   }, [txns, instanceEntries])
 
+  // Planned (future-dated) months are always shown on top of the `visibleMonths`
+  // window of current + past months, so the current month never gets pushed out.
+  const futureMonthCount = useMemo(() => {
+    const nowMonth = new Date().toISOString().slice(0, 7)
+    return allMonths.filter((m) => m > nowMonth).length
+  }, [allMonths])
+
   const visibleMonthSet = useMemo(
-    () => new Set(allMonths.slice(0, visibleMonths)),
-    [allMonths, visibleMonths],
+    () => new Set(allMonths.slice(0, futureMonthCount + visibleMonths)),
+    [allMonths, futureMonthCount, visibleMonths],
   )
 
   const canLoadMore = (() => {
-    const maxMonths = selectedYear < currentYear ? 12 : selectedYear > currentYear ? 0 : new Date().getMonth() + 1
-    return visibleMonths < allMonths.length || (allMonths.length > 0 && visibleMonths < maxMonths)
+    const maxMonths = selectedYear < currentYear ? 12 : selectedYear > currentYear ? 12 : new Date().getMonth() + 1
+    return (
+      futureMonthCount + visibleMonths < allMonths.length ||
+      (allMonths.length > 0 && visibleMonths < maxMonths)
+    )
   })()
 
   useEffect(() => { setVisibleMonths(initialMonths) }, [selectedYear, initialMonths])
@@ -383,7 +414,7 @@ export function TransactionsClient({
       return
     }
 
-    const nextVisible = idx + 1
+    const nextVisible = Math.max(1, idx + 1 - futureMonthCount)
     setPendingScrollMonth(month)
     setVisibleMonths(nextVisible)
     const params = new URLSearchParams(window.location.search)
@@ -404,6 +435,7 @@ export function TransactionsClient({
       if (isInstance(m)) continue
       if (m.kind !== 'expense') continue
       if (m.method !== 'card' && m.method !== 'paypal') continue
+      if (isPlannedDate(m.date)) continue
 
       const month = m.date.slice(0, 7)
       const amountAbs = Math.abs(Number(m.amount ?? 0))
@@ -687,6 +719,20 @@ export function TransactionsClient({
               </option>
             ))}
           </select>
+          <button
+            type="button"
+            onClick={() => setExpandedMonths(new Set(allMonths.slice(0, futureMonthCount + visibleMonths)))}
+            style={{ fontSize: 12, color: 'var(--ink-faint)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+          >
+            Expand all
+          </button>
+          <button
+            type="button"
+            onClick={() => setExpandedMonths(new Set())}
+            style={{ fontSize: 12, color: 'var(--ink-faint)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+          >
+            Collapse all
+          </button>
         </div>
       )}
 
@@ -729,14 +775,28 @@ export function TransactionsClient({
         <EmptyState illu="◌" title="Nothing matches" description="Try a different search or filter." />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-          {allMonths.slice(0, visibleMonths).map((month) => {
+          {allMonths.slice(0, futureMonthCount + visibleMonths).map((month) => {
             const dgs = monthGroupsMap[month] ?? []
             const monthLabel = formatDate(month + '-15T12:00:00', 'en-US', { month: 'long', year: 'numeric' })
             const cb = cbExpensesByMonth[month] ?? { cleared: 0, total: 0 }
+            const isExpanded = expandedMonths.has(month)
             return (
               <div key={month} id={`month-${month}`}>
                 <div style={{ display: 'flex', alignItems: 'center', marginBottom: 10 }}>
-                  <h2 style={{ margin: 0, flex: 1, fontSize: 13, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--ink-faint)', fontFamily: 'var(--mono-fern)' }}>{monthLabel}</h2>
+                  <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <h2 style={{ margin: 0, fontSize: 13, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--ink-faint)', fontFamily: 'var(--mono-fern)' }}>{monthLabel}</h2>
+                    {budgetEnabled && (
+                      <button
+                        type="button"
+                        onClick={() => setCompareMonth(month)}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-faint)', padding: 2, display: 'flex' }}
+                        aria-label="Compare to budget"
+                        title="Compare to budget"
+                      >
+                        <Icon name="pie" size={14} />
+                      </button>
+                    )}
+                  </div>
 
                   {/* CB monthly KPI: cleared / total (amount sums, card + paypal expenses). */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
@@ -749,8 +809,24 @@ export function TransactionsClient({
                     </span>
                   </div>
 
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setExpandedMonths((prev) => {
+                        const next = new Set(prev)
+                        if (next.has(month)) next.delete(month)
+                        else next.add(month)
+                        return next
+                      })
+                    }
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-faint)', padding: '2px 4px 2px 8px', display: 'flex', flexShrink: 0 }}
+                    aria-label={isExpanded ? 'Collapse month' : 'Expand month'}
+                  >
+                    <Icon name={isExpanded ? 'chevronDown' : 'chevronRight'} size={14} />
+                  </button>
+
                   {/* Reserve space for the right-side action buttons in transaction rows. */}
-                  {!selectionMode && <div style={{ width: 64, flexShrink: 0 }} />}
+                  {!selectionMode && <div style={{ width: 40, flexShrink: 0 }} />}
                   {selectionMode && (
                     <button
                       type="button"
@@ -761,6 +837,7 @@ export function TransactionsClient({
                     </button>
                   )}
                 </div>
+                {isExpanded && (
                 <div className="fern-card" style={{ padding: '8px 16px' }}>
                   {dgs.length === 0 && (
                     <div style={{ padding: '10px 4px', fontSize: 13, color: 'var(--ink-faint)' }}>No transactions</div>
@@ -920,6 +997,7 @@ export function TransactionsClient({
                     )
                   })}
                 </div>
+                )}
               </div>
             )
           })}
@@ -971,6 +1049,18 @@ export function TransactionsClient({
             <Icon name="repeat" size={16} /> Set as recurring
           </FernButton>
         </div>
+      )}
+
+      {budgetEnabled && (
+        <MonthBudgetComparisonModal
+          open={compareMonth !== null}
+          onClose={() => setCompareMonth(null)}
+          month={compareMonth ?? nowMonth}
+          budget={budget}
+          categories={categories}
+          merchants={merchants}
+          transactions={txns}
+        />
       )}
 
       <ImportWizard

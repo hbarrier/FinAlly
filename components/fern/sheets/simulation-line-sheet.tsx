@@ -123,10 +123,10 @@ export function SimulationLineSheet({
 
   const categoryOptions = useMemo(
     () => categories
-      .filter((c) => c.kind === watchedKind)
+      .filter((c) => c.kind === watchedKind && (c.isActive === 1 || c.id === item?.categoryId))
       .sort((a, b) => a.name.localeCompare(b.name))
       .map((c) => ({ value: c.id, label: c.name })),
-    [categories, watchedKind],
+    [categories, watchedKind, item?.categoryId],
   )
 
   const merchantOptions = useMemo(

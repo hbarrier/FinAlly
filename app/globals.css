@@ -668,6 +668,13 @@
 .fern-modal-content {
   background: var(--bg-elevated);
   max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  max-height: 85vh;
+}
+
+.fern-modal-content.fern-modal-wide {
+  max-width: 640px;
 }
 
 .fern-modal-body {
@@ -676,6 +683,8 @@
   gap: 14px;
   font-size: 14px;
   color: var(--ink-soft);
+  overflow-y: auto;
+  min-height: 0;
 }
 
 .fern-modal-content .fern-sheet-footer {

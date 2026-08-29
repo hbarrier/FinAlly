@@ -34,15 +34,37 @@ export default async function TransactionsPage({
 
   const initialMonths = Math.max(1, Math.min(12, months ? parseInt(months, 10) || 2 : 2))
 
+  // How far into the future planned (future-dated) transactions reach, capped 12 months out.
+  const [{ maxDate }] = await db
+    .select({ maxDate: sql<string | null>`max(${transactions.date})` })
+    .from(transactions)
+  const currentMonthStr = new Date().toISOString().slice(0, 7)
+  const horizonCap = new Date()
+  horizonCap.setUTCMonth(horizonCap.getUTCMonth() + 12)
+  const horizonCapStr = horizonCap.toISOString().slice(0, 7)
+  const plannedHorizon =
+    maxDate && maxDate.slice(0, 7) > currentMonthStr
+      ? (maxDate.slice(0, 7) < horizonCapStr ? maxDate.slice(0, 7) : horizonCapStr)
+      : currentMonthStr
+
   const endMonth =
     selectedYear < currentYear
       ? `${selectedYear}-12`
       : selectedYear > currentYear
-        ? `${selectedYear}-01`
-        : new Date().toISOString().slice(0, 7)
+        ? (plannedHorizon >= `${selectedYear}-01`
+            ? (plannedHorizon < `${selectedYear}-12` ? plannedHorizon : `${selectedYear}-12`)
+            : `${selectedYear}-01`)
+        : (plannedHorizon < `${currentYear}-12` ? plannedHorizon : `${currentYear}-12`)
 
-  const endMonthDate = new Date(endMonth + '-15T12:00:00Z')
-  const startMonthDate = new Date(endMonthDate)
+  // Anchor the start of the window on the current month (not the planned-future horizon),
+  // so the default view always includes the most recent real months.
+  const anchorMonth =
+    selectedYear < currentYear
+      ? endMonth
+      : currentMonthStr < endMonth
+        ? currentMonthStr
+        : endMonth
+  const startMonthDate = new Date(anchorMonth + '-15T12:00:00Z')
   startMonthDate.setUTCMonth(startMonthDate.getUTCMonth() - (initialMonths - 1))
   if (startMonthDate.getUTCFullYear() < selectedYear) startMonthDate.setUTCFullYear(selectedYear, 0, 15)
 
@@ -61,6 +83,7 @@ export default async function TransactionsPage({
     rates,
     allocations,
     claimAllocationRows,
+    budget,
   ] = await Promise.all([
     db.query.categories.findMany(),
     db.query.merchants.findMany({ where: eq(merchants.isActive, 1) }),
@@ -92,6 +115,9 @@ export default async function TransactionsPage({
     modules.divorce
       ? db.select({ reimbursementTxId: reimbursementClaimAllocations.reimbursementTxId }).from(reimbursementClaimAllocations)
       : Promise.resolve([]),
+    modules.budgets
+      ? db.query.budgets.findFirst({ with: { lines: true } })
+      : Promise.resolve(undefined),
   ])
 
   // When a merchant filter is active, load the full year for that merchant.
@@ -164,6 +190,8 @@ export default async function TransactionsPage({
       reimbursementMappingCounts={reimbursementMappingCounts}
       recurringEnabled={modules.recurring}
       divorceEnabled={modules.divorce}
+      budgetEnabled={modules.budgets}
+      budget={budget ?? null}
       initialMerchantId={merchant ?? 'all'}
       selectedYear={selectedYear}
       years={years}

@@ -10,7 +10,7 @@ import { EmptyState } from '@/components/fern/empty-state'
 import { SimulationSheet } from '@/components/fern/sheets/simulation-sheet'
 import { fmt, simulationTotals } from '@/lib/derive'
 import type { SimulationWithLines } from '@/lib/db-types'
-import { addSimulation, populateSimulationFromInputs, deleteSimulation, duplicateSimulation, type SimulationInputs } from '@/lib/actions/simulations'
+import { addSimulation, populateSimulationFromInputs, seedZeroCategoryLines, deleteSimulation, duplicateSimulation, type SimulationInputs } from '@/lib/actions/simulations'
 import { alertDialog, confirmDialog } from '@/lib/dialogs-store'
 
 interface SimulationsClientProps {
@@ -28,6 +28,7 @@ export function SimulationsClient({ simulations, recurringEnabled }: Simulations
       try {
         const { id } = await addSimulation({ name: data.name, description: data.description })
         if (data.inputs) await populateSimulationFromInputs(id, data.inputs)
+        else await seedZeroCategoryLines(id)
         router.push(`/simulations/${id}`)
       } catch (e) {
         void alertDialog(e instanceof Error ? e.message : 'An error occurred')

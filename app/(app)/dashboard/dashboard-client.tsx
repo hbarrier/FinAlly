@@ -19,6 +19,7 @@ import {
   sumByKind,
   spendingByCategory,
   recurringExpensesByCategory,
+  isPlannedDate,
   fmt,
   formatDate,
   type Category,
@@ -188,13 +189,15 @@ export function DashboardClient({
   )
 
   const { income, expense, net, cats } = useMemo(() => {
-    const inc = sumByKind(monthTxns, 'income')
-    const exp = sumByKind(monthTxns, 'expense')
+    // Planned (future-dated) transactions don't count as money already moved.
+    const settled = monthTxns.filter((t) => !isPlannedDate(t.date))
+    const inc = sumByKind(settled, 'income')
+    const exp = sumByKind(settled, 'expense')
     return {
       income: inc,
       expense: exp,
       net: inc - exp,
-      cats: spendingByCategory(monthTxns, categories),
+      cats: spendingByCategory(settled, categories),
     }
   }, [monthTxns, categories])
 

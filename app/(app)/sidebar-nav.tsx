@@ -19,7 +19,7 @@ const NAV: NavSection[] = [
   },
   {
     items: [
-      { href: '/budgets', label: 'Budgets', icon: 'pie', module: 'budgets' },
+      { href: '/budgets', label: 'Budget', icon: 'pie', module: 'budgets' },
       { href: '/goals', label: 'Goals', icon: 'target', module: 'objectives' },
       { href: '/simulations', label: 'Simulations', icon: 'flask', module: 'simulations' },
     ],

@@ -1,0 +1,1 @@
+ALTER TABLE `simulation_lines` ADD `amount_manual` integer DEFAULT 0 NOT NULL;

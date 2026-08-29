@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { Icon } from '@/components/fern/icon'
 import { CatSwatch } from '@/components/fern/cat-swatch'
 import { CategoryBars } from '@/components/fern/category-bars'
-import { BalanceEvolution } from '@/components/fern/balance-evolution'
+import { SimulationComparisonChart } from '@/components/fern/simulation-comparison-chart'
 import { PageHeader } from '@/components/fern/page-header'
 import { FernButton } from '@/components/fern/button'
 import { SegmentedControl } from '@/components/fern/segmented-control'
@@ -15,7 +15,6 @@ import { SimulationSheet } from '@/components/fern/sheets/simulation-sheet'
 import { SimulationLineSheet } from '@/components/fern/sheets/simulation-line-sheet'
 import {
   fmt,
-  currentBalance,
   simulationTotals,
   simulationExpenseByPriority,
   simulationLinesByCategory,
@@ -23,7 +22,7 @@ import {
   groupSimulationLinesByCategory,
   simulationLineDisplayAmount,
   currentRecurringMonthlyNet,
-  simulationBalanceProjection,
+  simulationVsActualsMonthly,
   describeSimulationInputs,
   type SimulationView,
   type SimulationInputs,
@@ -93,14 +92,25 @@ function PriorityBadge({ priority, onCycle }: { priority: Priority; onCycle: (ne
 
 const signedFmt = (n: number) => (n >= 0 ? '+' : '−') + fmt(Math.abs(n))
 
-function OriginChip({ origin }: { origin: string }) {
-  const m = ORIGIN_META[origin]
-  if (!m || origin === 'manual') return null
-  return (
-    <span style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.04em', padding: '1px 5px', borderRadius: 4, background: m.bg, color: m.ink }}>
-      {m.label}
-    </span>
-  )
+const chipStyle = (bg: string, ink: string) => ({
+  fontSize: 10, textTransform: 'uppercase' as const, letterSpacing: '0.04em',
+  padding: '1px 5px', borderRadius: 4, background: bg, color: ink,
+})
+
+/**
+ * Provenance chip for a line. Averaged/grouped lines show CALC (amount still the
+ * one computed from history) or MANUAL (amount hand-edited since). Recurring lines
+ * keep their chip; manual lines carry none.
+ */
+function OriginChip({ line }: { line: SimulationLine }) {
+  if (line.origin === 'average' || line.origin === 'rollup') {
+    return line.amountManual === 1
+      ? <span style={chipStyle('var(--butter-bg)', 'var(--butter-ink)')}>manual</span>
+      : <span style={chipStyle('var(--sage-bg)', 'var(--sage-ink)')}>calc</span>
+  }
+  const m = ORIGIN_META[line.origin]
+  if (!m || line.origin === 'manual') return null
+  return <span style={chipStyle(m.bg, m.ink)}>{m.label}</span>
 }
 
 interface SimulationDetailClientProps {
@@ -110,7 +120,6 @@ interface SimulationDetailClientProps {
   recurringOptions: Recurring[]
   recurringEnabled: boolean
   budgetsEnabled: boolean
-  startingBalance: number
   transactions: Transaction[]
 }
 
@@ -121,7 +130,6 @@ export function SimulationDetailClient({
   recurringOptions,
   recurringEnabled,
   budgetsEnabled,
-  startingBalance,
   transactions,
 }: SimulationDetailClientProps) {
   const router = useRouter()
@@ -132,10 +140,8 @@ export function SimulationDetailClient({
   const [addingKind, setAddingKind] = useState<'expense' | 'income' | null>(null)
   const [viewMode, setViewMode] = useState<'monthly' | 'yearly'>('monthly')
   const [includeYearlySplit, setIncludeYearlySplit] = useState(false)
-  const [lineView, setLineView] = useState<'amount' | 'category'>('amount')
+  const [lineView, setLineView] = useState<'amount' | 'category'>('category')
   const [pushing, setPushing] = useState(false)
-  const [roundUp, setRoundUp] = useState(true)
-  const [pushIncludeYearly, setPushIncludeYearly] = useState(false)
 
   const view: SimulationView =
     viewMode === 'yearly' ? 'yearly' : includeYearlySplit ? 'monthly-with-yearly' : 'monthly'
@@ -167,9 +173,9 @@ export function SimulationDetailClient({
   )
   const delta = viewMode === 'yearly' ? (simulationNetMonthly - currentRecurringNet) * 12 : simulationNetMonthly - currentRecurringNet
 
-  const balanceSeries = useMemo(
-    () => simulationBalanceProjection(currentBalance(startingBalance, transactions), simulationNetMonthly),
-    [startingBalance, transactions, simulationNetMonthly],
+  const comparison = useMemo(
+    () => simulationVsActualsMonthly(simulation.lines, transactions, recurringOptions, viewMode),
+    [simulation.lines, transactions, recurringOptions, viewMode],
   )
 
   const categoryById = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories])
@@ -201,6 +207,16 @@ export function SimulationDetailClient({
     for (const l of simulation.lines) c[l.origin] = (c[l.origin] ?? 0) + 1
     return c
   }, [simulation.lines])
+
+  /** Legend entries mirroring the per-line chips actually shown. */
+  const chipLegend = useMemo(() => {
+    const calc = simulation.lines.filter((l) => (l.origin === 'average' || l.origin === 'rollup'))
+    return [
+      { key: 'recurring', label: 'recurring', bg: 'var(--teal-bg)', on: !!originCounts.recurring },
+      { key: 'calc', label: 'calc (from history)', bg: 'var(--sage-bg)', on: calc.some((l) => l.amountManual !== 1) },
+      { key: 'manual', label: 'manual (hand-set)', bg: 'var(--butter-bg)', on: calc.some((l) => l.amountManual === 1) },
+    ].filter((e) => e.on)
+  }, [simulation.lines, originCounts])
 
   const handleSaveSimulation = (data: { name: string; description: string | null }) => {
     startTransition(async () => {
@@ -294,14 +310,12 @@ export function SimulationDetailClient({
   const handlePushToBudget = () => {
     startTransition(async () => {
       try {
-        const { id } = await createBudgetFromSimulation({
+        await createBudgetFromSimulation({
           simulationId: simulation.id,
-          roundUp,
-          includeYearly: pushIncludeYearly,
           createdOnLabel: new Date().toLocaleDateString(),
         })
         setPushing(false)
-        router.push(`/budgets?b=${id}`)
+        router.push('/budgets')
       } catch (e) {
         void alertDialog(e instanceof Error ? e.message : 'An error occurred')
       }
@@ -438,8 +452,8 @@ export function SimulationDetailClient({
       </div>
 
       <div className="fern-card" style={{ marginBottom: 24 }}>
-        <div className="fern-page-kicker" style={{ marginBottom: 8 }}>Projected balance · next 12 months</div>
-        <BalanceEvolution series={balanceSeries} />
+        <div className="fern-page-kicker" style={{ marginBottom: 8 }}>Simulation vs. last 12 months</div>
+        <SimulationComparisonChart data={comparison} view={viewMode} />
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
@@ -488,7 +502,7 @@ export function SimulationDetailClient({
         <>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              {ORIGINS.filter((o) => originCounts[o.key]).map((o) => (
+              {chipLegend.map((o) => (
                 <span key={o.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--ink-faint)' }}>
                   <span style={{ width: 8, height: 8, borderRadius: 2, background: o.bg }} />
                   {o.label}
@@ -546,23 +560,17 @@ export function SimulationDetailClient({
                 Cancel
               </button>
               <button type="button" className="fern-btn sheet-primary primary" onClick={handlePushToBudget} disabled={isPending}>
-                Create budget
+                Replace budget
               </button>
             </>
           }
         >
           <p style={{ fontSize: 13, color: 'var(--ink-soft)', marginTop: 0 }}>
-            Create a new budget from this simulation&apos;s expense totals per category. Expense lines
-            without a category are skipped. The new budget is not made active.
+            This <strong>replaces any existing budget</strong>. Every line in this simulation
+            (with a category) is copied into the budget as-is: recurring lines stay recurring,
+            the rest become ad-hoc, and monthly vs yearly is kept. Lines without a category are
+            skipped.
           </p>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--ink)', cursor: 'pointer', padding: '4px 0' }}>
-            <input type="checkbox" checked={roundUp} onChange={(e) => setRoundUp(e.target.checked)} />
-            Round each category up to the next 50 &euro;
-          </label>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--ink)', cursor: 'pointer', padding: '4px 0' }}>
-            <input type="checkbox" checked={pushIncludeYearly} onChange={(e) => setPushIncludeYearly(e.target.checked)} />
-            Include yearly expenses (amortized to monthly)
-          </label>
         </Modal>
       )}
     </div>
@@ -658,7 +666,7 @@ function LineRow({
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--ink)', display: 'flex', alignItems: 'center', gap: 6 }}>
             {l.name || cat?.name || 'Uncategorized'}
-            <OriginChip origin={l.origin} />
+            <OriginChip line={l} />
           </div>
           <div style={{ fontSize: 12, color: 'var(--ink-faint)' }}>
             {[cat?.name, merchant?.name].filter(Boolean).join(' · ')}

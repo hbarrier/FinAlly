@@ -9,6 +9,7 @@ export const categories = sqliteTable('categories', {
   color: text('color').notNull().default('teal'),
   kind: text('kind', { enum: ['expense', 'income'] }).notNull(),
   isPensionAlimentaire: int('is_pension_alimentaire').notNull().default(0),
+  isActive: int('is_active').notNull().default(1),
   createdAt: text('created_at')
     .notNull()
     .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
@@ -151,6 +152,7 @@ export const simulationLines = sqliteTable(
       .default('should'),
     excludedTxnIds: text('excluded_txn_ids'), // JSON string[] of transaction ids removed from the average; null = none
     avgMonths: int('avg_months'), // look-back used for this line's average; null = simulation's seeded periodMonths
+    amountManual: int('amount_manual').notNull().default(0), // 1 = averaged/grouped line amount was hand-edited (MANUAL); 0 = calculated from history (CALC)
   },
   (t) => [
     index('simulation_lines_simulation_id_idx').on(t.simulationId),
@@ -232,28 +234,38 @@ export const budgets = sqliteTable('budgets', {
     .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
 })
 
-export const budgetAmounts = sqliteTable(
-  'budget_amounts',
+export const budgetLines = sqliteTable(
+  'budget_lines',
   {
     id: text('id').primaryKey(),
     budgetId: text('budget_id')
       .notNull()
       .references(() => budgets.id, { onDelete: 'cascade' }),
+    name: text('name'),
+    kind: text('kind', { enum: ['expense', 'income'] }).notNull(),
     categoryId: text('category_id')
       .notNull()
       .references(() => categories.id, { onDelete: 'cascade' }),
-    limitAmount: real('limit_amount').notNull(),
+    merchantId: text('merchant_id').references(() => merchants.id, {
+      onDelete: 'set null',
+    }),
+    amount: real('amount').notNull(),
+    frequency: text('frequency', { enum: ['monthly', 'yearly'] }).notNull(),
+    recurring: int('recurring').notNull().default(0),
   },
-  (t) => [unique('budget_amounts_budget_category_unique').on(t.budgetId, t.categoryId)],
+  (t) => [
+    index('budget_lines_budget_id_idx').on(t.budgetId),
+    index('budget_lines_category_id_idx').on(t.categoryId),
+  ],
 )
 
 export const budgetsRelations = relations(budgets, ({ many }) => ({
-  amounts: many(budgetAmounts),
+  lines: many(budgetLines),
 }))
 
-export const budgetAmountsRelations = relations(budgetAmounts, ({ one }) => ({
+export const budgetLinesRelations = relations(budgetLines, ({ one }) => ({
   budget: one(budgets, {
-    fields: [budgetAmounts.budgetId],
+    fields: [budgetLines.budgetId],
     references: [budgets.id],
   }),
 }))

@@ -37,12 +37,20 @@ function monthKey(iso: string) {
   return iso.slice(0, 7)
 }
 
+export function monthTransactions<T extends { date: string }>(txns: T[], month: string): T[] {
+  return txns.filter((t) => monthKey(t.date) === month)
+}
+
 export function thisMonthTransactions<T extends { date: string }>(
   txns: T[],
   ref: Date = new Date(),
 ): T[] {
-  const key = ref.toISOString().slice(0, 7)
-  return txns.filter((t) => monthKey(t.date) === key)
+  return monthTransactions(txns, ref.toISOString().slice(0, 7))
+}
+
+/** True when the date is strictly after `ref` (a not-yet-happened / planned transaction). */
+export function isPlannedDate(date: string, ref: Date = new Date()): boolean {
+  return date.slice(0, 10) > ref.toISOString().slice(0, 10)
 }
 
 /** The `periodMonths` complete calendar months immediately before the current month. */
@@ -301,9 +309,180 @@ export function roundToTen(n: number): number {
   return Math.round(n / 10) * 10
 }
 
-/** Rounds a budget amount up to the next multiple of 50 (401 -> 450, 451 -> 500). */
-export function roundUpToFifty(n: number): number {
-  return Math.ceil(n / 50) * 50
+// ---- budgets ----
+
+type BudgetLineLite = {
+  id: string
+  name: string | null
+  kind: 'expense' | 'income'
+  categoryId: string
+  merchantId: string | null
+  amount: number
+  frequency: 'monthly' | 'yearly'
+  recurring: number
+}
+
+type BudgetTxnLite = {
+  id: string
+  date: string
+  amount: number
+  kind: 'expense' | 'income'
+  categoryId: string | null
+  merchantId: string | null
+  recurringId: string | null
+}
+
+/**
+ * A budget line's contribution to a single month. Monthly lines count at face
+ * value; yearly lines amortize to 1/12, or drop to 0 when `includeYearly` is false.
+ */
+export function budgetLineMonthly(
+  line: { amount: number; frequency: 'monthly' | 'yearly' },
+  includeYearly: boolean,
+): number {
+  if (line.frequency === 'yearly') return includeYearly ? Number(line.amount ?? 0) / 12 : 0
+  return Number(line.amount ?? 0)
+}
+
+/** Monthly budgeted total for one category across its lines. */
+export function budgetCategoryMonthly(
+  lines: BudgetLineLite[],
+  categoryId: string,
+  includeYearly: boolean,
+): number {
+  return lines.reduce(
+    (s, l) => (l.categoryId === categoryId ? s + budgetLineMonthly(l, includeYearly) : s),
+    0,
+  )
+}
+
+/** Non-planned actual amounts for `month`, summed per category, for one kind. */
+export function monthActualByCategory(
+  txns: BudgetTxnLite[],
+  month: string,
+  kind: 'expense' | 'income',
+  ref: Date = new Date(),
+): Record<string, number> {
+  const out: Record<string, number> = {}
+  for (const t of txns) {
+    if (t.kind !== kind || !t.categoryId) continue
+    if (t.date.slice(0, 7) !== month) continue
+    if (isPlannedDate(t.date, ref)) continue
+    out[t.categoryId] = (out[t.categoryId] ?? 0) + Number(t.amount ?? 0)
+  }
+  return out
+}
+
+function budgetStatus(actual: number, budgeted: number): 'ok' | 'warn' | 'over' {
+  if (budgeted > 0 && actual > budgeted) return 'over'
+  if (budgeted > 0 && actual > budgeted * 0.8) return 'warn'
+  return 'ok'
+}
+
+export interface MonthBudgetCategory {
+  category: Category
+  budgeted: number
+  actual: number
+  status: 'ok' | 'warn' | 'over'
+  /** budget line paired with actual spend of the same merchant and recurring nature */
+  matched: { line: BudgetLineLite; budgeted: number; actual: number }[]
+  /** budget lines with no matching actual spend */
+  unmatchedLines: { line: BudgetLineLite; budgeted: number }[]
+  /** actual spend with no matching budget line, grouped by merchant + recurring nature */
+  unmatchedActual: { merchantId: string | null; recurring: boolean; amount: number; count: number }[]
+}
+
+export interface MonthBudgetComparison {
+  income: { budgeted: number; actual: number }
+  expense: { budgeted: number; actual: number }
+  categories: MonthBudgetCategory[]
+}
+
+/**
+ * Builds the "this month vs budget" view model: global income / expense totals plus,
+ * per expense category (budgeted total descending), the actual spend matched to
+ * budget lines by merchant.
+ */
+export function monthBudgetComparison(
+  lines: BudgetLineLite[],
+  txns: BudgetTxnLite[],
+  month: string,
+  categories: Category[],
+  includeYearly: boolean,
+  ref: Date = new Date(),
+): MonthBudgetComparison {
+  const monthTxns = txns.filter(
+    (t) => t.date.slice(0, 7) === month && !isPlannedDate(t.date, ref),
+  )
+  const sumLines = (kind: 'expense' | 'income') =>
+    lines.reduce((s, l) => (l.kind === kind ? s + budgetLineMonthly(l, includeYearly) : s), 0)
+  const sumTxns = (kind: 'expense' | 'income') =>
+    monthTxns.reduce((s, t) => (t.kind === kind ? s + Number(t.amount ?? 0) : s), 0)
+
+  const expenseCats = categories.filter((c) => c.kind === 'expense')
+  const cats: MonthBudgetCategory[] = expenseCats
+    .map((category) => {
+      const catLines = lines.filter((l) => l.categoryId === category.id && l.kind === 'expense')
+      const catTxns = monthTxns.filter((t) => t.categoryId === category.id && t.kind === 'expense')
+
+      // Key by merchant + recurring nature: a recurring transaction is compared
+      // with the merchant's recurring budget line, the rest with its ad-hoc line.
+      const actualKey = (merchantId: string | null, recurring: boolean) =>
+        `${recurring ? 'r' : 'a'}|${merchantId ?? ''}`
+      const actualByBucket = new Map<
+        string,
+        { merchantId: string | null; recurring: boolean; amount: number; count: number }
+      >()
+      for (const t of catTxns) {
+        const recurring = t.recurringId != null
+        const key = actualKey(t.merchantId, recurring)
+        const cur = actualByBucket.get(key) ?? { merchantId: t.merchantId, recurring, amount: 0, count: 0 }
+        cur.amount += Number(t.amount ?? 0)
+        cur.count += 1
+        actualByBucket.set(key, cur)
+      }
+
+      const matched: MonthBudgetCategory['matched'] = []
+      const unmatchedLines: MonthBudgetCategory['unmatchedLines'] = []
+      for (const line of catLines) {
+        const budgeted = budgetLineMonthly(line, includeYearly)
+        const key = line.merchantId ? actualKey(line.merchantId, line.recurring === 1) : null
+        const hit = key ? actualByBucket.get(key) : undefined
+        if (hit && key) {
+          matched.push({ line, budgeted, actual: hit.amount })
+          actualByBucket.delete(key)
+        } else {
+          unmatchedLines.push({ line, budgeted })
+        }
+      }
+
+      const unmatchedActual = [...actualByBucket.values()].map((v) => ({
+        merchantId: v.merchantId,
+        recurring: v.recurring,
+        amount: v.amount,
+        count: v.count,
+      }))
+
+      const budgeted = catLines.reduce((s, l) => s + budgetLineMonthly(l, includeYearly), 0)
+      const actual = catTxns.reduce((s, t) => s + Number(t.amount ?? 0), 0)
+      return {
+        category,
+        budgeted,
+        actual,
+        status: budgetStatus(actual, budgeted),
+        matched,
+        unmatchedLines,
+        unmatchedActual,
+      }
+    })
+    .filter((c) => c.budgeted > 0 || c.actual > 0)
+    .sort((a, b) => b.budgeted - a.budgeted)
+
+  return {
+    income: { budgeted: sumLines('income'), actual: sumTxns('income') },
+    expense: { budgeted: sumLines('expense'), actual: sumTxns('expense') },
+    categories: cats,
+  }
 }
 
 export function simulationTotals(
@@ -400,9 +579,12 @@ export function sortSimulationLines(
   lines: SimulationLine[],
   viewMode: 'monthly' | 'yearly' = 'monthly',
 ): SimulationLine[] {
-  return [...lines].sort(
-    (a, b) => simulationLineDisplayAmount(b, viewMode) - simulationLineDisplayAmount(a, viewMode),
-  )
+  return [...lines].sort((a, b) => {
+    const aRecurring = a.origin === 'recurring' ? 0 : 1
+    const bRecurring = b.origin === 'recurring' ? 0 : 1
+    if (aRecurring !== bRecurring) return aRecurring - bRecurring
+    return simulationLineDisplayAmount(b, viewMode) - simulationLineDisplayAmount(a, viewMode)
+  })
 }
 
 export function groupSimulationLinesByCategory(
@@ -533,17 +715,156 @@ export function simulationBalanceProjection(
   return points
 }
 
+export interface SimMonthComparison {
+  month: string // YYYY-MM
+  label: string // localized short month name
+  ongoing: boolean // true only for the current (last) month
+  actual: { recurring: number; variable: number; recurringYearly: number }
+  sim: { recurring: number; variable: number; recurringYearly: number }
+  actualTotal: number
+  simTotal: number
+  pct: number | null // actualTotal / simTotal * 100, null when simTotal === 0
+}
+
+type ComparisonTxn = {
+  date: string
+  amount: number
+  kind: 'expense' | 'income'
+  categoryId: string | null
+  recurringId: string | null
+  cleared: number
+}
+
+type ComparisonRecurring = {
+  id: string
+  cadence: 'monthly' | 'yearly'
+  startDate: string
+}
+
+/**
+ * Compares, month by month over the trailing 12 months (current month last),
+ * the expenses actually cleared against what the simulation implies for a month.
+ * Revenues are excluded.
+ *
+ * `monthly` view: two buckets. `recurring` = monthly-cadence recurring; `variable`
+ * = everything else, with all yearly simulation lines amortized to 1/12 and actual
+ * yearly-recurring transactions shown as their real lump.
+ * `yearly` view: adds `recurringYearly`. Yearly-recurring simulation lines are no
+ * longer amortized; each is placed in the month a same-category yearly-recurring
+ * transaction cleared (else the source recurring's anchor month, else the current month).
+ */
+export function simulationVsActualsMonthly(
+  lines: SimulationLine[],
+  txns: ComparisonTxn[],
+  recurring: ComparisonRecurring[],
+  viewMode: 'monthly' | 'yearly',
+  ref: Date = new Date(),
+): SimMonthComparison[] {
+  const months: SimMonthComparison[] = []
+  for (let i = 11; i >= 0; i--) {
+    const d = new Date(ref.getFullYear(), ref.getMonth() - i, 1)
+    months.push({
+      month: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
+      label: d.toLocaleDateString('fr-FR', { month: 'short' }),
+      ongoing: i === 0,
+      actual: { recurring: 0, variable: 0, recurringYearly: 0 },
+      sim: { recurring: 0, variable: 0, recurringYearly: 0 },
+      actualTotal: 0,
+      simTotal: 0,
+      pct: null,
+    })
+  }
+  const byMonth = new Map(months.map((m) => [m.month, m]))
+  const recurringById = new Map(recurring.map((r) => [r.id, r]))
+
+  // Actual side: cleared expense transactions in the window.
+  for (const t of txns) {
+    if (t.kind !== 'expense' || t.cleared !== 1) continue
+    const row = byMonth.get(t.date.slice(0, 7))
+    if (!row) continue
+    const amt = Number(t.amount || 0)
+    const isYearlyRec = t.recurringId && recurringById.get(t.recurringId)?.cadence === 'yearly'
+    if (isYearlyRec) {
+      if (viewMode === 'yearly') row.actual.recurringYearly += amt
+      else row.actual.variable += amt
+    } else if (t.recurringId) {
+      row.actual.recurring += amt
+    } else {
+      row.actual.variable += amt
+    }
+  }
+
+  // Simulation side: a steady monthly figure, same for every month.
+  const expenseLines = lines.filter((l) => l.kind === 'expense')
+  let simRecurring = 0
+  let simVariable = 0
+  for (const l of expenseLines) {
+    const amt = Number(l.amount || 0)
+    const isRecurring = l.origin === 'recurring'
+    if (l.frequency === 'yearly') {
+      if (isRecurring && viewMode === 'yearly') continue // placed as a lump below
+      simVariable += amt / 12
+    } else if (isRecurring) {
+      simRecurring += amt
+    } else {
+      simVariable += amt
+    }
+  }
+  for (const m of months) {
+    m.sim.recurring = simRecurring
+    m.sim.variable = simVariable
+  }
+
+  if (viewMode === 'yearly') {
+    const yearlyRecLines = expenseLines.filter(
+      (l) => l.origin === 'recurring' && l.frequency === 'yearly',
+    )
+    // Months where an actual yearly-recurring transaction cleared, per category.
+    const actualMonthsByCat = new Map<string, string[]>()
+    for (const t of txns) {
+      if (t.kind !== 'expense' || t.cleared !== 1 || !t.recurringId) continue
+      if (recurringById.get(t.recurringId)?.cadence !== 'yearly') continue
+      const key = t.categoryId ?? ''
+      if (!byMonth.has(t.date.slice(0, 7))) continue
+      const list = actualMonthsByCat.get(key) ?? []
+      list.push(t.date.slice(0, 7))
+      actualMonthsByCat.set(key, list)
+    }
+    for (const l of yearlyRecLines) {
+      const amt = Number(l.amount || 0)
+      const catMonths = actualMonthsByCat.get(l.categoryId ?? '')
+      let target: string | undefined
+      if (catMonths && catMonths.length) {
+        target = [...catMonths].sort()[0]
+      } else if (l.sourceRecurringId) {
+        const anchor = recurringById.get(l.sourceRecurringId)?.startDate.slice(5, 7)
+        target = anchor ? months.find((m) => m.month.slice(5, 7) === anchor)?.month : undefined
+      }
+      const row = (target && byMonth.get(target)) || months[months.length - 1]
+      row.sim.recurringYearly += amt
+    }
+  }
+
+  for (const m of months) {
+    m.actualTotal = m.actual.recurring + m.actual.variable + m.actual.recurringYearly
+    m.simTotal = m.sim.recurring + m.sim.variable + m.sim.recurringYearly
+    m.pct = m.simTotal ? (m.actualTotal / m.simTotal) * 100 : null
+  }
+  return months
+}
+
 // ---- select helpers ----
 
 export function buildCategorySelectOptions(
   cats: Category[],
 ): { value: string; label: string; group: string }[] {
+  const active = cats.filter((c) => c.isActive === 1)
   return [
-    ...cats
+    ...active
       .filter((c) => c.kind === 'expense')
       .sort((a, b) => a.name.localeCompare(b.name))
       .map((c) => ({ value: c.id, label: c.name, group: 'Expenses' })),
-    ...cats
+    ...active
       .filter((c) => c.kind === 'income')
       .sort((a, b) => a.name.localeCompare(b.name))
       .map((c) => ({ value: c.id, label: c.name, group: 'Income' })),

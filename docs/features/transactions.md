@@ -97,6 +97,19 @@ The list can display virtual “scheduled” rows for recurring occurrences that
 - **Reimbursement income mapping**: income transactions in the `Remboursements` (income) category expose a “Map reimbursement” action that opens a mapping sheet.
 - **Manual settlement**: reimbursable expenses expose a toggle to set/clear `manualSettlementAt`.
 
+### Month sections
+- Each month section collapses. Only the current month is expanded on load; the
+  chevron sits right of the CB total, and **Expand all** / **Collapse all** are in
+  the controls row.
+- When the `budgets` module is on, a flask icon next to each month name opens the
+  **month vs budget** modal (`MonthBudgetComparisonModal`): global revenue / expense
+  status, then expenses by category (budgeted total descending) with the month's
+  actual spend matched to budget lines by merchant **and recurring nature**: a
+  merchant's transactions linked to a recurring item are compared with its
+  recurring budget line, the rest with its ad-hoc line. Where a merchant appears
+  as both, rows are tagged `· recurring` / `· one-off`. An "Include yearly
+  recurring" toggle (default on) amortizes yearly lines into the month.
+
 ### Deleting
 - Deleting a transaction is permanent.
 - If the transaction participates in reimbursement mappings (as income or expense), the corresponding `reimbursement_allocations` rows are deleted.

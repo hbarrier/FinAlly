@@ -1,0 +1,1 @@
+ALTER TABLE `categories` ADD `is_active` integer DEFAULT 1 NOT NULL;

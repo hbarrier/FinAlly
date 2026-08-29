@@ -3,7 +3,7 @@
 import { Icon } from '@/components/fern/icon'
 import { CatSwatch } from '@/components/fern/cat-swatch'
 import { Chip } from '@/components/fern/chip'
-import { fmt, type Category, type Transaction } from '@/lib/derive'
+import { fmt, isPlannedDate, type Category, type Transaction } from '@/lib/derive'
 import { paymentMethodLabel, type PaymentMethod } from '@/lib/payment-method'
 import type { Merchant } from '@/lib/db-types'
 
@@ -48,6 +48,7 @@ export function TransactionRow({
   onSettle,
 }: TransactionRowProps) {
   const isCleared = t.cleared === 1
+  const isPlanned = isPlannedDate(t.date)
   const showManualSettlementAction = divorceEnabled && t.kind === 'expense' && t.reimbursable === 1
   const isManuallySettled = reimbursementSummary?.status === 'manually_settled'
 
@@ -56,7 +57,10 @@ export function TransactionRow({
       id={`txn-${t.id}`}
       className="fern-txn-row"
       onClick={onClick}
-      style={selectionMode && isSelected ? { background: 'var(--bg-sunken)' } : undefined}
+      style={{
+        ...(selectionMode && isSelected ? { background: 'var(--bg-sunken)' } : {}),
+        ...(isPlanned ? { opacity: 0.7 } : {}),
+      }}
     >
       {selectionMode && (
         <div
@@ -83,6 +87,11 @@ export function TransactionRow({
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
           <span style={{ fontSize: 12, color: 'var(--ink-faint)' }}>{cat?.name ?? 'Uncategorized'}</span>
           {merchant && <span style={{ fontSize: 11, color: 'var(--ink-faint)' }}>· {merchant.name}</span>}
+          {isPlanned && (
+            <Chip tone="scheduled">
+              <Icon name="calendar" size={10} /> Planned
+            </Chip>
+          )}
           <Chip tone="scheduled">
             <Icon name={paymentMethodIcon(t.method)} size={10} /> {paymentMethodLabel(t.method)}
           </Chip>

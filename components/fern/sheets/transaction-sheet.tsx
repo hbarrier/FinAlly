@@ -116,10 +116,10 @@ export function TransactionSheet({
   const watchedMethod = watch('method')
   const filteredCatsSorted = useMemo(() => {
     return categories
-      .filter((c) => c.kind === watchedKind)
+      .filter((c) => c.kind === watchedKind && (c.isActive === 1 || c.id === item?.categoryId))
       .slice()
       .sort((a, b) => a.name.localeCompare(b.name))
-  }, [categories, watchedKind])
+  }, [categories, watchedKind, item?.categoryId])
 
   const merchantOptions = useMemo(
     () => [...merchants]
@@ -326,6 +326,11 @@ export function TransactionSheet({
         <label className="fern-field-label">Date</label>
         <input className="fern-input" type="date" {...register('date')} />
         {showErr('date') && <FieldError>{errors.date?.message}</FieldError>}
+        {watch('date') > new Date().toISOString().slice(0, 10) && (
+          <p style={{ fontSize: 12, color: 'var(--ink-faint)', marginTop: 4 }}>
+            A future date logs this as a planned expense.
+          </p>
+        )}
       </Field>
 
       <div>

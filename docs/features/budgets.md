@@ -4,38 +4,56 @@
 
 ## Overview
 
-Budgets let you set a monthly spending limit per category and track how close you are to that limit. Each budget is a single number — there is no weekly or annual budget option. The page shows current-month actual spend against the limit for every budgeted category.
+There is exactly **one budget** in the app. It is a line-level plan, normally a
+copy of a simulation: each budget line sits under a category and optionally names a
+merchant. The page compares this month's actual spend against the budget, per
+category, always for the current calendar month.
 
 ## Reference files
 
 | File | Role |
 |---|---|
-| [app/(app)/budgets/page.tsx](../../app/(app)/budgets/page.tsx) | Server Component; fetches budgets, categories, and current-month transactions |
-| [app/(app)/budgets/budgets-client.tsx](../../app/(app)/budgets/budgets-client.tsx) | Client Component; progress bars, add/edit/delete budget UI |
-| [lib/actions/budgets.ts](../../lib/actions/budgets.ts) | `upsertBudget`, `deleteBudget` |
-| [lib/derive.ts](../../lib/derive.ts) | `thisMonthTransactions`, `spendingByCategory` |
+| [app/(app)/budgets/page.tsx](../../app/(app)/budgets/page.tsx) | Server Component; fetches the single budget with its lines, categories, merchants, transactions |
+| [app/(app)/budgets/budgets-client.tsx](../../app/(app)/budgets/budgets-client.tsx) | Client Component; per-category rows with expand-to-lines, progress bars |
+| [components/fern/sheets/budget-line-sheet.tsx](../../components/fern/sheets/budget-line-sheet.tsx) | Add / edit one line |
+| [lib/actions/budgets.ts](../../lib/actions/budgets.ts) | `createBudget`, `updateBudget`, `deleteBudget`, `addBudgetLine`, `updateBudgetLine`, `deleteBudgetLine`, `createBudgetFromSimulation` |
+| [lib/derive.ts](../../lib/derive.ts) | `budgetLineMonthly`, `budgetCategoryMonthly`, `monthActualByCategory`, `monthBudgetComparison` |
+
+## Data model
+
+`budgets` holds a single row. `budget_lines` has one row per line:
+`name`, `kind` (`expense` / `income`), `categoryId` (required), `merchantId`
+(optional), `amount`, `frequency` (`monthly` / `yearly`), `recurring` (0/1).
 
 ## Business rules
 
-### One budget per category
-The `budgets` table has a unique constraint on `categoryId`. `upsertBudget` uses `onConflictDoUpdate`, so editing the limit for an existing budget replaces it in place.
+### Single budget
+Any create path (`createBudget`, `createBudgetFromSimulation`) deletes the existing
+budget first (lines cascade). The **New budget** button and the simulation
+**Replace budget** action both warn before replacing.
 
-### Scope
-Budgets apply to **expense** transactions only, scoped to the current calendar month. Income categories can have a budget record but are not meaningful in the current UI.
+### Category totals are calculated
+A category's budgeted amount is the sum of its lines, each normalized to a month
+(`yearly` lines ÷ 12). Totals are read-only; the user edits the lines.
 
-### Progress states
-Each budget card computes: `actual = sum of expenses in category this month`.
+### Lines
+A line must have either a merchant or a name (enforced in the sheet). All
+categories are shown; a category with no lines sits at 0.
 
-| State | Condition |
-|---|---|
-| OK | `actual < limitAmount × 0.8` |
-| Warning | `actual >= limitAmount × 0.8` |
-| Over | `actual > limitAmount` |
+### Comparison
+Always current calendar month. `actual` = this month's non-planned transactions in
+the category. States: OK, Warning (`actual > budgeted × 0.8`), Over
+(`actual > budgeted`). Bars use `fern-budget-bar` / `fern-budget-fill`.
 
-Visual progress bars use CSS classes `fern-budget-bar` and `fern-budget-fill`, with colour variants per state.
+### Deleting
+`deleteBudget` removes the budget and its lines. Categories and transactions are
+untouched.
 
-### Categories without a budget
-Categories that have transactions but no budget record are visible on the categories page (with their month spend) but do not appear on the budgets page unless a limit is set.
+## From a simulation
 
-### Deleting a budget
-Deletes only the budget record. The underlying category and its transactions are unaffected.
+`createBudgetFromSimulation` copies **every** simulation line that has a category
+into a budget line verbatim (name, kind, category, merchant, amount, frequency);
+`origin === 'recurring'` lines become `recurring = 1`, the rest ad-hoc. No
+rounding. See also the month-vs-budget modal on the movements page, which matches
+actual spend to lines by merchant **and** recurring nature (recurring-linked
+transactions against the recurring line, the rest against the ad-hoc line).

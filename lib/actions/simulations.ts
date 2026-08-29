@@ -10,6 +10,37 @@ import type { SimulationInputs } from '../db-types'
 
 export type { SimulationInputs } from '../db-types'
 
+/**
+ * Adds an amount-0 line for every active category not yet represented in the
+ * simulation (matching the kind), so new and duplicated simulations list all
+ * active categories the way the budget does. Idempotent.
+ */
+export async function seedZeroCategoryLines(simulationId: string): Promise<void> {
+  const [existing, activeCats] = await Promise.all([
+    db.select({ kind: simulationLines.kind, categoryId: simulationLines.categoryId })
+      .from(simulationLines)
+      .where(eq(simulationLines.simulationId, simulationId)),
+    db.select().from(categories).where(eq(categories.isActive, 1)),
+  ])
+  const present = new Set(existing.map((l) => `${l.kind}:${l.categoryId ?? ''}`))
+  const rows = activeCats
+    .filter((c) => !present.has(`${c.kind}:${c.id}`))
+    .map((c) => ({
+      id: nanoid(),
+      simulationId,
+      name: null,
+      kind: c.kind,
+      categoryId: c.id,
+      merchantId: null,
+      amount: 0,
+      frequency: 'monthly' as const,
+      sourceRecurringId: null,
+      origin: 'manual' as const,
+    }))
+  if (rows.length > 0) await db.insert(simulationLines).values(rows)
+  revalidateApp()
+}
+
 export async function addSimulation(data: {
   name: string
   description: string | null
@@ -76,7 +107,14 @@ export async function updateSimulationLine(
     priority: 'must' | 'should' | 'nice'
   }>,
 ) {
-  await db.update(simulationLines).set(data).where(eq(simulationLines.id, id))
+  const patch: Record<string, unknown> = { ...data }
+  if (data.amount !== undefined) {
+    const line = await db.query.simulationLines.findFirst({ where: eq(simulationLines.id, id) })
+    if (line && (line.origin === 'average' || line.origin === 'rollup') && data.amount !== line.amount) {
+      patch.amountManual = 1
+    }
+  }
+  await db.update(simulationLines).set(patch).where(eq(simulationLines.id, id))
   revalidateApp()
 }
 
@@ -115,6 +153,7 @@ export async function applySimulationLineAverage(
       amount: roundToTen(sum / data.months),
       avgMonths: data.months,
       excludedTxnIds: data.excludedTxnIds.length > 0 ? JSON.stringify(data.excludedTxnIds) : null,
+      amountManual: 0,
     })
     .where(eq(simulationLines.id, lineId))
   revalidateApp()
@@ -277,6 +316,7 @@ export async function populateSimulationFromInputs(
 
   if (lines.length > 0) await db.insert(simulationLines).values(lines)
   await db.update(simulations).set({ inputs: JSON.stringify(inputs) }).where(eq(simulations.id, simulationId))
+  await seedZeroCategoryLines(simulationId)
   revalidateApp()
 }
 
@@ -313,6 +353,7 @@ export async function duplicateSimulation(id: string): Promise<{ id: string }> {
           priority: l.priority,
           excludedTxnIds: l.excludedTxnIds,
           avgMonths: l.avgMonths,
+          amountManual: l.amountManual,
         })),
       )
     }
@@ -320,6 +361,7 @@ export async function duplicateSimulation(id: string): Promise<{ id: string }> {
     return newId
   })
 
+  await seedZeroCategoryLines(newId)
   revalidateApp()
   return { id: newId }
 }

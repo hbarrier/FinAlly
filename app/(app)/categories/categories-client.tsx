@@ -8,9 +8,9 @@ import { CategorySheet } from '@/components/fern/sheets/category-sheet'
 import { PageHeader } from '@/components/fern/page-header'
 import { FernButton } from '@/components/fern/button'
 import { EmptyState } from '@/components/fern/empty-state'
-import { fmt, thisMonthTransactions, type Category } from '@/lib/derive'
-import { addCategory, updateCategory, deleteCategory } from '@/lib/actions/categories'
-import { runAction } from '@/lib/utils'
+import { fmt, thisMonthTransactions, isPlannedDate, type Category } from '@/lib/derive'
+import { addCategory, updateCategory, deleteCategory, setCategoryActive } from '@/lib/actions/categories'
+import { runAction, REIMBURSEMENT_CATEGORY_NAME } from '@/lib/utils'
 import { confirmDialog } from '@/lib/dialogs-store'
 
 type TransactionSlice = {
@@ -34,7 +34,7 @@ export function CategoriesClient({ categories, transactions: txns }: CategoriesC
   const spending = useMemo(() => {
     const map: Record<string, number> = {}
     thisMonthTransactions(txns)
-      .filter((t) => t.kind === 'expense')
+      .filter((t) => t.kind === 'expense' && !isPlannedDate(t.date))
       .forEach((t) => {
         if (t.categoryId) map[t.categoryId] = (map[t.categoryId] ?? 0) + Number(t.amount ?? 0)
       })
@@ -49,7 +49,9 @@ export function CategoriesClient({ categories, transactions: txns }: CategoriesC
     return map
   }, [txns])
 
-  const filtered = categories.filter((c) => kindTab === 'all' || c.kind === kindTab)
+  const filtered = categories
+    .filter((c) => kindTab === 'all' || c.kind === kindTab)
+    .sort((a, b) => b.isActive - a.isActive)
   const expenseCount = categories.filter((c) => c.kind === 'expense').length
   const incomeCount = categories.filter((c) => c.kind === 'income').length
 
@@ -68,13 +70,24 @@ export function CategoriesClient({ categories, transactions: txns }: CategoriesC
     setEditing(null)
   }
 
+  const isProtected = (cat: Category) =>
+    cat.isPensionAlimentaire === 1 || cat.name === REIMBURSEMENT_CATEGORY_NAME
+
   const handleDelete = async (cat: Category) => {
-    const used = usage(cat.id)
-    const msg = used > 0
-      ? `This category has ${used} transaction${used === 1 ? '' : 's'}. Delete anyway? They'll become "Uncategorized".`
-      : `Delete "${cat.name}"?`
-    if (!(await confirmDialog({ message: msg, confirmLabel: 'Delete', tone: 'danger' }))) return
+    if (!(await confirmDialog({ message: `Delete "${cat.name}"?`, confirmLabel: 'Delete', tone: 'danger' }))) return
     startTransition(runAction(async () => { await deleteCategory(cat.id) }))
+  }
+
+  const handleToggleActive = async (cat: Category) => {
+    const active = cat.isActive === 1
+    if (active) {
+      const used = usage(cat.id)
+      const msg = used > 0
+        ? `"${cat.name}" has ${used} transaction${used === 1 ? '' : 's'} and can't be deleted. Deactivate it so it can't be picked anymore? Your budget and simulations keep it.`
+        : `Deactivate "${cat.name}" so it can't be picked anymore?`
+      if (!(await confirmDialog({ message: msg, confirmLabel: 'Deactivate', tone: 'danger' }))) return
+    }
+    startTransition(runAction(async () => { await setCategoryActive(cat.id, !active) }))
   }
 
   return (
@@ -121,23 +134,36 @@ export function CategoriesClient({ categories, transactions: txns }: CategoriesC
           {filtered.map((c) => {
             const used = usage(c.id)
             const spent = spending[c.id] ?? 0
+            const inactive = c.isActive === 0
+            const protectedCat = isProtected(c)
+            const iconBtn = { background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-faint)', padding: 4, display: 'grid', placeItems: 'center', borderRadius: 6 } as const
             return (
-              <div key={c.id} className="fern-card" style={{ padding: 16 }}>
+              <div key={c.id} className="fern-card" style={{ padding: 16, opacity: inactive ? 0.55 : 1 }}>
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
                   <CatSwatch color={c.color} icon={c.icon} size={44} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 600, fontSize: 15, color: 'var(--ink)' }}>{c.name}</div>
                     <div style={{ fontSize: 11, color: 'var(--ink-faint)', fontFamily: 'var(--mono-fern)', textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: 2 }}>
-                      {c.kind}
+                      {c.kind}{inactive && ' · Inactive'}
                     </div>
                   </div>
                   <div style={{ display: 'flex', gap: 2 }}>
-                    <button onClick={() => setEditing(c.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-faint)', padding: 4, display: 'grid', placeItems: 'center', borderRadius: 6 }}>
+                    <button onClick={() => setEditing(c.id)} style={iconBtn}>
                       <Icon name="edit" size={14} />
                     </button>
-                    <button onClick={() => handleDelete(c)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-faint)', padding: 4, display: 'grid', placeItems: 'center', borderRadius: 6 }}>
-                      <Icon name="trash" size={14} />
-                    </button>
+                    {inactive ? (
+                      <button onClick={() => handleToggleActive(c)} style={iconBtn} aria-label="Reactivate">
+                        <Icon name="check" size={14} />
+                      </button>
+                    ) : protectedCat ? null : used > 0 ? (
+                      <button onClick={() => handleToggleActive(c)} style={iconBtn} aria-label="Deactivate">
+                        <Icon name="x" size={14} />
+                      </button>
+                    ) : (
+                      <button onClick={() => handleDelete(c)} style={iconBtn} aria-label="Delete">
+                        <Icon name="trash" size={14} />
+                      </button>
+                    )}
                   </div>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 14, fontSize: 12, color: 'var(--ink-soft)', borderTop: '1px solid var(--line-soft)', paddingTop: 12 }}>

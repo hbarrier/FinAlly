@@ -7,7 +7,7 @@ import type {
   recurringInstances,
   transactions,
   budgets,
-  budgetAmounts,
+  budgetLines,
   goals,
   userSettings,
   monthlyOpeningBalances,
@@ -25,8 +25,8 @@ export type Recurring = InferSelectModel<typeof recurring>
 export type RecurringAmount = InferSelectModel<typeof recurringAmounts>
 export type Transaction = InferSelectModel<typeof transactions>
 export type Budget = InferSelectModel<typeof budgets>
-export type BudgetAmount = InferSelectModel<typeof budgetAmounts>
-export type BudgetWithAmounts = Budget & { amounts: BudgetAmount[] }
+export type BudgetLine = InferSelectModel<typeof budgetLines>
+export type BudgetWithLines = Budget & { lines: BudgetLine[] }
 export type Goal = InferSelectModel<typeof goals>
 export type UserSettings = InferSelectModel<typeof userSettings>
 

@@ -1,6 +1,7 @@
 'use client'
 
 import type { ReactNode } from 'react'
+import { cn } from '@/lib/utils'
 import {
   Dialog,
   DialogContent,
@@ -14,13 +15,14 @@ interface ModalProps {
   title: ReactNode
   children: ReactNode
   footer?: ReactNode
+  className?: string
 }
 
 /** Centered pop-up modal in the app's UI. For confirmations, alerts and short info panels. */
-export function Modal({ open, onClose, title, children, footer }: ModalProps) {
+export function Modal({ open, onClose, title, children, footer, className }: ModalProps) {
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="fern-modal-content">
+      <DialogContent className={cn('fern-modal-content', className)}>
         <DialogHeader>
           <DialogTitle className="fern-sheet-title">{title}</DialogTitle>
         </DialogHeader>
