@@ -27,6 +27,9 @@ export async function addCategory(input: {
   kind: 'expense' | 'income'
 }) {
   const data = parse(categoryFields, input)
+  if (data.name === REIMBURSEMENT_CATEGORY_NAME) {
+    throw new Error('That category name is reserved.')
+  }
   await db.insert(categories).values({ id: nanoid(), ...data })
   revalidateApp()
 }

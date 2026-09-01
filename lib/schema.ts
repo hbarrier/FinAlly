@@ -1,4 +1,4 @@
-import { int, real, text, sqliteTable, unique, index } from 'drizzle-orm/sqlite-core'
+import { int, real, text, sqliteTable, unique, uniqueIndex, index } from 'drizzle-orm/sqlite-core'
 import { sql, relations } from 'drizzle-orm'
 
 // --- categories ---
@@ -13,7 +13,15 @@ export const categories = sqliteTable('categories', {
   createdAt: text('created_at')
     .notNull()
     .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
-})
+}, (t) => [
+  // Special categories the reimbursements / divorce modules depend on: exactly one each.
+  uniqueIndex('categories_reimbursement_name_unique')
+    .on(t.name)
+    .where(sql`${t.name} = 'Remboursements'`),
+  uniqueIndex('categories_pension_alimentaire_unique')
+    .on(t.isPensionAlimentaire)
+    .where(sql`${t.isPensionAlimentaire} = 1`),
+])
 
 // --- merchants ---
 export const merchants = sqliteTable(

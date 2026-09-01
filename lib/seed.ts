@@ -1,7 +1,7 @@
 import { db } from './db'
 import { categories } from './schema'
 import { nanoid, REIMBURSEMENT_CATEGORY_NAME } from './utils'
-import { sql } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 
 const DEFAULT_CATEGORIES = [
   { icon: 'cat-cart', name: 'Groceries', color: 'sage', kind: 'expense' as const, isPensionAlimentaire: 0 },
@@ -37,12 +37,19 @@ async function doSeed() {
     )
   }
 
-  // Always ensure special categories exist (idempotent by name)
+  // Always ensure special categories exist (idempotent: pension alimentaire by its
+  // flag, reimbursements by name — a partial unique index backs both)
   for (const special of SPECIAL_CATEGORIES) {
-    await db.run(sql`
-      INSERT OR IGNORE INTO categories (id, name, icon, color, kind, is_pension_alimentaire)
-      VALUES (${nanoid()}, ${special.name}, ${special.icon}, ${special.color}, ${special.kind}, ${special.isPensionAlimentaire})
-    `)
+    const exists = await db.query.categories.findFirst({
+      where:
+        special.isPensionAlimentaire === 1
+          ? eq(categories.isPensionAlimentaire, 1)
+          : eq(categories.name, special.name),
+      columns: { id: true },
+    })
+    if (!exists) {
+      await db.insert(categories).values({ ...special, id: nanoid() })
+    }
   }
 }
 
