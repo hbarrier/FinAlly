@@ -88,6 +88,30 @@ rules, including how to hand-write a migration and how to preserve data across
 destructive changes. Save-points before risky migrations go in `backups/`
 (gitignored).
 
+## Backups
+
+`finance.db` is the only copy of real data. `scripts/backup-db.sh` writes a
+compacted, integrity-checked snapshot to `backups/finance.db.auto-<timestamp>`
+(via `VACUUM INTO`, safe while the app is running). It refuses to snapshot a
+missing, truncated, or corrupt file, skips writing when nothing changed, and
+keeps the newest 14 `auto-` snapshots (hand-made `pre*` save-points are never
+pruned).
+
+```bash
+npm run db:backup      # snapshot now
+```
+
+`npm run db:migrate` takes a snapshot first automatically (`predb:migrate`).
+
+For an unattended daily snapshot, install the launchd job (runs at 12:30 and on
+login):
+
+```bash
+sed "s|__REPO__|$PWD|g" launchd/com.finances.db-backup.plist \
+  > ~/Library/LaunchAgents/com.finances.db-backup.plist
+launchctl load -w ~/Library/LaunchAgents/com.finances.db-backup.plist
+```
+
 ## Tests
 
 ```bash

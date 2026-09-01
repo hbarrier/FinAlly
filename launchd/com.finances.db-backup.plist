@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Daily backup of finance.db. Install (from the repo root):
+
+    sed "s|__REPO__|$PWD|g" launchd/com.finances.db-backup.plist \
+      > ~/Library/LaunchAgents/com.finances.db-backup.plist
+    launchctl load -w ~/Library/LaunchAgents/com.finances.db-backup.plist
+
+  Trigger a run now:  launchctl start com.finances.db-backup
+  Uninstall:          launchctl unload -w ~/Library/LaunchAgents/com.finances.db-backup.plist
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.finances.db-backup</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>__REPO__/scripts/backup-db.sh</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>__REPO__</string>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>12</integer>
+    <key>Minute</key>
+    <integer>30</integer>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>__REPO__/backups/launchd.log</string>
+  <key>StandardErrorPath</key>
+  <string>__REPO__/backups/launchd.log</string>
+</dict>
+</plist>

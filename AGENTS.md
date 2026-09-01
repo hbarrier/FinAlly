@@ -66,6 +66,8 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - Before any `DROP TABLE` / `DROP COLUMN` / table rebuild, write the data-preserving
   `INSERT INTO new SELECT ... FROM old` first. `drizzle/0007_multi_budget.sql` is the
   reference; `0009` (dropped `budget_amounts` with no copy) is the anti-pattern.
-- Take a backup into `backups/` (gitignored) before running a destructive migration.
+- `npm run db:migrate` auto-snapshots to `backups/` first (`predb:migrate`), and
+  `npm run db:backup` takes one on demand. Before a *destructive* migration still
+  take an explicit named save-point (`backups/finance.db.preNNNN`).
 - FTS5 virtual tables / triggers are invisible to drizzle-kit — keep them out of
   `lib/schema.ts` and never rely on `drizzle-kit push`.
