@@ -10,6 +10,19 @@ import { PAYMENT_METHODS, paymentMethodLabel, paymentMethodIcon, type PaymentMet
 import type { Category } from '@/lib/derive'
 import type { Merchant } from '@/lib/db-types'
 
+const REIMB_OPTIONS = [
+  { group: 'Summary', value: 'unresolved', label: 'Open work' },
+  { group: 'Summary', value: 'resolved', label: 'Fully resolved' },
+  { group: 'Expenses', value: 'expense:not_reimbursed', label: 'Not reimbursed' },
+  { group: 'Expenses', value: 'expense:partially_reimbursed', label: 'Partially reimbursed' },
+  { group: 'Expenses', value: 'expense:reimbursed', label: 'Reimbursed' },
+  { group: 'Expenses', value: 'expense:manually_settled', label: 'Manually settled' },
+  { group: 'Income', value: 'income:unmapped', label: 'Unmapped income' },
+  { group: 'Income', value: 'income:claim_linked', label: 'Claim linked' },
+  { group: 'Income', value: 'income:partially_allocated', label: 'Partially allocated' },
+  { group: 'Income', value: 'income:fully_allocated', label: 'Fully allocated' },
+] as const
+
 interface TransactionFiltersProps {
   q: string
   onQChange: (q: string) => void
@@ -33,6 +46,11 @@ interface TransactionFiltersProps {
   methodFilterOpen: boolean
   onMethodFilterOpenChange: (v: boolean) => void
   onMethodFilterChange: (v: Set<PaymentMethod>) => void
+  reimbursementFilter: Set<string>
+  reimbFilterOpen: boolean
+  onReimbFilterOpenChange: (v: boolean) => void
+  onReimbursementFilterChange: (v: Set<string>) => void
+  showReimbursementFilter: boolean
   showNaToggle: boolean
 }
 
@@ -44,7 +62,8 @@ export function TransactionFilters({
   catFilter, catFilterOpen, onCatFilterOpenChange, onCatFilterChange, categories,
   merchantFilter, merchantFilterOpen, onMerchantFilterOpenChange, onMerchantFilterChange, merchants,
   methodFilter, methodFilterOpen, onMethodFilterOpenChange, onMethodFilterChange,
-  showNaToggle,
+  reimbursementFilter, reimbFilterOpen, onReimbFilterOpenChange, onReimbursementFilterChange,
+  showReimbursementFilter, showNaToggle,
 }: TransactionFiltersProps) {
   const merchantsSortedByName = useMemo(
     () => [...merchants].sort((a, b) => a.name.localeCompare(b.name)),
@@ -65,6 +84,11 @@ export function TransactionFilters({
     if (methodFilter.size === 0) return 'All payment types'
     return [...methodFilter].map((m) => paymentMethodLabel(m)).sort((a, b) => a.localeCompare(b)).join(', ')
   }, [methodFilter])
+
+  const reimbFilterLabel = useMemo(() => {
+    if (reimbursementFilter.size === 0) return 'All reimbursement states'
+    return REIMB_OPTIONS.filter((o) => reimbursementFilter.has(o.value)).map((o) => o.label).join(', ')
+  }, [reimbursementFilter])
 
   return (
     <>
@@ -216,6 +240,45 @@ export function TransactionFilters({
           )}
         </Popover>
 
+        {showReimbursementFilter && (
+        <Popover open={reimbFilterOpen} onOpenChange={onReimbFilterOpenChange}>
+          <PopoverTrigger asChild>
+            <button type="button" className="fern-select" style={{ maxWidth: 260, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{reimbFilterLabel}</span>
+              {reimbursementFilter.size > 0 && <span style={{ fontSize: 12, color: 'var(--ink-faint)', flexShrink: 0 }}>{reimbursementFilter.size}</span>}
+            </button>
+          </PopoverTrigger>
+          {reimbFilterOpen && (
+            <PopoverContent style={{ padding: 0, width: 280 }} align="start">
+              <Command>
+                <CommandInput placeholder="Search states…" />
+                <CommandList>
+                  <CommandEmpty>No results</CommandEmpty>
+                  {(['Summary', 'Expenses', 'Income'] as const).map((group) => (
+                    <CommandGroup key={group} heading={group}>
+                      {REIMB_OPTIONS.filter((o) => o.group === group).map((o) => (
+                        <CommandItem
+                          key={o.value}
+                          value={o.label}
+                          data-checked={reimbursementFilter.has(o.value) ? 'true' : 'false'}
+                          onSelect={() => onReimbursementFilterChange((() => { const next = new Set(reimbursementFilter); if (next.has(o.value)) next.delete(o.value); else next.add(o.value); return next })())}
+                        >
+                          {o.label}
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  ))}
+                  {reimbursementFilter.size > 0 && (
+                    <CommandGroup>
+                      <CommandItem value="Clear states" onSelect={() => onReimbursementFilterChange(new Set())}>Clear</CommandItem>
+                    </CommandGroup>
+                  )}
+                </CommandList>
+              </Command>
+            </PopoverContent>
+          )}
+        </Popover>
+        )}
       </div>
     </>
   )

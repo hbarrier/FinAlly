@@ -62,6 +62,7 @@ export default async function DashboardPage() {
       merchants={merchantsList}
       instances={monthInstances}
       recurringEnabled={modules.recurring}
+      divorceEnabled={modules.divorce}
     />
   )
 }

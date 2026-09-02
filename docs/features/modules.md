@@ -15,7 +15,8 @@ core balance / opening-balance logic.
 | Key | Label | Default | Scopes |
 |---|---|---|---|
 | `recurring` | Recurring | **on** | `/recurring` page + nav; dashboard "Recurring" card; scheduled/ghost instances, "Show N/A", recurring-link and "make recurring" actions, recurring chips and bulk "Set as recurring" on the ledger; layout instance materialization (`ensureInstancesUpTo`); the "start from recurring" / "from recurring" options and the "vs. current recurring" delta in Simulations |
-| `divorce` | Divorce | off | `/reimbursements` and `/tax-status` pages + nav; the "Remboursable" checkbox on the movement form; the reimbursement filter, status badges, "map reimbursement" and manual-settlement actions on the ledger |
+| `groups` | Groups | off | `/groups` and `/groups/[id]` pages + nav; the "Allocate to a group" action and group chip on the ledger |
+| `divorce` | Divorce | off | `/reimbursements` and `/tax-status` pages + nav; the "Remboursable" checkbox on the movement form; the reimbursement filter and status badges on the ledger |
 | `budgets` | Budgets | off | `/budgets` page + nav |
 | `simulations` | Simulations | off | `/simulations` and `/simulations/[id]` pages + nav |
 | `objectives` | Objectives | off | `/goals` page + nav |
@@ -24,7 +25,7 @@ core balance / opening-balance logic.
 
 | File | Role |
 |---|---|
-| [lib/schema.ts](../../lib/schema.ts) | `user_settings` columns `onboarded`, `module_recurring`, `module_divorce`, `module_budgets`, `module_simulations`, `module_objectives` |
+| [lib/schema.ts](../../lib/schema.ts) | `user_settings` columns `onboarded`, `module_recurring`, `module_groups`, `module_divorce`, `module_budgets`, `module_simulations`, `module_objectives` |
 | [lib/queries/user-settings.ts](../../lib/queries/user-settings.ts) | `getModules()` — resolves the flags into a `Modules` object (cached per request) |
 | [lib/modules.ts](../../lib/modules.ts) | `requireModule(key)` — server-component guard that calls `notFound()` |
 | [lib/settings-options.ts](../../lib/settings-options.ts) | `CURRENCIES`, `MODULE_META` — shared by onboarding and settings |

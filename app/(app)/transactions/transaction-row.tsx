@@ -25,7 +25,9 @@ interface TransactionRowProps {
   merchant: Merchant | undefined
   selectionMode: boolean
   isSelected: boolean
+  reimbursementSummary: { status: string; label: string } | undefined
   recurringEnabled: boolean
+  divorceEnabled: boolean
   groupsEnabled: boolean
   movementLink: MovementGroupLink | undefined
   onClick: () => void
@@ -40,7 +42,9 @@ export function TransactionRow({
   merchant,
   selectionMode,
   isSelected,
+  reimbursementSummary,
   recurringEnabled,
+  divorceEnabled,
   groupsEnabled,
   movementLink,
   onClick,
@@ -95,6 +99,11 @@ export function TransactionRow({
             <Icon name={paymentMethodIcon(t.method)} size={10} /> {paymentMethodLabel(t.method)}
           </Chip>
           {recurringEnabled && t.recurringId && <Chip tone="recurring"><Icon name="repeat" size={10} /> recurring</Chip>}
+          {divorceEnabled && reimbursementSummary && (
+            <Chip tone={reimbursementSummary.status === 'reimbursed' || reimbursementSummary.status === 'fully_allocated' || reimbursementSummary.status === 'manually_settled' ? 'recurring' : 'scheduled'}>
+              {reimbursementSummary.label}
+            </Chip>
+          )}
           {groupsEnabled && movementLink && (
             <Chip tone="recurring"><Icon name="users" size={10} /> {movementLink.groupName}</Chip>
           )}
