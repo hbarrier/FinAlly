@@ -7,14 +7,12 @@
  * cent(s) on the payer so the parts sum back to the entry amount exactly.
  */
 
-import { addMonthsToDate } from './dates'
 import type {
   GroupMember,
   GroupMemberShare,
   GroupEntry,
   GroupEntryParticipant,
   GroupEntryOverride,
-  GroupReimbursement,
 } from './db-types'
 
 export type MemberLike = { id: string; isSelf: boolean }
@@ -39,13 +37,6 @@ export type EntryLike = {
   overrides: { memberId: string; amount: number }[]
 }
 
-export type ReimbursementLike = {
-  date: string
-  amount: number
-  direction: 'paid' | 'received'
-  memberId: string
-}
-
 export type MemberBalance = { memberId: string; net: number }
 
 export type SuggestedSettlement = {
@@ -63,11 +54,6 @@ export type GroupBalances = {
   suggestedSettlements: SuggestedSettlement[]
 }
 
-export type StatementStatus = {
-  tone: 'green' | 'orange' | 'red' | 'neutral'
-  label: string
-}
-
 export type GroupEntryFull = GroupEntry & {
   participants: GroupEntryParticipant[]
   overrides: GroupEntryOverride[]
@@ -78,7 +64,6 @@ export function groupBalanceInput(g: {
   members: GroupMember[]
   shares: GroupMemberShare[]
   entries: GroupEntryFull[]
-  reimbursements: GroupReimbursement[]
 }) {
   return {
     members: g.members.map((m) => ({ id: m.id, isSelf: m.isSelf === 1 })),
@@ -97,12 +82,6 @@ export function groupBalanceInput(g: {
       involvesAll: e.involvesAll === 1,
       participantMemberIds: e.participants.map((p) => p.memberId),
       overrides: e.overrides.map((o) => ({ memberId: o.memberId, amount: o.amount })),
-    })),
-    reimbursements: g.reimbursements.map((r) => ({
-      date: r.date,
-      amount: r.amount,
-      direction: r.direction,
-      memberId: r.memberId,
     })),
   }
 }
@@ -245,23 +224,13 @@ function accumulate(input: {
   members: MemberLike[]
   shares: ShareLike[]
   entries: EntryLike[]
-  reimbursements: ReimbursementLike[]
 }): Map<string, number> {
-  const { members, shares, entries, reimbursements } = input
-  const selfId = members.find((m) => m.isSelf)?.id ?? null
+  const { members, shares, entries } = input
   const net = new Map<string, number>(members.map((m) => [m.id, 0]))
   const bump = (id: string, v: number) => net.set(id, (net.get(id) ?? 0) + v)
 
   for (const entry of entries) {
     for (const [id, v] of entryEffect(entry, members, shares)) bump(id, v)
-  }
-
-  for (const r of reimbursements) {
-    if (!selfId || r.memberId === selfId) continue
-    // `paid`: self -> member settles self's debt: self +amount, member -amount.
-    const s = r.direction === 'paid' ? 1 : -1
-    bump(selfId, s * r.amount)
-    bump(r.memberId, -s * r.amount)
   }
 
   for (const [k, v] of net) net.set(k, round2(v))
@@ -272,7 +241,6 @@ export function computeGroupBalances(input: {
   members: MemberLike[]
   shares: ShareLike[]
   entries: EntryLike[]
-  reimbursements: ReimbursementLike[]
 }): GroupBalances {
   const selfId = input.members.find((m) => m.isSelf)?.id ?? null
   const net = accumulate(input)
@@ -288,34 +256,3 @@ export function computeGroupBalances(input: {
   }
 }
 
-/** Balances restricted to entries/reimbursements dated within [from, to]. */
-export function statementBalances(
-  input: {
-    members: MemberLike[]
-    shares: ShareLike[]
-    entries: EntryLike[]
-    reimbursements: ReimbursementLike[]
-  },
-  from: string,
-  to: string,
-): GroupBalances {
-  return computeGroupBalances({
-    members: input.members,
-    shares: input.shares,
-    entries: input.entries.filter((e) => e.date >= from && e.date <= to),
-    reimbursements: input.reimbursements.filter((r) => r.date >= from && r.date <= to),
-  })
-}
-
-export function statementStatus(
-  statement: { dueDate: string | null; settledAt: string | null },
-  today: string,
-): StatementStatus {
-  if (statement.settledAt) return { tone: 'green', label: 'Settled' }
-  if (!statement.dueDate) return { tone: 'neutral', label: 'No due date' }
-  if (today <= statement.dueDate) return { tone: 'green', label: `Due ${statement.dueDate}` }
-  if (today <= addMonthsToDate(statement.dueDate, 1)) {
-    return { tone: 'orange', label: 'Overdue < 1 month' }
-  }
-  return { tone: 'red', label: 'Overdue > 1 month' }
-}

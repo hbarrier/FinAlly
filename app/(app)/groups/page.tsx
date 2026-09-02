@@ -18,7 +18,7 @@ export default async function GroupsPage() {
       isActive: g.isActive === 1,
       memberCount: g.members.length,
       youNet: balances.youNet,
-      hasActivity: g.entries.length > 0 || g.reimbursements.length > 0,
+      hasActivity: g.entries.length > 0,
     }
   })
 

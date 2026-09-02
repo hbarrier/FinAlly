@@ -10,5 +10,5 @@ export const MODULE_META: { key: ModuleKey; label: string; description: string }
   { key: 'objectives', label: 'Goals', description: 'Savings goals with progress rings' },
   { key: 'simulations', label: 'Simulations', description: 'What-if scenarios for future income and expenses' },
   { key: 'groups', label: 'Groups', description: 'Shared expenses split with other people' },
-  { key: 'taxstatus', label: 'Tax status', description: 'Yearly split of reimbursements and pension for tax' },
+  { key: 'divorce', label: 'Divorce', description: 'Reimbursements and tax status' },
 ]

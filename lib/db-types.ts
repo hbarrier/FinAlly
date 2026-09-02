@@ -26,8 +26,6 @@ import type {
   groupEntries,
   groupEntryParticipants,
   groupEntryOverrides,
-  groupStatements,
-  groupReimbursements,
 } from './schema'
 
 export type Category = InferSelectModel<typeof categories>
@@ -44,7 +42,7 @@ export type UserSettings = InferSelectModel<typeof userSettings>
 export type ModuleKey =
   | 'recurring'
   | 'groups'
-  | 'taxstatus'
+  | 'divorce'
   | 'budgets'
   | 'simulations'
   | 'objectives'
@@ -77,11 +75,7 @@ export type GroupMemberShare = InferSelectModel<typeof groupMemberShares>
 export type GroupEntry = InferSelectModel<typeof groupEntries>
 export type GroupEntryParticipant = InferSelectModel<typeof groupEntryParticipants>
 export type GroupEntryOverride = InferSelectModel<typeof groupEntryOverrides>
-export type GroupStatement = InferSelectModel<typeof groupStatements>
-export type GroupReimbursement = InferSelectModel<typeof groupReimbursements>
 export type GroupEntryDirection = GroupEntry['direction']
-export type GroupReimbursementDirection = GroupReimbursement['direction']
-export type GroupStatementScope = GroupStatement['scope']
 export type GroupEntryWithParts = GroupEntry & {
   participants: GroupEntryParticipant[]
   overrides: GroupEntryOverride[]

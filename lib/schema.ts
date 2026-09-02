@@ -294,7 +294,7 @@ export const userSettings = sqliteTable('user_settings', {
   onboarded: int('onboarded').notNull().default(0),
   moduleRecurring: int('module_recurring').notNull().default(1),
   moduleGroups: int('module_groups').notNull().default(0),
-  moduleTaxstatus: int('module_taxstatus').notNull().default(0),
+  moduleDivorce: int('module_divorce').notNull().default(0),
   moduleBudgets: int('module_budgets').notNull().default(0),
   moduleSimulations: int('module_simulations').notNull().default(0),
   moduleObjectives: int('module_objectives').notNull().default(0),
@@ -526,72 +526,10 @@ export const groupEntryOverrides = sqliteTable(
   ],
 )
 
-// --- group statements (settle-up documents with a due date) ---
-export const groupStatements = sqliteTable(
-  'group_statements',
-  {
-    id: text('id').primaryKey(),
-    groupId: text('group_id')
-      .notNull()
-      .references(() => groups.id, { onDelete: 'cascade' }),
-    scope: text('scope', { enum: ['member', 'group'] }).notNull(),
-    memberId: text('member_id').references(() => groupMembers.id, {
-      onDelete: 'set null',
-    }),
-    periodFrom: text('period_from').notNull(),
-    periodTo: text('period_to').notNull(),
-    dueDate: text('due_date'),
-    settledAt: text('settled_at'),
-    note: text('note'),
-    createdAt: text('created_at')
-      .notNull()
-      .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
-  },
-  (t) => [index('group_statements_group_id_idx').on(t.groupId)],
-)
-
-// --- group reimbursements (real money moved between the user and a member) ---
-export const groupReimbursements = sqliteTable(
-  'group_reimbursements',
-  {
-    id: text('id').primaryKey(),
-    groupId: text('group_id')
-      .notNull()
-      .references(() => groups.id, { onDelete: 'cascade' }),
-    date: text('date').notNull(),
-    amount: real('amount').notNull(),
-    direction: text('direction', { enum: ['paid', 'received'] }).notNull(),
-    memberId: text('member_id')
-      .notNull()
-      .references(() => groupMembers.id, { onDelete: 'cascade' }),
-    transactionId: text('transaction_id').references(() => transactions.id, {
-      onDelete: 'set null',
-    }),
-    /** 1 = this reimbursement created its linked transaction; 0 = an existing movement was allocated. */
-    ownsTransaction: int('owns_transaction').notNull().default(1),
-    statementId: text('statement_id').references(() => groupStatements.id, {
-      onDelete: 'set null',
-    }),
-    note: text('note'),
-    createdAt: text('created_at')
-      .notNull()
-      .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
-  },
-  (t) => [
-    index('group_reimbursements_group_id_idx').on(t.groupId),
-    index('group_reimbursements_member_id_idx').on(t.memberId),
-    uniqueIndex('group_reimbursements_transaction_id_unique')
-      .on(t.transactionId)
-      .where(sql`${t.transactionId} is not null`),
-  ],
-)
-
 export const groupsRelations = relations(groups, ({ many }) => ({
   members: many(groupMembers),
   shares: many(groupMemberShares),
   entries: many(groupEntries),
-  statements: many(groupStatements),
-  reimbursements: many(groupReimbursements),
 }))
 
 export const groupMembersRelations = relations(groupMembers, ({ one }) => ({
@@ -627,23 +565,3 @@ export const groupEntryOverridesRelations = relations(groupEntryOverrides, ({ on
   }),
 }))
 
-export const groupStatementsRelations = relations(groupStatements, ({ one, many }) => ({
-  group: one(groups, { fields: [groupStatements.groupId], references: [groups.id] }),
-  member: one(groupMembers, {
-    fields: [groupStatements.memberId],
-    references: [groupMembers.id],
-  }),
-  reimbursements: many(groupReimbursements),
-}))
-
-export const groupReimbursementsRelations = relations(groupReimbursements, ({ one }) => ({
-  group: one(groups, { fields: [groupReimbursements.groupId], references: [groups.id] }),
-  member: one(groupMembers, {
-    fields: [groupReimbursements.memberId],
-    references: [groupMembers.id],
-  }),
-  statement: one(groupStatements, {
-    fields: [groupReimbursements.statementId],
-    references: [groupStatements.id],
-  }),
-}))

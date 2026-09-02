@@ -3,9 +3,7 @@ import {
   activeShareOn,
   splitEntry,
   computeGroupBalances,
-  statementBalances,
   suggestSettlements,
-  statementStatus,
   type MemberLike,
   type ShareLike,
   type EntryLike,
@@ -109,7 +107,6 @@ describe('computeGroupBalances', () => {
       members: [ME, JOHN],
       shares: SHARES_2,
       entries: [entry({ amount: 100, date: '2025-03-01', payerId: 'me' })],
-      reimbursements: [],
     })
     expect(r.youNet).toBeCloseTo(40, 2)
     expect(r.balances.find((b) => b.memberId === 'john')?.net).toBeCloseTo(-40, 2)
@@ -118,22 +115,11 @@ describe('computeGroupBalances', () => {
     ])
   })
 
-  it('a received reimbursement reduces what john owes', () => {
-    const r = computeGroupBalances({
-      members: [ME, JOHN],
-      shares: SHARES_2,
-      entries: [entry({ amount: 100, date: '2025-03-01', payerId: 'me' })],
-      reimbursements: [{ date: '2025-04-01', amount: 40, direction: 'received', memberId: 'john' }],
-    })
-    expect(r.youNet).toBeCloseTo(0, 2)
-  })
-
   it('handles a member-paid entry (john pays, me owes my share)', () => {
     const r = computeGroupBalances({
       members: [ME, JOHN],
       shares: SHARES_2,
       entries: [entry({ amount: 100, date: '2025-03-01', payerId: 'john' })],
-      reimbursements: [],
     })
     // john fronted 100, john's own share 40 -> john is owed 60, me owes 60
     expect(r.youNet).toBeCloseTo(-60, 2)
@@ -145,7 +131,6 @@ describe('computeGroupBalances', () => {
       members: [ME, JOHN],
       shares: SHARES_2,
       entries: [entry({ amount: 100, date: '2025-03-01', direction: 'income', payerId: 'me' })],
-      reimbursements: [],
     })
     expect(r.youNet).toBeCloseTo(-40, 2)
   })
@@ -165,28 +150,3 @@ describe('suggestSettlements', () => {
   })
 })
 
-describe('statementBalances', () => {
-  it('only counts entries inside the window', () => {
-    const input = {
-      members: [ME, JOHN],
-      shares: SHARES_2,
-      entries: [
-        entry({ id: 'in', amount: 100, date: '2025-03-15', payerId: 'me' }),
-        entry({ id: 'out', amount: 200, date: '2025-08-15', payerId: 'me' }),
-      ],
-      reimbursements: [],
-    }
-    const r = statementBalances(input, '2025-03-01', '2025-03-31')
-    expect(r.youNet).toBeCloseTo(40, 2)
-  })
-})
-
-describe('statementStatus', () => {
-  it('green before due, orange within a month, red after', () => {
-    const s = { settledAt: null }
-    expect(statementStatus({ ...s, dueDate: '2025-05-01' }, '2025-04-15').tone).toBe('green')
-    expect(statementStatus({ ...s, dueDate: '2025-04-01' }, '2025-04-15').tone).toBe('orange')
-    expect(statementStatus({ ...s, dueDate: '2025-04-01' }, '2025-06-15').tone).toBe('red')
-    expect(statementStatus({ dueDate: '2025-04-01', settledAt: '2025-04-02' }, '2025-06-15').tone).toBe('green')
-  })
-})

@@ -11,8 +11,6 @@ import {
   groupEntries,
   groupEntryParticipants,
   groupEntryOverrides,
-  groupReimbursements,
-  groupStatements,
   transactions,
   userSettings,
 } from '../schema'
@@ -28,8 +26,6 @@ import {
   zAmount,
   zPaymentMethod,
   zGroupEntryDirection,
-  zGroupReimbursementDirection,
-  zGroupStatementScope,
 } from '../schemas'
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
@@ -66,17 +62,11 @@ export async function createGroup(input: {
 
 export async function updateGroup(
   id: string,
-  input: Partial<{ name: string; description: string | null; settlementDelayDays: number | null }>,
+  input: Partial<{ name: string; description: string | null }>,
 ) {
   parse(zId, id)
   const data = parse(
-    z
-      .object({
-        name: zName,
-        description: z.string().nullable(),
-        settlementDelayDays: z.number().int().min(0).max(3650).nullable(),
-      })
-      .partial(),
+    z.object({ name: zName, description: z.string().nullable() }).partial(),
     input,
   )
   await db.update(groups).set(data).where(eq(groups.id, id))
@@ -147,16 +137,10 @@ export async function removeGroupMember(id: string) {
       .from(groupEntryOverrides)
       .where(eq(groupEntryOverrides.memberId, id))
       .limit(1)
-    const [reimb] = await tx
-      .select({ id: groupReimbursements.id })
-      .from(groupReimbursements)
-      .where(eq(groupReimbursements.memberId, id))
-      .limit(1)
-    if (payer || part || over || reimb) {
+    if (payer || part || over) {
       throw new Error('This member has movements in the group. Remove or reassign them first.')
     }
 
-    await tx.delete(groupStatements).where(eq(groupStatements.memberId, id))
     await tx.delete(groupMemberShares).where(eq(groupMemberShares.memberId, id))
     await tx.delete(groupMembers).where(eq(groupMembers.id, id))
   })
@@ -481,145 +465,13 @@ export async function deleteGroupEntry(id: string) {
   revalidateApp()
 }
 
-// --- reimbursements ---
+// --- movement allocation (link an existing bank movement to a group as a shared entry) ---
 
-const reimbursementSchema = z.object({
-  date: zDateISO,
-  amount: zAmount,
-  direction: zGroupReimbursementDirection,
-  memberId: zId,
-  note: z.string().nullable(),
-  categoryId: zNullableId,
-  method: zPaymentMethod,
-  statementId: zNullableId,
+const allocateSchema = z.object({
+  groupId: zId,
+  involvesAll: z.boolean(),
+  participantMemberIds: z.array(zId),
 })
-
-type GroupReimbursementInput = z.infer<typeof reimbursementSchema>
-
-function reimbursementKind(direction: 'paid' | 'received'): 'expense' | 'income' {
-  return direction === 'paid' ? 'expense' : 'income'
-}
-
-async function validateReimbursement(tx: Tx, groupId: string, data: GroupReimbursementInput) {
-  await assertGroup(tx, groupId)
-  const [member] = await tx
-    .select({ id: groupMembers.id, isSelf: groupMembers.isSelf })
-    .from(groupMembers)
-    .where(and(eq(groupMembers.id, data.memberId), eq(groupMembers.groupId, groupId)))
-    .limit(1)
-  if (!member) throw new Error('The counterparty must be a member of the group.')
-  if (member.isSelf === 1) throw new Error('A reimbursement is between you and another member.')
-}
-
-export async function addGroupReimbursement(
-  groupId: string,
-  input: GroupReimbursementInput,
-): Promise<{ id: string }> {
-  parse(zId, groupId)
-  const data = parse(reimbursementSchema, input)
-  const id = nanoid()
-  await db.transaction(async (tx) => {
-    await validateReimbursement(tx, groupId, data)
-    const transactionId = nanoid()
-    await tx.insert(transactions).values({
-      id: transactionId,
-      date: data.date,
-      amount: data.amount,
-      kind: reimbursementKind(data.direction),
-      method: data.method,
-      categoryId: data.categoryId,
-      note: data.note,
-    })
-    await tx.insert(groupReimbursements).values({
-      id,
-      groupId,
-      date: data.date,
-      amount: data.amount,
-      direction: data.direction,
-      memberId: data.memberId,
-      transactionId,
-      ownsTransaction: 1,
-      statementId: data.statementId,
-      note: data.note,
-    })
-  })
-  revalidateApp()
-  return { id }
-}
-
-export async function updateGroupReimbursement(id: string, input: GroupReimbursementInput) {
-  parse(zId, id)
-  const data = parse(reimbursementSchema, input)
-  await db.transaction(async (tx) => {
-    const [existing] = await tx
-      .select()
-      .from(groupReimbursements)
-      .where(eq(groupReimbursements.id, id))
-      .limit(1)
-    if (!existing) throw new Error('Reimbursement not found')
-    await validateReimbursement(tx, existing.groupId, data)
-
-    if (existing.ownsTransaction === 1 && existing.transactionId) {
-      await tx
-        .update(transactions)
-        .set({
-          date: data.date,
-          amount: data.amount,
-          kind: reimbursementKind(data.direction),
-          method: data.method,
-          categoryId: data.categoryId,
-          note: data.note,
-        })
-        .where(eq(transactions.id, existing.transactionId))
-    }
-
-    await tx
-      .update(groupReimbursements)
-      .set({
-        date: data.date,
-        amount: data.amount,
-        direction: data.direction,
-        memberId: data.memberId,
-        statementId: data.statementId,
-        note: data.note,
-      })
-      .where(eq(groupReimbursements.id, id))
-  })
-  revalidateApp()
-}
-
-export async function deleteGroupReimbursement(id: string) {
-  parse(zId, id)
-  await db.transaction(async (tx) => {
-    const [existing] = await tx
-      .select()
-      .from(groupReimbursements)
-      .where(eq(groupReimbursements.id, id))
-      .limit(1)
-    if (!existing) return
-    await tx.delete(groupReimbursements).where(eq(groupReimbursements.id, id))
-    if (existing.ownsTransaction === 1 && existing.transactionId) {
-      await tx.delete(transactions).where(eq(transactions.id, existing.transactionId))
-    }
-  })
-  revalidateApp()
-}
-
-// --- movement allocation (link an existing bank movement to a group) ---
-
-const allocateSchema = z.discriminatedUnion('kind', [
-  z.object({
-    kind: z.literal('entry'),
-    groupId: zId,
-    involvesAll: z.boolean(),
-    participantMemberIds: z.array(zId),
-  }),
-  z.object({
-    kind: z.literal('reimbursement'),
-    groupId: zId,
-    memberId: zId,
-  }),
-])
 
 async function assertMovementUnlinked(tx: Tx, transactionId: string) {
   const [entry] = await tx
@@ -627,12 +479,7 @@ async function assertMovementUnlinked(tx: Tx, transactionId: string) {
     .from(groupEntries)
     .where(eq(groupEntries.transactionId, transactionId))
     .limit(1)
-  const [reimb] = await tx
-    .select({ id: groupReimbursements.id })
-    .from(groupReimbursements)
-    .where(eq(groupReimbursements.transactionId, transactionId))
-    .limit(1)
-  if (entry || reimb) throw new Error('This movement is already allocated to a group.')
+  if (entry) throw new Error('This movement is already allocated to a group.')
 }
 
 export async function allocateMovementToGroup(
@@ -651,61 +498,35 @@ export async function allocateMovementToGroup(
     if (!mv) throw new Error('Movement not found')
     await assertMovementUnlinked(tx, transactionId)
 
-    if (data.kind === 'entry') {
-      const selfId = await selfMemberId(tx, data.groupId)
-      if (!selfId) throw new Error('Group not found')
-      const direction = mv.kind === 'income' ? 'income' : 'expense'
-      const entryData: GroupEntryInput = {
-        date: mv.date,
-        amount: mv.amount,
-        direction,
-        description: mv.note,
-        payerId: selfId,
-        involvesAll: data.involvesAll,
-        participantMemberIds: data.participantMemberIds,
-        overrides: [],
-        categoryId: mv.categoryId,
-        method: mv.method,
-      }
-      await validateEntry(tx, data.groupId, entryData)
-      await tx.insert(groupEntries).values({
-        id,
-        groupId: data.groupId,
-        date: mv.date,
-        amount: mv.amount,
-        direction,
-        description: mv.note,
-        payerId: selfId,
-        transactionId,
-        ownsTransaction: 0,
-        involvesAll: data.involvesAll ? 1 : 0,
-      })
-      await writeEntryChildren(tx, id, entryData)
-    } else {
-      const direction = mv.kind === 'expense' ? 'paid' : 'received'
-      await validateReimbursement(tx, data.groupId, {
-        date: mv.date,
-        amount: mv.amount,
-        direction,
-        memberId: data.memberId,
-        note: mv.note,
-        categoryId: mv.categoryId,
-        method: mv.method,
-        statementId: null,
-      })
-      await tx.insert(groupReimbursements).values({
-        id,
-        groupId: data.groupId,
-        date: mv.date,
-        amount: mv.amount,
-        direction,
-        memberId: data.memberId,
-        transactionId,
-        ownsTransaction: 0,
-        statementId: null,
-        note: mv.note,
-      })
+    const selfId = await selfMemberId(tx, data.groupId)
+    if (!selfId) throw new Error('Group not found')
+    const direction = mv.kind === 'income' ? 'income' : 'expense'
+    const entryData: GroupEntryInput = {
+      date: mv.date,
+      amount: mv.amount,
+      direction,
+      description: mv.note,
+      payerId: selfId,
+      involvesAll: data.involvesAll,
+      participantMemberIds: data.participantMemberIds,
+      overrides: [],
+      categoryId: mv.categoryId,
+      method: mv.method,
     }
+    await validateEntry(tx, data.groupId, entryData)
+    await tx.insert(groupEntries).values({
+      id,
+      groupId: data.groupId,
+      date: mv.date,
+      amount: mv.amount,
+      direction,
+      description: mv.note,
+      payerId: selfId,
+      transactionId,
+      ownsTransaction: 0,
+      involvesAll: data.involvesAll ? 1 : 0,
+    })
+    await writeEntryChildren(tx, id, entryData)
   })
   revalidateApp()
   return { id }
@@ -723,102 +544,7 @@ export async function unallocateMovement(transactionId: string) {
     if (entry) {
       if (entry.ownsTransaction === 1) throw new Error('This entry owns its movement.')
       await tx.delete(groupEntries).where(eq(groupEntries.id, entry.id))
-      revalidateApp()
-      return
-    }
-    const [reimb] = await tx
-      .select()
-      .from(groupReimbursements)
-      .where(eq(groupReimbursements.transactionId, transactionId))
-      .limit(1)
-    if (reimb) {
-      if (reimb.ownsTransaction === 1) throw new Error('This reimbursement owns its movement.')
-      await tx.delete(groupReimbursements).where(eq(groupReimbursements.id, reimb.id))
     }
   })
-  revalidateApp()
-}
-
-// --- statements ---
-
-const statementSchema = z.object({
-  scope: zGroupStatementScope,
-  memberId: zNullableId,
-  periodFrom: zDateISO,
-  periodTo: zDateISO,
-  dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
-  note: z.string().nullable(),
-})
-
-export async function createGroupStatement(
-  groupId: string,
-  input: z.infer<typeof statementSchema>,
-): Promise<{ id: string }> {
-  parse(zId, groupId)
-  const data = parse(statementSchema, input)
-  if (data.periodFrom > data.periodTo) throw new Error('The period start must be before its end.')
-
-  const id = nanoid()
-  await db.transaction(async (tx) => {
-    const [group] = await tx
-      .select({ delay: groups.settlementDelayDays })
-      .from(groups)
-      .where(eq(groups.id, groupId))
-      .limit(1)
-    if (!group) throw new Error('Group not found')
-
-    let memberId: string | null = null
-    if (data.scope === 'member') {
-      if (!data.memberId) throw new Error('Pick the member this statement is with.')
-      const [member] = await tx
-        .select({ id: groupMembers.id, isSelf: groupMembers.isSelf })
-        .from(groupMembers)
-        .where(and(eq(groupMembers.id, data.memberId), eq(groupMembers.groupId, groupId)))
-        .limit(1)
-      if (!member || member.isSelf === 1) throw new Error('Pick another member for this statement.')
-      memberId = member.id
-    }
-
-    const existing = await tx
-      .select()
-      .from(groupStatements)
-      .where(eq(groupStatements.groupId, groupId))
-    const overlaps = existing.some(
-      (s) =>
-        (s.scope === data.scope && s.memberId === memberId) &&
-        !(s.periodTo < data.periodFrom || s.periodFrom > data.periodTo),
-    )
-    if (overlaps) throw new Error('This period overlaps an existing statement.')
-
-    const dueDate =
-      data.dueDate ?? (group.delay != null ? addDays(data.periodTo, group.delay) : null)
-
-    await tx.insert(groupStatements).values({
-      id,
-      groupId,
-      scope: data.scope,
-      memberId,
-      periodFrom: data.periodFrom,
-      periodTo: data.periodTo,
-      dueDate,
-      note: data.note,
-    })
-  })
-  revalidateApp()
-  return { id }
-}
-
-export async function setStatementSettled(id: string, settled: boolean) {
-  parse(zId, id)
-  await db
-    .update(groupStatements)
-    .set({ settledAt: settled ? new Date().toISOString() : null })
-    .where(eq(groupStatements.id, id))
-  revalidateApp()
-}
-
-export async function deleteGroupStatement(id: string) {
-  parse(zId, id)
-  await db.delete(groupStatements).where(eq(groupStatements.id, id))
   revalidateApp()
 }

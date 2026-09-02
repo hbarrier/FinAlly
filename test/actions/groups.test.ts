@@ -5,8 +5,6 @@ import {
   groupMembers,
   groupMemberShares,
   groupEntries,
-  groupReimbursements,
-  groupStatements,
   transactions,
 } from '@/lib/schema'
 
@@ -197,37 +195,6 @@ describe('addGroupEntry', () => {
   })
 })
 
-describe('addGroupReimbursement', () => {
-  it('records a received reimbursement with a linked income movement', async () => {
-    const { addGroupReimbursement } = await import('@/lib/actions/groups')
-    const g = await groupWithSplit()
-    const { id } = await addGroupReimbursement(g.id, {
-      date: '2025-04-01',
-      amount: 40,
-      direction: 'received',
-      memberId: g.johnId,
-      note: null,
-      categoryId: null,
-      method: 'transfer',
-      statementId: null,
-    })
-    const [row] = await h.db!.select().from(groupReimbursements).where(eq(groupReimbursements.id, id))
-    const [tx] = await h.db!.select().from(transactions).where(eq(transactions.id, row.transactionId!))
-    expect(tx).toMatchObject({ amount: 40, kind: 'income' })
-  })
-
-  it('rejects a reimbursement with yourself as the counterparty', async () => {
-    const { addGroupReimbursement } = await import('@/lib/actions/groups')
-    const g = await groupWithSplit()
-    await expect(
-      addGroupReimbursement(g.id, {
-        date: '2025-04-01', amount: 40, direction: 'paid', memberId: g.selfId,
-        note: null, categoryId: null, method: 'transfer', statementId: null,
-      }),
-    ).rejects.toThrow(/between you and another member/)
-  })
-})
-
 describe('allocateMovementToGroup', () => {
   async function makeMovement(over: Partial<{ kind: 'expense' | 'income'; amount: number; date: string }> = {}) {
     const id = 'mv_' + Math.random().toString(36).slice(2, 8)
@@ -247,7 +214,7 @@ describe('allocateMovementToGroup', () => {
     const g = await groupWithSplit()
     const mv = await makeMovement()
     await allocateMovementToGroup(mv, {
-      kind: 'entry', groupId: g.id, involvesAll: true, participantMemberIds: [],
+      groupId: g.id, involvesAll: true, participantMemberIds: [],
     })
     const [entry] = await h.db!.select().from(groupEntries).where(eq(groupEntries.transactionId, mv))
     expect(entry).toMatchObject({ amount: 100, direction: 'expense', ownsTransaction: 0, payerId: g.selfId })
@@ -258,20 +225,20 @@ describe('allocateMovementToGroup', () => {
     const g = await groupWithSplit()
     const mv = await makeMovement()
     await allocateMovementToGroup(mv, {
-      kind: 'entry', groupId: g.id, involvesAll: true, participantMemberIds: [],
+      groupId: g.id, involvesAll: true, participantMemberIds: [],
     })
     await expect(
-      allocateMovementToGroup(mv, { kind: 'reimbursement', groupId: g.id, memberId: g.johnId }),
+      allocateMovementToGroup(mv, { groupId: g.id, involvesAll: true, participantMemberIds: [] }),
     ).rejects.toThrow(/already allocated/)
   })
 
-  it('maps an income movement to a received reimbursement', async () => {
+  it('maps an income movement to a shared revenue entry', async () => {
     const { allocateMovementToGroup } = await import('@/lib/actions/groups')
     const g = await groupWithSplit()
     const mv = await makeMovement({ kind: 'income', amount: 40 })
-    await allocateMovementToGroup(mv, { kind: 'reimbursement', groupId: g.id, memberId: g.johnId })
-    const [r] = await h.db!.select().from(groupReimbursements).where(eq(groupReimbursements.transactionId, mv))
-    expect(r).toMatchObject({ amount: 40, direction: 'received', ownsTransaction: 0, memberId: g.johnId })
+    await allocateMovementToGroup(mv, { groupId: g.id, involvesAll: true, participantMemberIds: [] })
+    const [r] = await h.db!.select().from(groupEntries).where(eq(groupEntries.transactionId, mv))
+    expect(r).toMatchObject({ amount: 40, direction: 'income', ownsTransaction: 0, payerId: g.selfId })
   })
 
   it('unallocateMovement removes the link and leaves the movement', async () => {
@@ -279,7 +246,7 @@ describe('allocateMovementToGroup', () => {
     const g = await groupWithSplit()
     const mv = await makeMovement()
     await allocateMovementToGroup(mv, {
-      kind: 'entry', groupId: g.id, involvesAll: true, participantMemberIds: [],
+      groupId: g.id, involvesAll: true, participantMemberIds: [],
     })
     await unallocateMovement(mv)
     expect(await h.db!.select().from(groupEntries)).toHaveLength(0)
@@ -291,40 +258,10 @@ describe('allocateMovementToGroup', () => {
     const g = await groupWithSplit()
     const mv = await makeMovement()
     await allocateMovementToGroup(mv, {
-      kind: 'entry', groupId: g.id, involvesAll: true, participantMemberIds: [],
+      groupId: g.id, involvesAll: true, participantMemberIds: [],
     })
     const [entry] = await h.db!.select().from(groupEntries).where(eq(groupEntries.transactionId, mv))
     await deleteGroupEntry(entry.id)
     expect(await h.db!.select().from(transactions).where(eq(transactions.id, mv))).toHaveLength(1)
-  })
-})
-
-describe('createGroupStatement', () => {
-  it('prefills the due date from the group delay', async () => {
-    const { createGroupStatement } = await import('@/lib/actions/groups')
-    const g = await groupWithSplit() // delay defaults null; set it
-    const { updateGroup } = await import('@/lib/actions/groups')
-    await updateGroup(g.id, { settlementDelayDays: 30 })
-    const { id } = await createGroupStatement(g.id, {
-      scope: 'member', memberId: g.johnId, periodFrom: '2025-01-01', periodTo: '2025-01-31',
-      dueDate: null, note: null,
-    })
-    const [s] = await h.db!.select().from(groupStatements).where(eq(groupStatements.id, id))
-    expect(s.dueDate).toBe('2025-03-02')
-  })
-
-  it('rejects an overlapping statement of the same scope', async () => {
-    const { createGroupStatement } = await import('@/lib/actions/groups')
-    const g = await groupWithSplit()
-    await createGroupStatement(g.id, {
-      scope: 'member', memberId: g.johnId, periodFrom: '2025-01-01', periodTo: '2025-01-31',
-      dueDate: null, note: null,
-    })
-    await expect(
-      createGroupStatement(g.id, {
-        scope: 'member', memberId: g.johnId, periodFrom: '2025-01-15', periodTo: '2025-02-15',
-        dueDate: null, note: null,
-      }),
-    ).rejects.toThrow(/overlaps/)
   })
 })

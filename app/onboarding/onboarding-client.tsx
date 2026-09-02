@@ -12,7 +12,7 @@ import type { Modules } from '@/lib/db-types'
 const DEFAULT_MODULES: Modules = {
   recurring: true,
   groups: false,
-  taxstatus: false,
+  divorce: false,
   budgets: false,
   simulations: false,
   objectives: false,

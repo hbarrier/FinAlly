@@ -10,7 +10,7 @@ export default async function TaxStatusPage({
 }: {
   searchParams: Promise<{ year?: string }>
 }) {
-  await requireModule('taxstatus')
+  await requireModule('divorce')
   const { year } = await searchParams
   const currentYear = new Date().getFullYear()
   const selectedYear = year ? parseInt(year, 10) : currentYear

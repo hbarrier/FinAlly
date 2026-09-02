@@ -12,21 +12,12 @@ import { GroupSheet } from '@/components/fern/sheets/group-sheet'
 import { GroupMemberSheet } from '@/components/fern/sheets/group-member-sheet'
 import { GroupShareScheduleSheet } from '@/components/fern/sheets/group-share-schedule-sheet'
 import { GroupEntrySheet } from '@/components/fern/sheets/group-entry-sheet'
-import { GroupReimbursementSheet } from '@/components/fern/sheets/group-reimbursement-sheet'
-import { GroupStatementSheet } from '@/components/fern/sheets/group-statement-sheet'
-import { fmt, signedFmt } from '@/lib/derive'
+import { fmt } from '@/lib/derive'
 import { confirmDialog } from '@/lib/dialogs-store'
-import { todayISO } from '@/lib/dates'
 import { useServerAction } from '@/hooks/use-server-action'
-import {
-  groupBalanceInput,
-  statementBalances,
-  statementStatus,
-  type GroupBalances,
-  type GroupEntryFull,
-} from '@/lib/group-math'
+import type { GroupBalances, GroupEntryFull } from '@/lib/group-math'
 import type { GroupDetail } from '@/lib/queries/groups'
-import type { Category, GroupMember, GroupReimbursement } from '@/lib/db-types'
+import type { Category, GroupMember } from '@/lib/db-types'
 import {
   updateGroup,
   setGroupActive,
@@ -39,12 +30,6 @@ import {
   addGroupEntry,
   updateGroupEntry,
   deleteGroupEntry,
-  addGroupReimbursement,
-  updateGroupReimbursement,
-  deleteGroupReimbursement,
-  createGroupStatement,
-  setStatementSettled,
-  deleteGroupStatement,
 } from '@/lib/actions/groups'
 
 const CARD: React.CSSProperties = { marginBottom: 20 }
@@ -83,8 +68,6 @@ export function GroupDetailClient({
   const [memberSheet, setMemberSheet] = useState<{ item: GroupMember | null } | null>(null)
   const [shareSheet, setShareSheet] = useState(false)
   const [entrySheet, setEntrySheet] = useState<{ item: GroupEntryFull | null } | null>(null)
-  const [reimbSheet, setReimbSheet] = useState<{ item: GroupReimbursement | null } | null>(null)
-  const [statementSheet, setStatementSheet] = useState(false)
 
   const selfId = balances.selfId
 
@@ -95,35 +78,23 @@ export function GroupDetailClient({
   const periods = useMemo(() => toPeriods(group.shares), [group.shares])
   const currentPeriod = periods.find((p) => p.endDate == null) ?? periods[0]
   const active = group.isActive === 1
-  const hasActivity = group.entries.length > 0 || group.reimbursements.length > 0
+  const hasActivity = group.entries.length > 0
 
   const youNet = balances.youNet
   const netTone = Math.abs(youNet) < 0.01 ? 'var(--ink-faint)' : youNet > 0 ? 'var(--sage-ink)' : 'var(--rose-ink)'
   const netText =
     Math.abs(youNet) < 0.01 ? 'You are settled up' : youNet > 0 ? 'You are owed' : 'You owe'
 
-  const balanceInput = useMemo(() => groupBalanceInput(group), [group])
   const entries = useMemo(
     () => [...group.entries].sort((a, b) => b.date.localeCompare(a.date)),
     [group.entries],
   )
-  const reimbursements = useMemo(
-    () => [...group.reimbursements].sort((a, b) => b.date.localeCompare(a.date)),
-    [group.reimbursements],
-  )
-  const today = todayISO()
 
   const saveEntry = (data: Parameters<typeof addGroupEntry>[1]) =>
     run(() =>
       entrySheet?.item
         ? updateGroupEntry(entrySheet.item.id, data)
         : addGroupEntry(group.id, data),
-    )
-  const saveReimbursement = (data: Parameters<typeof addGroupReimbursement>[1]) =>
-    run(() =>
-      reimbSheet?.item
-        ? updateGroupReimbursement(reimbSheet.item.id, data)
-        : addGroupReimbursement(group.id, data),
     )
 
   return (
@@ -406,153 +377,6 @@ export function GroupDetailClient({
         )}
       </div>
 
-      {/* Reimbursements */}
-      {group.members.length > 1 && (
-        <div className="fern-card" style={CARD}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <h3 style={CARD_TITLE}>Reimbursements</h3>
-            {active && (
-              <FernButton tone="outline" onClick={() => setReimbSheet({ item: null })}>
-                <Icon name="plus" size={14} /> Record
-              </FernButton>
-            )}
-          </div>
-          {reimbursements.length === 0 ? (
-            <p style={{ fontSize: 13, color: 'var(--ink-faint)', margin: 0 }}>
-              No money moved between you and a member yet.
-            </p>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {reimbursements.map((r) => (
-                <button
-                  key={r.id}
-                  type="button"
-                  onClick={() => active && setReimbSheet({ item: r })}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 10,
-                    fontSize: 13,
-                    background: 'none',
-                    border: 'none',
-                    borderTop: '1px solid var(--line-soft)',
-                    padding: '8px 0 0',
-                    cursor: active ? 'pointer' : 'default',
-                    textAlign: 'left',
-                    color: 'var(--ink)',
-                  }}
-                >
-                  <span style={{ color: 'var(--ink-faint)', fontFamily: 'var(--mono-fern)', fontSize: 12 }}>
-                    {r.date}
-                  </span>
-                  <span style={{ flex: 1 }}>
-                    {r.direction === 'paid' ? 'You paid ' : 'From '}
-                    {memberName.get(r.memberId)}
-                    {r.note ? ` · ${r.note}` : ''}
-                  </span>
-                  <span
-                    style={{
-                      fontFamily: 'var(--mono-fern)',
-                      color: r.direction === 'received' ? 'var(--sage-ink)' : 'var(--rose-ink)',
-                    }}
-                  >
-                    {signedFmt(r.direction === 'received' ? r.amount : -r.amount)}
-                  </span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Statements */}
-      {group.members.length > 1 && (
-        <div className="fern-card" style={CARD}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <h3 style={CARD_TITLE}>Statements</h3>
-            {active && (
-              <FernButton tone="outline" onClick={() => setStatementSheet(true)}>
-                <Icon name="plus" size={14} /> New statement
-              </FernButton>
-            )}
-          </div>
-          {group.statements.length === 0 ? (
-            <p style={{ fontSize: 13, color: 'var(--ink-faint)', margin: 0 }}>
-              No settle-up statements yet.
-            </p>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {[...group.statements]
-                .sort((a, b) => b.periodTo.localeCompare(a.periodTo))
-                .map((s) => {
-                  const win = statementBalances(balanceInput, s.periodFrom, s.periodTo)
-                  const amount =
-                    s.scope === 'member' && s.memberId
-                      ? (win.balances.find((b) => b.memberId === s.memberId)?.net ?? 0)
-                      : win.youNet
-                  const status = statementStatus(s, today)
-                  const label =
-                    s.scope === 'member' && s.memberId
-                      ? amount < 0
-                        ? `${memberName.get(s.memberId)} owes ${fmt(-amount)}`
-                        : `You owe ${memberName.get(s.memberId)} ${fmt(amount)}`
-                      : win.youNet >= 0
-                        ? `You are owed ${fmt(win.youNet)}`
-                        : `You owe ${fmt(-win.youNet)}`
-                  return (
-                    <div
-                      key={s.id}
-                      style={{ borderTop: '1px solid var(--line-soft)', paddingTop: 10, fontSize: 13 }}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ color: 'var(--ink-soft)' }}>
-                          {s.scope === 'member' && s.memberId
-                            ? `With ${memberName.get(s.memberId)}`
-                            : 'Whole group'}{' '}
-                          · {s.periodFrom} → {s.periodTo}
-                        </span>
-                        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                          <span style={{ fontSize: 11, color: statusColor(status.tone) }}>{status.label}</span>
-                          {active && (
-                            <>
-                              <button
-                                type="button"
-                                disabled={pending}
-                                onClick={() => run(() => setStatementSettled(s.id, !s.settledAt))}
-                                style={{ ...iconBtn, fontSize: 11, width: 'auto', padding: '2px 6px' }}
-                              >
-                                {s.settledAt ? 'Reopen' : 'Settle'}
-                              </button>
-                              <button
-                                type="button"
-                                disabled={pending}
-                                onClick={() => run(() => deleteGroupStatement(s.id))}
-                                style={iconBtn}
-                                aria-label="Delete statement"
-                              >
-                                <Icon name="trash" size={13} />
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                      <div style={{ marginTop: 4, fontFamily: 'var(--mono-fern)', color: 'var(--ink)' }}>
-                        {label}
-                        {s.dueDate && !s.settledAt && (
-                          <span style={{ color: 'var(--ink-faint)', fontSize: 11 }}> · due {s.dueDate}</span>
-                        )}
-                      </div>
-                      {s.note && (
-                        <div style={{ fontSize: 11, color: 'var(--ink-faint)', marginTop: 2 }}>{s.note}</div>
-                      )}
-                    </div>
-                  )
-                })}
-            </div>
-          )}
-        </div>
-      )}
-
       <GroupSheet
         open={editingGroup}
         onClose={() => setEditingGroup(false)}
@@ -599,45 +423,8 @@ export function GroupDetailClient({
         }
       />
 
-      <GroupReimbursementSheet
-        open={reimbSheet !== null}
-        onClose={() => setReimbSheet(null)}
-        members={group.members}
-        categories={categories}
-        statements={group.statements}
-        item={reimbSheet?.item ?? null}
-        linkedMeta={
-          reimbSheet?.item?.transactionId
-            ? group.linkedTx[reimbSheet.item.transactionId] ?? null
-            : null
-        }
-        onSave={saveReimbursement}
-        onDelete={
-          reimbSheet?.item
-            ? () => run(() => deleteGroupReimbursement(reimbSheet.item!.id))
-            : undefined
-        }
-      />
-
-      <GroupStatementSheet
-        open={statementSheet}
-        onClose={() => setStatementSheet(false)}
-        members={group.members}
-        settlementDelayDays={group.settlementDelayDays}
-        onSave={(data) => run(() => createGroupStatement(group.id, data))}
-      />
     </div>
   )
-}
-
-function statusColor(tone: 'green' | 'orange' | 'red' | 'neutral'): string {
-  return tone === 'green'
-    ? 'var(--sage-ink)'
-    : tone === 'orange'
-      ? 'var(--amber-ink, #b45309)'
-      : tone === 'red'
-        ? 'var(--rose-ink)'
-        : 'var(--ink-faint)'
 }
 
 const iconBtn: React.CSSProperties = {

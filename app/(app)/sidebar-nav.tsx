@@ -28,8 +28,13 @@ const NAV: NavSection[] = [
     title: 'Groups',
     items: [
       { href: '/groups', label: 'Groups', icon: 'users', module: 'groups' },
-      { href: '/reimbursements', label: 'Reimbursements', icon: 'receipt', module: 'groups' },
-      { href: '/tax-status', label: 'Tax Status', icon: 'fileText', module: 'taxstatus' },
+    ],
+  },
+  {
+    title: 'Divorce',
+    items: [
+      { href: '/reimbursements', label: 'Reimbursements', icon: 'receipt', module: 'divorce' },
+      { href: '/tax-status', label: 'Tax Status', icon: 'fileText', module: 'divorce' },
     ],
   },
   {
