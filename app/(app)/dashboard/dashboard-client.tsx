@@ -69,7 +69,6 @@ interface DashboardClientProps {
   merchants: Merchant[]
   instances: RecurringInstance[]
   recurringEnabled: boolean
-  divorceEnabled: boolean
 }
 
 export function DashboardClient({
@@ -85,7 +84,6 @@ export function DashboardClient({
   merchants,
   instances,
   recurringEnabled,
-  divorceEnabled,
 }: DashboardClientProps) {
   const [showScrollTop, setShowScrollTop] = useState(false)
   const [sheetOpen, setSheetOpen] = useState(false)
@@ -501,7 +499,6 @@ export function DashboardClient({
         categories={categories}
         merchants={merchants}
         item={editingTxn}
-        showReimbursable={divorceEnabled}
         onSave={handleSave}
         onDelete={editingTxn ? handleDelete : undefined}
       />

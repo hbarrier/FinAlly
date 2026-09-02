@@ -22,7 +22,7 @@ export default async function ReimbursementsPage({
 }: {
   searchParams: Promise<{ year?: string }>
 }) {
-  await requireModule('divorce')
+  await requireModule('groups')
   const { year: yearParam } = await searchParams
   const year = Number(yearParam) || new Date().getFullYear()
   const from = `${year}-01-01`

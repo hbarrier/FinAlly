@@ -6,6 +6,7 @@ import { Chip } from '@/components/fern/chip'
 import { fmt, isPlannedDate, type Category, type Transaction } from '@/lib/derive'
 import { paymentMethodLabel, type PaymentMethod } from '@/lib/payment-method'
 import type { Merchant } from '@/lib/db-types'
+import type { MovementGroupLink } from '@/lib/queries/groups'
 
 function paymentMethodIcon(method: PaymentMethod): string {
   switch (method) {
@@ -24,13 +25,13 @@ interface TransactionRowProps {
   merchant: Merchant | undefined
   selectionMode: boolean
   isSelected: boolean
-  reimbursementSummary: { status: string; label: string } | undefined
   recurringEnabled: boolean
-  divorceEnabled: boolean
+  groupsEnabled: boolean
+  movementLink: MovementGroupLink | undefined
   onClick: () => void
   onLink: () => void
+  onAllocate: () => void
   onClear: () => void
-  onSettle: () => void
 }
 
 export function TransactionRow({
@@ -39,18 +40,16 @@ export function TransactionRow({
   merchant,
   selectionMode,
   isSelected,
-  reimbursementSummary,
   recurringEnabled,
-  divorceEnabled,
+  groupsEnabled,
+  movementLink,
   onClick,
   onLink,
+  onAllocate,
   onClear,
-  onSettle,
 }: TransactionRowProps) {
   const isCleared = t.cleared === 1
   const isPlanned = isPlannedDate(t.date)
-  const showManualSettlementAction = divorceEnabled && t.kind === 'expense' && t.reimbursable === 1
-  const isManuallySettled = reimbursementSummary?.status === 'manually_settled'
 
   return (
     <div
@@ -96,35 +95,33 @@ export function TransactionRow({
             <Icon name={paymentMethodIcon(t.method)} size={10} /> {paymentMethodLabel(t.method)}
           </Chip>
           {recurringEnabled && t.recurringId && <Chip tone="recurring"><Icon name="repeat" size={10} /> recurring</Chip>}
-          {divorceEnabled && reimbursementSummary && (
-            <Chip tone={reimbursementSummary.status === 'reimbursed' || reimbursementSummary.status === 'fully_allocated' || reimbursementSummary.status === 'manually_settled' ? 'recurring' : 'scheduled'}>
-              {reimbursementSummary.label}
-            </Chip>
+          {groupsEnabled && movementLink && (
+            <Chip tone="recurring"><Icon name="users" size={10} /> {movementLink.groupName}</Chip>
           )}
         </div>
       </div>
       <div style={{ fontSize: 14, fontWeight: 600, color: t.kind === 'income' ? 'var(--sage-ink)' : 'var(--rose-ink)', fontFamily: 'var(--mono-fern)', flexShrink: 0 }}>
         {t.kind === 'income' ? '+' : '−'}{fmt(Math.abs(t.amount ?? 0))}
       </div>
-      {!selectionMode && showManualSettlementAction && (
+      {!selectionMode && groupsEnabled && !isPlanned && (
         <button
-          title={isManuallySettled ? 'Clear manual settlement' : 'Manually settle reimbursement'}
-          onClick={(e) => { e.stopPropagation(); onSettle() }}
+          title={movementLink ? `Allocated to ${movementLink.groupName}` : 'Allocate to a group'}
+          onClick={(e) => { e.stopPropagation(); onAllocate() }}
           style={{
             flexShrink: 0,
             width: 20,
             height: 20,
             borderRadius: 6,
-            border: isManuallySettled ? 'none' : '1.5px solid var(--line)',
-            background: isManuallySettled ? 'var(--sage-bg)' : 'transparent',
-            color: isManuallySettled ? 'var(--sage-ink)' : 'var(--ink-faint)',
+            border: movementLink ? 'none' : '1.5px dashed var(--line)',
+            background: movementLink ? 'var(--sage-bg)' : 'transparent',
+            color: movementLink ? 'var(--sage-ink)' : 'var(--ink-faint)',
             display: 'grid',
             placeItems: 'center',
             cursor: 'pointer',
             padding: 0,
           }}
         >
-          <Icon name={isManuallySettled ? 'x' : 'check'} size={12} />
+          <Icon name="users" size={12} />
         </button>
       )}
       {!selectionMode && recurringEnabled && (

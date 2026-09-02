@@ -33,6 +33,12 @@ export const zCurrency = z.enum(CURRENCIES)
 export const zPriority = z.enum(['must', 'should', 'nice'])
 export const zTaxAllocation = z.enum(['audrey', 'lucie', 'split'])
 
+/** A percentage 0..100. */
+export const zPercent = z.number().finite('Percent must be a number').min(0).max(100)
+export const zGroupEntryDirection = z.enum(['expense', 'income'])
+export const zGroupReimbursementDirection = z.enum(['paid', 'received'])
+export const zGroupStatementScope = z.enum(['member', 'group'])
+
 /** 0 | 1 integer flags as stored in SQLite. */
 export const zFlag = z.union([z.literal(0), z.literal(1)])
 

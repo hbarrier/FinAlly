@@ -10,7 +10,8 @@ import { parse, zName, zCurrency, zSignedAmount } from '../schemas'
 
 const zModules = z.object({
   recurring: z.boolean(),
-  divorce: z.boolean(),
+  groups: z.boolean(),
+  taxstatus: z.boolean(),
   budgets: z.boolean(),
   simulations: z.boolean(),
   objectives: z.boolean(),
@@ -19,7 +20,8 @@ const zModules = z.object({
 function moduleFlags(modules: Modules) {
   return {
     moduleRecurring: modules.recurring ? 1 : 0,
-    moduleDivorce: modules.divorce ? 1 : 0,
+    moduleGroups: modules.groups ? 1 : 0,
+    moduleTaxstatus: modules.taxstatus ? 1 : 0,
     moduleBudgets: modules.budgets ? 1 : 0,
     moduleSimulations: modules.simulations ? 1 : 0,
     moduleObjectives: modules.objectives ? 1 : 0,

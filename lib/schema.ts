@@ -293,7 +293,8 @@ export const userSettings = sqliteTable('user_settings', {
   currency: text('currency').notNull().default('EUR'),
   onboarded: int('onboarded').notNull().default(0),
   moduleRecurring: int('module_recurring').notNull().default(1),
-  moduleDivorce: int('module_divorce').notNull().default(0),
+  moduleGroups: int('module_groups').notNull().default(0),
+  moduleTaxstatus: int('module_taxstatus').notNull().default(0),
   moduleBudgets: int('module_budgets').notNull().default(0),
   moduleSimulations: int('module_simulations').notNull().default(0),
   moduleObjectives: int('module_objectives').notNull().default(0),
@@ -393,3 +394,256 @@ export const reimbursementAllocations = sqliteTable(
     index('reimbursement_allocations_expense_tx_id_idx').on(t.expenseTxId),
   ],
 )
+
+// --- groups (generic shared-expense groups) ---
+export const groups = sqliteTable('groups', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  description: text('description'),
+  settlementDelayDays: int('settlement_delay_days'),
+  isActive: int('is_active').notNull().default(1),
+  createdAt: text('created_at')
+    .notNull()
+    .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
+})
+
+// --- group members (the app user + others; exactly one is_self per group) ---
+export const groupMembers = sqliteTable(
+  'group_members',
+  {
+    id: text('id').primaryKey(),
+    groupId: text('group_id')
+      .notNull()
+      .references(() => groups.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    isSelf: int('is_self').notNull().default(0),
+    sortOrder: int('sort_order').notNull().default(0),
+    createdAt: text('created_at')
+      .notNull()
+      .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
+  },
+  (t) => [
+    index('group_members_group_id_idx').on(t.groupId),
+    uniqueIndex('group_members_group_self_unique').on(t.groupId).where(sql`${t.isSelf} = 1`),
+  ],
+)
+
+// --- group member shares (time-versioned % split; active %s sum to 100) ---
+export const groupMemberShares = sqliteTable(
+  'group_member_shares',
+  {
+    id: text('id').primaryKey(),
+    groupId: text('group_id')
+      .notNull()
+      .references(() => groups.id, { onDelete: 'cascade' }),
+    memberId: text('member_id')
+      .notNull()
+      .references(() => groupMembers.id, { onDelete: 'cascade' }),
+    percent: real('percent').notNull(),
+    startDate: text('start_date').notNull(),
+    endDate: text('end_date'),
+    createdAt: text('created_at')
+      .notNull()
+      .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
+  },
+  (t) => [
+    index('group_member_shares_group_id_idx').on(t.groupId),
+    index('group_member_shares_member_id_idx').on(t.memberId),
+  ],
+)
+
+// --- group entries (shared expenses / shared revenues) ---
+export const groupEntries = sqliteTable(
+  'group_entries',
+  {
+    id: text('id').primaryKey(),
+    groupId: text('group_id')
+      .notNull()
+      .references(() => groups.id, { onDelete: 'cascade' }),
+    date: text('date').notNull(),
+    amount: real('amount').notNull(),
+    direction: text('direction', { enum: ['expense', 'income'] })
+      .notNull()
+      .default('expense'),
+    description: text('description'),
+    payerId: text('payer_id')
+      .notNull()
+      .references(() => groupMembers.id, { onDelete: 'cascade' }),
+    transactionId: text('transaction_id').references(() => transactions.id, {
+      onDelete: 'set null',
+    }),
+    /** 1 = this entry created its linked transaction (delete it together); 0 = an existing movement was allocated. */
+    ownsTransaction: int('owns_transaction').notNull().default(1),
+    involvesAll: int('involves_all').notNull().default(1),
+    createdAt: text('created_at')
+      .notNull()
+      .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
+  },
+  (t) => [
+    index('group_entries_group_id_idx').on(t.groupId),
+    index('group_entries_group_date_idx').on(t.groupId, t.date),
+    uniqueIndex('group_entries_transaction_id_unique')
+      .on(t.transactionId)
+      .where(sql`${t.transactionId} is not null`),
+  ],
+)
+
+// --- group entry participants (rows only when involves_all = 0) ---
+export const groupEntryParticipants = sqliteTable(
+  'group_entry_participants',
+  {
+    id: text('id').primaryKey(),
+    entryId: text('entry_id')
+      .notNull()
+      .references(() => groupEntries.id, { onDelete: 'cascade' }),
+    memberId: text('member_id')
+      .notNull()
+      .references(() => groupMembers.id, { onDelete: 'cascade' }),
+  },
+  (t) => [
+    unique('group_entry_participants_entry_member_unique').on(t.entryId, t.memberId),
+    index('group_entry_participants_entry_id_idx').on(t.entryId),
+  ],
+)
+
+// --- group entry overrides (fixed amount for one member on one entry) ---
+export const groupEntryOverrides = sqliteTable(
+  'group_entry_overrides',
+  {
+    id: text('id').primaryKey(),
+    entryId: text('entry_id')
+      .notNull()
+      .references(() => groupEntries.id, { onDelete: 'cascade' }),
+    memberId: text('member_id')
+      .notNull()
+      .references(() => groupMembers.id, { onDelete: 'cascade' }),
+    amount: real('amount').notNull(),
+    comment: text('comment'),
+  },
+  (t) => [
+    unique('group_entry_overrides_entry_member_unique').on(t.entryId, t.memberId),
+    index('group_entry_overrides_entry_id_idx').on(t.entryId),
+  ],
+)
+
+// --- group statements (settle-up documents with a due date) ---
+export const groupStatements = sqliteTable(
+  'group_statements',
+  {
+    id: text('id').primaryKey(),
+    groupId: text('group_id')
+      .notNull()
+      .references(() => groups.id, { onDelete: 'cascade' }),
+    scope: text('scope', { enum: ['member', 'group'] }).notNull(),
+    memberId: text('member_id').references(() => groupMembers.id, {
+      onDelete: 'set null',
+    }),
+    periodFrom: text('period_from').notNull(),
+    periodTo: text('period_to').notNull(),
+    dueDate: text('due_date'),
+    settledAt: text('settled_at'),
+    note: text('note'),
+    createdAt: text('created_at')
+      .notNull()
+      .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
+  },
+  (t) => [index('group_statements_group_id_idx').on(t.groupId)],
+)
+
+// --- group reimbursements (real money moved between the user and a member) ---
+export const groupReimbursements = sqliteTable(
+  'group_reimbursements',
+  {
+    id: text('id').primaryKey(),
+    groupId: text('group_id')
+      .notNull()
+      .references(() => groups.id, { onDelete: 'cascade' }),
+    date: text('date').notNull(),
+    amount: real('amount').notNull(),
+    direction: text('direction', { enum: ['paid', 'received'] }).notNull(),
+    memberId: text('member_id')
+      .notNull()
+      .references(() => groupMembers.id, { onDelete: 'cascade' }),
+    transactionId: text('transaction_id').references(() => transactions.id, {
+      onDelete: 'set null',
+    }),
+    /** 1 = this reimbursement created its linked transaction; 0 = an existing movement was allocated. */
+    ownsTransaction: int('owns_transaction').notNull().default(1),
+    statementId: text('statement_id').references(() => groupStatements.id, {
+      onDelete: 'set null',
+    }),
+    note: text('note'),
+    createdAt: text('created_at')
+      .notNull()
+      .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
+  },
+  (t) => [
+    index('group_reimbursements_group_id_idx').on(t.groupId),
+    index('group_reimbursements_member_id_idx').on(t.memberId),
+    uniqueIndex('group_reimbursements_transaction_id_unique')
+      .on(t.transactionId)
+      .where(sql`${t.transactionId} is not null`),
+  ],
+)
+
+export const groupsRelations = relations(groups, ({ many }) => ({
+  members: many(groupMembers),
+  shares: many(groupMemberShares),
+  entries: many(groupEntries),
+  statements: many(groupStatements),
+  reimbursements: many(groupReimbursements),
+}))
+
+export const groupMembersRelations = relations(groupMembers, ({ one }) => ({
+  group: one(groups, { fields: [groupMembers.groupId], references: [groups.id] }),
+}))
+
+export const groupMemberSharesRelations = relations(groupMemberShares, ({ one }) => ({
+  group: one(groups, { fields: [groupMemberShares.groupId], references: [groups.id] }),
+  member: one(groupMembers, {
+    fields: [groupMemberShares.memberId],
+    references: [groupMembers.id],
+  }),
+}))
+
+export const groupEntriesRelations = relations(groupEntries, ({ one, many }) => ({
+  group: one(groups, { fields: [groupEntries.groupId], references: [groups.id] }),
+  payer: one(groupMembers, { fields: [groupEntries.payerId], references: [groupMembers.id] }),
+  participants: many(groupEntryParticipants),
+  overrides: many(groupEntryOverrides),
+}))
+
+export const groupEntryParticipantsRelations = relations(groupEntryParticipants, ({ one }) => ({
+  entry: one(groupEntries, {
+    fields: [groupEntryParticipants.entryId],
+    references: [groupEntries.id],
+  }),
+}))
+
+export const groupEntryOverridesRelations = relations(groupEntryOverrides, ({ one }) => ({
+  entry: one(groupEntries, {
+    fields: [groupEntryOverrides.entryId],
+    references: [groupEntries.id],
+  }),
+}))
+
+export const groupStatementsRelations = relations(groupStatements, ({ one, many }) => ({
+  group: one(groups, { fields: [groupStatements.groupId], references: [groups.id] }),
+  member: one(groupMembers, {
+    fields: [groupStatements.memberId],
+    references: [groupMembers.id],
+  }),
+  reimbursements: many(groupReimbursements),
+}))
+
+export const groupReimbursementsRelations = relations(groupReimbursements, ({ one }) => ({
+  group: one(groups, { fields: [groupReimbursements.groupId], references: [groups.id] }),
+  member: one(groupMembers, {
+    fields: [groupReimbursements.memberId],
+    references: [groupMembers.id],
+  }),
+  statement: one(groupStatements, {
+    fields: [groupReimbursements.statementId],
+    references: [groupStatements.id],
+  }),
+}))

@@ -32,6 +32,21 @@ export function parseLocalDate(iso: string): Date {
   return new Date(y, m - 1, d)
 }
 
+/** `'YYYY-MM-DD'` shifted by `n` days (negative = earlier). */
+export function addDays(iso: string, n: number): string {
+  const [y, m, d] = iso.slice(0, 10).split('-').map(Number)
+  const base = new Date(y, m - 1, d + n)
+  return `${base.getFullYear()}-${pad2(base.getMonth() + 1)}-${pad2(base.getDate())}`
+}
+
+/** `'YYYY-MM-DD'` shifted by `n` months, clamping the day to month length. */
+export function addMonthsToDate(iso: string, n: number): string {
+  const [y, m, d] = iso.slice(0, 10).split('-').map(Number)
+  const lastDay = new Date(y, m - 1 + n + 1, 0).getDate()
+  const base = new Date(y, m - 1 + n, Math.min(d, lastDay))
+  return `${base.getFullYear()}-${pad2(base.getMonth() + 1)}-${pad2(base.getDate())}`
+}
+
 /** `'YYYY-MM'` shifted by `n` months (negative = earlier). */
 export function addMonths(month: string, n: number): string {
   const [y, m] = month.split('-').map(Number)

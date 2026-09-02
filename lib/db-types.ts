@@ -20,6 +20,14 @@ import type {
   taxAllocations,
   simulations,
   simulationLines,
+  groups,
+  groupMembers,
+  groupMemberShares,
+  groupEntries,
+  groupEntryParticipants,
+  groupEntryOverrides,
+  groupStatements,
+  groupReimbursements,
 } from './schema'
 
 export type Category = InferSelectModel<typeof categories>
@@ -33,7 +41,13 @@ export type BudgetWithLines = Budget & { lines: BudgetLine[] }
 export type Goal = InferSelectModel<typeof goals>
 export type UserSettings = InferSelectModel<typeof userSettings>
 
-export type ModuleKey = 'recurring' | 'divorce' | 'budgets' | 'simulations' | 'objectives'
+export type ModuleKey =
+  | 'recurring'
+  | 'groups'
+  | 'taxstatus'
+  | 'budgets'
+  | 'simulations'
+  | 'objectives'
 export type Modules = Record<ModuleKey, boolean>
 export type MonthlyOpeningBalance = InferSelectModel<typeof monthlyOpeningBalances>
 export type ReimbursementRate = InferSelectModel<typeof reimbursementRates>
@@ -56,6 +70,22 @@ export type SimulationLine = InferSelectModel<typeof simulationLines>
 export type SimulationWithLines = Simulation & { lines: SimulationLine[] }
 export type SimulationLineFrequency = SimulationLine['frequency']
 export type SimulationLinePriority = SimulationLine['priority']
+
+export type Group = InferSelectModel<typeof groups>
+export type GroupMember = InferSelectModel<typeof groupMembers>
+export type GroupMemberShare = InferSelectModel<typeof groupMemberShares>
+export type GroupEntry = InferSelectModel<typeof groupEntries>
+export type GroupEntryParticipant = InferSelectModel<typeof groupEntryParticipants>
+export type GroupEntryOverride = InferSelectModel<typeof groupEntryOverrides>
+export type GroupStatement = InferSelectModel<typeof groupStatements>
+export type GroupReimbursement = InferSelectModel<typeof groupReimbursements>
+export type GroupEntryDirection = GroupEntry['direction']
+export type GroupReimbursementDirection = GroupReimbursement['direction']
+export type GroupStatementScope = GroupStatement['scope']
+export type GroupEntryWithParts = GroupEntry & {
+  participants: GroupEntryParticipant[]
+  overrides: GroupEntryOverride[]
+}
 
 /** The wizard inputs a simulation was seeded from — validated by `simulationInputsSchema`. */
 export type SimulationInputs = z.infer<typeof simulationInputsSchema>

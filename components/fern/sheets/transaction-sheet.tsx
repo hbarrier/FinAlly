@@ -25,7 +25,6 @@ const transactionSchema = z.object({
   categoryId: z.string().min(1, 'Pick a category'),
   merchantId: z.string().nullable(),
   note: z.string(),
-  reimbursable: z.boolean(),
 })
 
 type TransactionFormValues = z.infer<typeof transactionSchema>
@@ -50,7 +49,6 @@ function getDefaultValues(item?: Transaction | null, prefill?: PrefillValues | n
     categoryId: item?.categoryId ?? prefill?.categoryId ?? '',
     merchantId: item?.merchantId ?? prefill?.merchantId ?? null,
     note: item?.note ?? prefill?.note ?? '',
-    reimbursable: item?.reimbursable === 1,
   }
 }
 
@@ -60,7 +58,6 @@ interface TransactionSheetProps {
   categories: Category[]
   merchants: Merchant[]
   item?: Transaction | null
-  showReimbursable?: boolean
   prefill?: (PrefillValues & { method?: PaymentMethod }) | null
   onSave: (data: {
     date: string
@@ -70,7 +67,6 @@ interface TransactionSheetProps {
     categoryId: string | null
     merchantId: string | null
     note: string | null
-    reimbursable: number
   }) => void
   onDelete?: () => void
 }
@@ -81,7 +77,6 @@ export function TransactionSheet({
   categories,
   merchants,
   item,
-  showReimbursable = false,
   prefill,
   onSave,
   onDelete,
@@ -125,7 +120,6 @@ export function TransactionSheet({
       categoryId: data.categoryId,
       merchantId: data.merchantId,
       note: data.note.trim() || null,
-      reimbursable: showReimbursable && data.kind === 'expense' && data.reimbursable ? 1 : 0,
     })
     onClose()
   }
@@ -313,26 +307,6 @@ export function TransactionSheet({
         <input className="fern-input" placeholder="What was this for?" {...register('note')} />
       </div>
 
-      {showReimbursable && watchedKind === 'expense' && (
-        <Controller
-          control={control}
-          name="reimbursable"
-          render={({ field }) => (
-            <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', padding: '10px 14px', background: field.value ? 'var(--teal-bg)' : 'var(--bg-sunken)', borderRadius: 10, transition: 'background 0.15s' }}>
-              <input
-                type="checkbox"
-                checked={field.value}
-                onChange={(e) => field.onChange(e.target.checked)}
-                style={{ width: 16, height: 16, accentColor: 'var(--teal)', cursor: 'pointer' }}
-              />
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: field.value ? 'var(--teal-ink)' : 'var(--ink)' }}>Remboursable</div>
-                <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>À saisir dans la vue Remboursements</div>
-              </div>
-            </label>
-          )}
-        />
-      )}
     </SheetShell>
   )
 }

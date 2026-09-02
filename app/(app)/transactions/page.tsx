@@ -3,16 +3,9 @@ import { db } from '@/lib/db'
 
 export const metadata: Metadata = { title: 'Transactions | FinAlly' }
 import { asc, desc, eq, sql, and, gte, lte } from 'drizzle-orm'
-import { transactions, merchants, reimbursementAllocations, reimbursementClaimAllocations, reimbursementRates, recurringAmounts, recurringInstances } from '@/lib/schema'
-import {
-  expenseReimbursementStatusLabel,
-  getExpenseReimbursementSummary,
-  getIncomeReimbursementSummary,
-  incomeReimbursementStatusLabel,
-} from '@/lib/reimbursement-mapping'
-import { indexReimbursementAllocations } from '@/lib/queries/reimbursement-allocations'
+import { transactions, merchants, recurringAmounts, recurringInstances } from '@/lib/schema'
+import { getMovementGroupLinks, getGroupList } from '@/lib/queries/groups'
 import { TransactionsClient } from './transactions-client'
-import { REIMBURSEMENT_CATEGORY_NAME } from '@/lib/utils'
 import { getModules } from '@/lib/queries/user-settings'
 
 export default async function TransactionsPage({
@@ -80,9 +73,6 @@ export default async function TransactionsPage({
     recurringList,
     instancesList,
     yearsResult,
-    rates,
-    allocations,
-    claimAllocationRows,
     budget,
   ] = await Promise.all([
     db.query.categories.findMany(),
@@ -104,17 +94,6 @@ export default async function TransactionsPage({
       .from(transactions)
       .groupBy(sql`substr(${transactions.date}, 1, 4)`)
       .orderBy(sql`substr(${transactions.date}, 1, 4) DESC`),
-    modules.divorce
-      ? db.select().from(reimbursementRates).orderBy(desc(reimbursementRates.startDate))
-      : Promise.resolve([]),
-    modules.divorce
-      ? db.select().from(reimbursementAllocations).where(
-          and(gte(reimbursementAllocations.createdAt, yearStart), lte(reimbursementAllocations.createdAt, yearEnd + 'T23:59:59Z'))
-        )
-      : Promise.resolve([]),
-    modules.divorce
-      ? db.select({ reimbursementTxId: reimbursementClaimAllocations.reimbursementTxId }).from(reimbursementClaimAllocations)
-      : Promise.resolve([]),
     modules.budgets
       ? db.query.budgets.findFirst({ with: { lines: true } })
       : Promise.resolve(undefined),
@@ -134,50 +113,15 @@ export default async function TransactionsPage({
       })
 
   const years = yearsResult.map((r) => r.year)
-  const reimbursementCategoryIds = new Set(
-    cats
-      .filter((c) => c.kind === 'income' && c.name === REIMBURSEMENT_CATEGORY_NAME)
-      .map((c) => c.id),
-  )
   const merchantById = new Map(merchantsList.map((m) => [m.id, m]))
   const categoryById = new Map(cats.map((c) => [c.id, c]))
 
-  const { allocationsByReimbursementTxId, allocationsByExpenseTxId } =
-    indexReimbursementAllocations(allocations)
-
-  const claimedIncomeTxIds = new Set(claimAllocationRows.map((r) => r.reimbursementTxId))
-
-  const reimbursementSummaries: Record<string, { status: string; label: string }> = {}
-  const reimbursementMappingCounts: Record<string, number> = {}
-  for (const allocation of allocations) {
-    reimbursementMappingCounts[allocation.reimbursementTxId] =
-      (reimbursementMappingCounts[allocation.reimbursementTxId] ?? 0) + 1
-    reimbursementMappingCounts[allocation.expenseTxId] =
-      (reimbursementMappingCounts[allocation.expenseTxId] ?? 0) + 1
-  }
-
-  for (const txn of modules.divorce ? txns : []) {
-    if (txn.kind === 'income' && txn.categoryId && reimbursementCategoryIds.has(txn.categoryId)) {
-      const summary = getIncomeReimbursementSummary(
-        txn,
-        allocationsByReimbursementTxId.get(txn.id) ?? [],
-      )
-      const status = summary.status === 'unmapped' && claimedIncomeTxIds.has(txn.id)
-        ? 'claim_linked' as const
-        : summary.status
-      reimbursementSummaries[txn.id] = { status, label: incomeReimbursementStatusLabel(status) }
-    }
-
-    if (txn.kind === 'expense' && txn.reimbursable === 1) {
-      const summary = getExpenseReimbursementSummary(
-        txn,
-        rates,
-        allocationsByExpenseTxId.get(txn.id) ?? [],
-      )
-      const status = summary.status
-      reimbursementSummaries[txn.id] = { status, label: expenseReimbursementStatusLabel(status) }
-    }
-  }
+  const [movementLinks, activeGroups] = modules.groups
+    ? await Promise.all([
+        getMovementGroupLinks(txns.map((t) => t.id)),
+        getGroupList().then((gs) => gs.filter((g) => g.isActive === 1)),
+      ])
+    : [{}, []]
 
   return (
     <TransactionsClient
@@ -186,10 +130,10 @@ export default async function TransactionsPage({
       merchants={merchantsList}
       recurring={recurringList}
       instances={instancesList}
-      reimbursementSummaries={reimbursementSummaries}
-      reimbursementMappingCounts={reimbursementMappingCounts}
+      groups={activeGroups}
+      movementLinks={movementLinks}
       recurringEnabled={modules.recurring}
-      divorceEnabled={modules.divorce}
+      groupsEnabled={modules.groups}
       budgetEnabled={modules.budgets}
       budget={budget ?? null}
       initialMerchantId={merchant ?? 'all'}

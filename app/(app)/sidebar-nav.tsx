@@ -25,10 +25,11 @@ const NAV: NavSection[] = [
     ],
   },
   {
-    title: 'Divorce',
+    title: 'Groups',
     items: [
-      { href: '/reimbursements', label: 'Reimbursements', icon: 'receipt', module: 'divorce' },
-      { href: '/tax-status', label: 'Tax Status', icon: 'fileText', module: 'divorce' },
+      { href: '/groups', label: 'Groups', icon: 'users', module: 'groups' },
+      { href: '/reimbursements', label: 'Reimbursements', icon: 'receipt', module: 'groups' },
+      { href: '/tax-status', label: 'Tax Status', icon: 'fileText', module: 'taxstatus' },
     ],
   },
   {
