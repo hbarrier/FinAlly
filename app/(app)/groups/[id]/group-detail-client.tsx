@@ -19,11 +19,13 @@ import { confirmDialog } from '@/lib/dialogs-store'
 import { todayISO } from '@/lib/dates'
 import { useServerAction } from '@/hooks/use-server-action'
 import {
+  groupBalanceInput,
   statementBalances,
   statementStatus,
   type GroupBalances,
+  type GroupEntryFull,
 } from '@/lib/group-math'
-import { groupBalanceInput, type GroupDetail, type GroupEntryFull } from '@/lib/queries/groups'
+import type { GroupDetail } from '@/lib/queries/groups'
 import type { Category, GroupMember, GroupReimbursement } from '@/lib/db-types'
 import {
   updateGroup,

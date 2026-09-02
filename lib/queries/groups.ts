@@ -3,22 +3,21 @@ import { db } from '@/lib/db'
 import { eq, inArray } from 'drizzle-orm'
 import { groups, groupEntries, groupReimbursements, transactions } from '@/lib/schema'
 import type { PaymentMethod } from '@/lib/payment-method'
-import { computeGroupBalances, type GroupBalances } from '@/lib/group-math'
+import {
+  computeGroupBalances,
+  groupBalanceInput,
+  type GroupBalances,
+  type GroupEntryFull,
+} from '@/lib/group-math'
 import type {
   Group,
   GroupMember,
   GroupMemberShare,
-  GroupEntry,
-  GroupEntryParticipant,
-  GroupEntryOverride,
   GroupReimbursement,
   GroupStatement,
 } from '@/lib/db-types'
 
-export type GroupEntryFull = GroupEntry & {
-  participants: GroupEntryParticipant[]
-  overrides: GroupEntryOverride[]
-}
+export { groupBalanceInput, type GroupEntryFull }
 
 export type LinkedTxMeta = { categoryId: string | null; method: PaymentMethod }
 
@@ -39,40 +38,6 @@ const withAll = {
   reimbursements: true,
   statements: true,
 } as const
-
-/** Maps a group's rows into the pure `computeGroupBalances` input shape. */
-export function groupBalanceInput(g: {
-  members: GroupMember[]
-  shares: GroupMemberShare[]
-  entries: GroupEntryFull[]
-  reimbursements: GroupReimbursement[]
-}) {
-  return {
-    members: g.members.map((m) => ({ id: m.id, isSelf: m.isSelf === 1 })),
-    shares: g.shares.map((s) => ({
-      memberId: s.memberId,
-      percent: s.percent,
-      startDate: s.startDate,
-      endDate: s.endDate,
-    })),
-    entries: g.entries.map((e) => ({
-      id: e.id,
-      date: e.date,
-      amount: e.amount,
-      direction: e.direction,
-      payerId: e.payerId,
-      involvesAll: e.involvesAll === 1,
-      participantMemberIds: e.participants.map((p) => p.memberId),
-      overrides: e.overrides.map((o) => ({ memberId: o.memberId, amount: o.amount })),
-    })),
-    reimbursements: g.reimbursements.map((r) => ({
-      date: r.date,
-      amount: r.amount,
-      direction: r.direction,
-      memberId: r.memberId,
-    })),
-  }
-}
 
 export function balancesFor(g: GroupDetail): GroupBalances {
   return computeGroupBalances(groupBalanceInput(g))

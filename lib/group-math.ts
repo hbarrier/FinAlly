@@ -8,6 +8,14 @@
  */
 
 import { addMonthsToDate } from './dates'
+import type {
+  GroupMember,
+  GroupMemberShare,
+  GroupEntry,
+  GroupEntryParticipant,
+  GroupEntryOverride,
+  GroupReimbursement,
+} from './db-types'
 
 export type MemberLike = { id: string; isSelf: boolean }
 
@@ -58,6 +66,45 @@ export type GroupBalances = {
 export type StatementStatus = {
   tone: 'green' | 'orange' | 'red' | 'neutral'
   label: string
+}
+
+export type GroupEntryFull = GroupEntry & {
+  participants: GroupEntryParticipant[]
+  overrides: GroupEntryOverride[]
+}
+
+/** Maps a group's rows into the pure `computeGroupBalances` input shape. */
+export function groupBalanceInput(g: {
+  members: GroupMember[]
+  shares: GroupMemberShare[]
+  entries: GroupEntryFull[]
+  reimbursements: GroupReimbursement[]
+}) {
+  return {
+    members: g.members.map((m) => ({ id: m.id, isSelf: m.isSelf === 1 })),
+    shares: g.shares.map((s) => ({
+      memberId: s.memberId,
+      percent: s.percent,
+      startDate: s.startDate,
+      endDate: s.endDate,
+    })),
+    entries: g.entries.map((e) => ({
+      id: e.id,
+      date: e.date,
+      amount: e.amount,
+      direction: e.direction,
+      payerId: e.payerId,
+      involvesAll: e.involvesAll === 1,
+      participantMemberIds: e.participants.map((p) => p.memberId),
+      overrides: e.overrides.map((o) => ({ memberId: o.memberId, amount: o.amount })),
+    })),
+    reimbursements: g.reimbursements.map((r) => ({
+      date: r.date,
+      amount: r.amount,
+      direction: r.direction,
+      memberId: r.memberId,
+    })),
+  }
 }
 
 const EPSILON = 0.005
