@@ -3,7 +3,7 @@
 import { Icon } from '@/components/fern/icon'
 import { CatSwatch } from '@/components/fern/cat-swatch'
 import { Chip } from '@/components/fern/chip'
-import { fmt, isPlannedDate, type Category, type Transaction } from '@/lib/derive'
+import { fmt, isPlannedDate, creditSignedAmount, type Category, type Transaction } from '@/lib/derive'
 import { paymentMethodLabel, type PaymentMethod } from '@/lib/payment-method'
 import type { Merchant } from '@/lib/db-types'
 import type { MovementGroupLink } from '@/lib/queries/groups'
@@ -23,6 +23,7 @@ interface TransactionRowProps {
   t: Transaction
   cat: Category | undefined
   merchant: Merchant | undefined
+  savingAccountName: string | undefined
   selectionMode: boolean
   isSelected: boolean
   reimbursementSummary: { status: string; label: string } | undefined
@@ -40,6 +41,7 @@ export function TransactionRow({
   t,
   cat,
   merchant,
+  savingAccountName,
   selectionMode,
   isSelected,
   reimbursementSummary,
@@ -88,7 +90,13 @@ export function TransactionRow({
           {t.note ?? merchant?.name ?? cat?.name ?? 'Transaction'}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
-          <span style={{ fontSize: 12, color: 'var(--ink-faint)' }}>{cat?.name ?? 'Uncategorized'}</span>
+          {t.kind === 'saving' && savingAccountName ? (
+            <span style={{ fontSize: 12, color: 'var(--ink-faint)' }}>
+              {t.destSavingAccountId ? 'To' : 'From'} {savingAccountName}
+            </span>
+          ) : (
+            <span style={{ fontSize: 12, color: 'var(--ink-faint)' }}>{cat?.name ?? 'Uncategorized'}</span>
+          )}
           {merchant && <span style={{ fontSize: 11, color: 'var(--ink-faint)' }}>· {merchant.name}</span>}
           {isPlanned && (
             <Chip tone="scheduled">
@@ -109,9 +117,14 @@ export function TransactionRow({
           )}
         </div>
       </div>
-      <div style={{ fontSize: 14, fontWeight: 600, color: t.kind === 'income' ? 'var(--sage-ink)' : 'var(--rose-ink)', fontFamily: 'var(--mono-fern)', flexShrink: 0 }}>
-        {t.kind === 'income' ? '+' : '−'}{fmt(Math.abs(t.amount ?? 0))}
-      </div>
+      {(() => {
+        const signed = t.kind === 'saving' ? creditSignedAmount(t) : (t.kind === 'income' ? 1 : -1) * Number(t.amount ?? 0)
+        return (
+          <div style={{ fontSize: 14, fontWeight: 600, color: signed >= 0 ? 'var(--sage-ink)' : 'var(--rose-ink)', fontFamily: 'var(--mono-fern)', flexShrink: 0 }}>
+            {signed >= 0 ? '+' : '−'}{fmt(Math.abs(t.amount ?? 0))}
+          </div>
+        )
+      })()}
       {!selectionMode && groupsEnabled && !isPlanned && (
         <button
           title={movementLink ? `Allocated to ${movementLink.groupName}` : 'Allocate to a group'}

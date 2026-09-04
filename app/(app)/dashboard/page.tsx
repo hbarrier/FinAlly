@@ -7,6 +7,7 @@ import { transactions, recurringInstances } from '@/lib/schema'
 import { DashboardClient } from './dashboard-client'
 import { getUserSettings, getModules } from '@/lib/queries/user-settings'
 import { getMonthOpeningBalance } from '@/lib/queries/opening-balance'
+import { listSavingAccounts, getSavingAccountBalances } from '@/lib/queries/saving-accounts'
 
 export default async function DashboardPage() {
   const now = new Date()
@@ -24,7 +25,7 @@ export default async function DashboardPage() {
 
   const modules = await getModules()
 
-  const [settings, allTxns, recurringItems, cats, merchantsList, monthInstances] = await Promise.all([
+  const [settings, allTxns, recurringItems, cats, merchantsList, monthInstances, savingAccounts, savingBalances] = await Promise.all([
     getUserSettings(),
     db.query.transactions.findMany({
       where: and(gte(transactions.date, histStart), lt(transactions.date, nextMonthStart)),
@@ -36,6 +37,8 @@ export default async function DashboardPage() {
     modules.recurring
       ? db.select().from(recurringInstances).where(eq(recurringInstances.month, monthKey))
       : Promise.resolve([]),
+    listSavingAccounts(),
+    getSavingAccountBalances(),
   ])
 
   const fallbackSettings = { id: 1, name: 'You', startingBalance: 0, currency: 'EUR' }
@@ -61,6 +64,10 @@ export default async function DashboardPage() {
       categories={cats}
       merchants={merchantsList}
       instances={monthInstances}
+      savingAccounts={savingAccounts.map((a) => ({
+        ...a,
+        balance: savingBalances.get(a.id) ?? a.startBalance,
+      }))}
       recurringEnabled={modules.recurring}
       divorceEnabled={modules.divorce}
     />

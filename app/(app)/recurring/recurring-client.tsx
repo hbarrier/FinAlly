@@ -3,7 +3,7 @@
 import { useMemo, useState, useTransition } from 'react'
 import { Icon } from '@/components/fern/icon'
 import { CatSwatch } from '@/components/fern/cat-swatch'
-import { RecurringSheet } from '@/components/fern/sheets/recurring-sheet'
+import { RecurringSheet, type RecurringSheetSave } from '@/components/fern/sheets/recurring-sheet'
 import { PageHeader } from '@/components/fern/page-header'
 import { FernButton } from '@/components/fern/button'
 import { EmptyState } from '@/components/fern/empty-state'
@@ -11,7 +11,7 @@ import { fmt, monthlyEstimate, type Category, type RecurringWithAmounts } from '
 import { addRecurring, updateRecurring, deleteRecurring } from '@/lib/actions/recurring'
 import { runAction } from '@/lib/utils'
 import { confirmDialog } from '@/lib/dialogs-store'
-import type { Merchant } from '@/lib/db-types'
+import type { Merchant, SavingAccount } from '@/lib/db-types'
 
 const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
@@ -19,24 +19,27 @@ interface RecurringClientProps {
   recurring: RecurringWithAmounts[]
   categories: Category[]
   merchants: Merchant[]
+  savingAccounts: SavingAccount[]
   transactionsByRecurring: Record<string, { date: string; amount: number }[]>
 }
 
-export function RecurringClient({ recurring, categories, merchants, transactionsByRecurring }: RecurringClientProps) {
+export function RecurringClient({ recurring, categories, merchants, savingAccounts, transactionsByRecurring }: RecurringClientProps) {
   const [editing, setEditing] = useState<string | 'new' | null>(null)
   const [, startTransition] = useTransition()
 
   const bills = recurring.filter((r) => r.kind === 'expense')
   const incomes = recurring.filter((r) => r.kind === 'income')
+  const savings = recurring.filter((r) => r.kind === 'saving')
   const monthlyOut = bills.reduce((s, r) => s + monthlyEstimate(r), 0)
   const monthlyIn = incomes.reduce((s, r) => s + monthlyEstimate(r), 0)
 
   const editingItem = editing && editing !== 'new' ? recurring.find((r) => r.id === editing) : null
 
-  const handleSave = async (data: Parameters<typeof addRecurring>[0]) => {
+  const handleSave = async (data: RecurringSheetSave) => {
     startTransition(runAction(async () => {
       if (editing && editing !== 'new') {
-        await updateRecurring(editing, data)
+        const { kind, ...rest } = data
+        await updateRecurring(editing, kind === 'saving' ? rest : data)
       } else {
         await addRecurring(data)
       }
@@ -99,6 +102,9 @@ export function RecurringClient({ recurring, categories, merchants, transactions
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
           <RecurringSection title="Bills & subscriptions" items={bills} categories={categories} onEdit={(id) => setEditing(id)} onDelete={handleDelete} />
           <RecurringSection title="Income" items={incomes} categories={categories} onEdit={(id) => setEditing(id)} onDelete={handleDelete} />
+          {savings.length > 0 && (
+            <RecurringSection title="Savings" items={savings} categories={categories} onEdit={(id) => setEditing(id)} onDelete={handleDelete} />
+          )}
         </div>
       )}
 
@@ -107,6 +113,7 @@ export function RecurringClient({ recurring, categories, merchants, transactions
         onClose={() => setEditing(null)}
         categories={categories}
         merchants={merchants}
+        savingAccounts={savingAccounts}
         item={editingItem ?? null}
         amounts={editingItem?.amounts ?? []}
         actuals={editingItem ? (transactionsByRecurring[editingItem.id] ?? []) : []}

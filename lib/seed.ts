@@ -1,6 +1,6 @@
 import { db } from './db'
 import { categories } from './schema'
-import { nanoid, REIMBURSEMENT_CATEGORY_NAME } from './utils'
+import { nanoid, REIMBURSEMENT_CATEGORY_NAME, SAVINGS_CATEGORY_NAME } from './utils'
 import { eq, sql } from 'drizzle-orm'
 
 const DEFAULT_CATEGORIES = [
@@ -16,8 +16,9 @@ const DEFAULT_CATEGORIES = [
 
 // Special categories that must always exist (seeded by name, not in the initial batch)
 const SPECIAL_CATEGORIES = [
-  { icon: 'receipt', name: REIMBURSEMENT_CATEGORY_NAME, color: 'teal', kind: 'income' as const, isPensionAlimentaire: 0 },
-  { icon: 'cat-gift', name: 'Pension alimentaire', color: 'lilac', kind: 'income' as const, isPensionAlimentaire: 1 },
+  { icon: 'receipt', name: REIMBURSEMENT_CATEGORY_NAME, color: 'teal', kind: 'income' as const, isPensionAlimentaire: 0, isSavings: 0 },
+  { icon: 'cat-gift', name: 'Pension alimentaire', color: 'lilac', kind: 'income' as const, isPensionAlimentaire: 1, isSavings: 0 },
+  { icon: 'cat-seed', name: SAVINGS_CATEGORY_NAME, color: 'sage', kind: 'expense' as const, isPensionAlimentaire: 0, isSavings: 1 },
 ]
 
 // Singleton: only seed once per process regardless of how many pages call it
@@ -44,7 +45,9 @@ async function doSeed() {
       where:
         special.isPensionAlimentaire === 1
           ? eq(categories.isPensionAlimentaire, 1)
-          : eq(categories.name, special.name),
+          : special.isSavings === 1
+            ? eq(categories.isSavings, 1)
+            : eq(categories.name, special.name),
       columns: { id: true },
     })
     if (!exists) {

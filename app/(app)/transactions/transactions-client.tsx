@@ -7,7 +7,7 @@ import { Icon } from '@/components/fern/icon'
 import { CatSwatch } from '@/components/fern/cat-swatch'
 import { Chip } from '@/components/fern/chip'
 import { TransactionSheet } from '@/components/fern/sheets/transaction-sheet'
-import { fmt, resolvedDayOfMonth, formatDate, isPlannedDate, type Category, type Transaction, type RecurringWithAmounts } from '@/lib/derive'
+import { fmt, resolvedDayOfMonth, formatDate, isPlannedDate, creditSignedAmount, type Category, type Transaction, type RecurringWithAmounts } from '@/lib/derive'
 import { PageHeader } from '@/components/fern/page-header'
 import { FernButton } from '@/components/fern/button'
 import { EmptyState } from '@/components/fern/empty-state'
@@ -16,17 +16,19 @@ import { paymentMethodLabel, paymentMethodIcon, type PaymentMethod } from '@/lib
 import {
   addTransaction,
   updateTransactionWithRecurringAmountOption,
+  updateSavingTransfer,
   deleteTransaction,
   clearTransaction,
   detachTransactionFromRecurring,
 } from '@/lib/actions/transactions'
+import type { TransactionSheetSave } from '@/components/fern/sheets/transaction-sheet'
 import { markInstanceNotApplicable, unmarkInstanceNotApplicable } from '@/lib/actions/recurring-instances'
 import { allocateMovementToGroup, unallocateMovement } from '@/lib/actions/groups'
 import { RecurringLinkSheet } from '@/components/fern/sheets/recurring-link-sheet'
 import { BulkRecurringLinkSheet } from '@/components/fern/sheets/bulk-recurring-link-sheet'
 import { GroupAllocationSheet, type AllocateInput } from '@/components/fern/sheets/group-allocation-sheet'
 import { MonthBudgetComparisonModal } from '@/components/fern/month-budget-comparison-modal'
-import type { Merchant, RecurringInstance, BudgetWithLines } from '@/lib/db-types'
+import type { Merchant, RecurringInstance, BudgetWithLines, SavingAccount } from '@/lib/db-types'
 import type { GroupDetail, MovementGroupLink } from '@/lib/queries/groups'
 import { runAction, REIMBURSEMENT_CATEGORY_NAME } from '@/lib/utils'
 import { confirmDialog } from '@/lib/dialogs-store'
@@ -46,7 +48,7 @@ type InstanceEntry = {
   date: string
   month: string
   amount: number
-  kind: 'expense' | 'income'
+  kind: 'expense' | 'income' | 'saving'
   method: PaymentMethod
   categoryId: string | null
   merchantId: string | null
@@ -77,6 +79,7 @@ interface TransactionsClientProps {
   merchants: Merchant[]
   recurring: RecurringWithAmounts[]
   instances: RecurringInstance[]
+  savingAccounts: SavingAccount[]
   groups: GroupDetail[]
   movementLinks: Record<string, MovementGroupLink>
   reimbursementSummaries: Record<string, { status: string; label: string }>
@@ -99,6 +102,7 @@ export function TransactionsClient({
   merchants,
   recurring,
   instances,
+  savingAccounts,
   groups,
   movementLinks,
   reimbursementSummaries,
@@ -163,7 +167,7 @@ export function TransactionsClient({
       .filter((inst) => inst.status === 'expected' || (showNa && inst.status === 'not_applicable'))
       .flatMap((inst): InstanceEntry[] => {
         const r = recurringById.get(inst.recurringId)
-        if (!r) return []
+        if (!r || r.kind === 'saving') return []
         // Compute expected display date for the month
         let date: string
         if (r.cadence === 'monthly') {
@@ -198,6 +202,11 @@ export function TransactionsClient({
   const merchantById = useMemo(
     () => new Map(merchants.map((m) => [m.id, m])),
     [merchants],
+  )
+
+  const savingAccountById = useMemo(
+    () => new Map(savingAccounts.map((a) => [a.id, a])),
+    [savingAccounts],
   )
 
 
@@ -507,7 +516,25 @@ export function TransactionsClient({
     }
   }, [])
 
-  const handleSave = async (data: Parameters<typeof addTransaction>[0]) => {
+  const handleSave = async (data: TransactionSheetSave) => {
+    if (data.kind === 'saving') {
+      startTransition(runAction(async () => {
+        if (editingTxn) {
+          await updateSavingTransfer(editingTxn.id, {
+            date: data.date,
+            amount: data.amount,
+            note: data.note,
+            sourceSavingAccountId: data.sourceSavingAccountId,
+            destSavingAccountId: data.destSavingAccountId,
+          })
+        } else {
+          await addTransaction(data)
+        }
+      }))
+      closeSheet()
+      return
+    }
+
     if (editingTxn) {
       const mappingCount = reimbursementMappingCounts[editingTxn.id] ?? 0
       const currentCategory = editingTxn.categoryId ? categoryById.get(editingTxn.categoryId) : undefined
@@ -576,7 +603,16 @@ export function TransactionsClient({
 
         await updateTransactionWithRecurringAmountOption(
           editingTxn.id,
-          data,
+          {
+            date: data.date,
+            amount: data.amount,
+            kind: data.kind === 'saving' ? undefined : data.kind,
+            categoryId: data.categoryId,
+            merchantId: data.merchantId,
+            note: data.note,
+            reimbursable: data.reimbursable,
+            method: data.method,
+          },
           { propagateRecurringAmount },
         )
       } else {
@@ -654,7 +690,7 @@ export function TransactionsClient({
     setPrefillData({
       date: entry.date,
       amount: entry.amount,
-      kind: entry.kind,
+      kind: entry.kind as 'expense' | 'income',
       method: entry.method,
       categoryId: entry.categoryId,
       merchantId: entry.merchantId,
@@ -850,7 +886,7 @@ export function TransactionsClient({
                     <div style={{ padding: '10px 4px', fontSize: 13, color: 'var(--ink-faint)' }}>No transactions</div>
                   )}
                   {dgs.map(([date, items]) => {
-                    const total = items.reduce((s, m) => s + (m.kind === 'income' ? 1 : -1) * Number(m.amount ?? 0), 0)
+                    const total = items.reduce((s, m) => s + creditSignedAmount(m), 0)
                     const label = formatDate(date + 'T12:00:00', 'en-US', { weekday: 'long', day: 'numeric', month: 'long' })
                     return (
                       <div key={date}>
@@ -949,7 +985,7 @@ export function TransactionsClient({
                                     await addTransaction({
                                       date: m.date,
                                       amount: m.amount,
-                                      kind: m.kind,
+                                      kind: m.kind as 'expense' | 'income',
                                       method: m.method,
                                       categoryId: m.categoryId,
                                       merchantId: m.merchantId,
@@ -980,6 +1016,10 @@ export function TransactionsClient({
                     }
                     const t = m as Transaction
                     const merchant = t.merchantId ? merchantById.get(t.merchantId) : undefined
+                    const savingAccountName =
+                      t.kind === 'saving'
+                        ? savingAccountById.get(t.destSavingAccountId ?? t.sourceSavingAccountId ?? '')?.name
+                        : undefined
                     const isSelected = selectedIds.has(t.id)
                     return (
                       <TransactionRow
@@ -987,6 +1027,7 @@ export function TransactionsClient({
                         t={t}
                         cat={cat}
                         merchant={merchant}
+                        savingAccountName={savingAccountName}
                         selectionMode={selectionMode}
                         isSelected={isSelected}
                         reimbursementSummary={reimbursementSummaries[t.id]}
@@ -1083,6 +1124,7 @@ export function TransactionsClient({
         onClose={closeSheet}
         categories={categories}
         merchants={merchants}
+        savingAccounts={savingAccounts}
         item={editingTxn}
         showReimbursable={divorceEnabled}
         prefill={prefillData ? {

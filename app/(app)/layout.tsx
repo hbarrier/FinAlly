@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { SidebarNav } from './sidebar-nav'
 import { getUserSettings, getModules } from '@/lib/queries/user-settings'
+import { listSavingAccounts } from '@/lib/queries/saving-accounts'
 import { ensureInstancesUpTo, currentMonth } from '@/lib/recurring-instances'
 import styles from './layout.module.css'
 
@@ -17,6 +18,7 @@ export default async function AppLayout({
 
   const modules = await getModules()
   if (modules.recurring) await ensureInstancesUpTo(currentMonth())
+  const savingAccounts = await listSavingAccounts()
 
   return (
     <div className={styles.appShell}>
@@ -35,7 +37,7 @@ export default async function AppLayout({
         {/* Nav */}
         <nav className={styles.nav}>
           <Suspense fallback={null}>
-            <SidebarNav modules={modules} />
+            <SidebarNav modules={modules} savingAccounts={savingAccounts} />
           </Suspense>
         </nav>
 

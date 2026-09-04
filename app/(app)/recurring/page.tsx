@@ -6,15 +6,17 @@ import { asc, eq, inArray } from 'drizzle-orm'
 import { recurringAmounts, merchants as merchantsTable, transactions } from '@/lib/schema'
 import { RecurringClient } from './recurring-client'
 import { requireModule } from '@/lib/modules'
+import { listSavingAccounts } from '@/lib/queries/saving-accounts'
 
 export default async function RecurringPage() {
   await requireModule('recurring')
-  const [recurringItems, cats, merchants] = await Promise.all([
+  const [recurringItems, cats, merchants, savingAccounts] = await Promise.all([
     db.query.recurring.findMany({
       with: { amounts: { orderBy: [asc(recurringAmounts.startDate)] } },
     }),
     db.query.categories.findMany(),
     db.query.merchants.findMany({ where: eq(merchantsTable.isActive, 1) }),
+    listSavingAccounts(),
   ])
 
   const recurringIds = recurringItems.map((r) => r.id)
@@ -37,6 +39,7 @@ export default async function RecurringPage() {
       recurring={recurringItems}
       categories={cats}
       merchants={merchants}
+      savingAccounts={savingAccounts}
       transactionsByRecurring={transactionsByRecurring}
     />
   )

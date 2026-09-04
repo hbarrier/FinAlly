@@ -9,6 +9,7 @@ export const categories = sqliteTable('categories', {
   color: text('color').notNull().default('teal'),
   kind: text('kind', { enum: ['expense', 'income'] }).notNull(),
   isPensionAlimentaire: int('is_pension_alimentaire').notNull().default(0),
+  isSavings: int('is_savings').notNull().default(0),
   isActive: int('is_active').notNull().default(1),
   createdAt: text('created_at')
     .notNull()
@@ -21,6 +22,10 @@ export const categories = sqliteTable('categories', {
   uniqueIndex('categories_pension_alimentaire_unique')
     .on(t.isPensionAlimentaire)
     .where(sql`${t.isPensionAlimentaire} = 1`),
+  // The auto-created Savings category the saving-accounts module depends on: exactly one.
+  uniqueIndex('categories_savings_unique')
+    .on(t.isSavings)
+    .where(sql`${t.isSavings} = 1`),
 ])
 
 // --- merchants ---
@@ -41,12 +46,24 @@ export const merchants = sqliteTable(
   ],
 )
 
+// --- saving accounts ---
+export const savingAccounts = sqliteTable('saving_accounts', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  description: text('description'),
+  startBalance: real('start_balance').notNull().default(0),
+  sortOrder: int('sort_order').notNull().default(0),
+  createdAt: text('created_at')
+    .notNull()
+    .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
+})
+
 // --- recurring ---
 export const recurring = sqliteTable('recurring', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   amount: real('amount').notNull(),
-  kind: text('kind', { enum: ['expense', 'income'] }).notNull(),
+  kind: text('kind', { enum: ['expense', 'income', 'saving'] }).notNull(),
   method: text('method', { enum: ['card', 'transfer', 'cash', 'check', 'debit', 'paypal'] })
     .notNull()
     .default('card'),
@@ -54,6 +71,13 @@ export const recurring = sqliteTable('recurring', {
     onDelete: 'set null',
   }),
   merchantId: text('merchant_id').references(() => merchants.id, {
+    onDelete: 'set null',
+  }),
+  // For kind='saving' transfers: NULL endpoint = the credit account.
+  sourceSavingAccountId: text('source_saving_account_id').references(() => savingAccounts.id, {
+    onDelete: 'set null',
+  }),
+  destSavingAccountId: text('dest_saving_account_id').references(() => savingAccounts.id, {
     onDelete: 'set null',
   }),
   cadence: text('cadence', {
@@ -186,7 +210,7 @@ export const transactions = sqliteTable(
     id: text('id').primaryKey(),
     date: text('date').notNull(),
     amount: real('amount').notNull(),
-    kind: text('kind', { enum: ['expense', 'income'] }).notNull(),
+    kind: text('kind', { enum: ['expense', 'income', 'saving'] }).notNull(),
     method: text('method', { enum: ['card', 'transfer', 'cash', 'check', 'debit', 'paypal'] })
       .notNull()
       .default('card'),
@@ -194,6 +218,13 @@ export const transactions = sqliteTable(
       onDelete: 'set null',
     }),
     merchantId: text('merchant_id').references(() => merchants.id, {
+      onDelete: 'set null',
+    }),
+    // For kind='saving' transfers: NULL endpoint = the credit account.
+    sourceSavingAccountId: text('source_saving_account_id').references(() => savingAccounts.id, {
+      onDelete: 'set null',
+    }),
+    destSavingAccountId: text('dest_saving_account_id').references(() => savingAccounts.id, {
       onDelete: 'set null',
     }),
     note: text('note'),
@@ -221,6 +252,8 @@ export const transactions = sqliteTable(
     index('transactions_recurring_amount_id_idx').on(t.recurringAmountId),
     index('transactions_date_idx').on(t.date),
     index('transactions_kind_date_idx').on(t.kind, t.date),
+    index('transactions_source_saving_account_id_idx').on(t.sourceSavingAccountId),
+    index('transactions_dest_saving_account_id_idx').on(t.destSavingAccountId),
   ],
 )
 

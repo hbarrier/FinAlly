@@ -13,9 +13,11 @@ import { AmountField } from '../amount-field'
 import { useSheetForm } from '@/hooks/use-sheet-form'
 import { fmt, type Category, type Recurring, type RecurringAmount } from '@/lib/derive'
 import { addRecurringAmount, deleteRecurringAmount } from '@/lib/actions/recurring'
-import type { Merchant } from '@/lib/db-types'
+import type { Merchant, SavingAccount } from '@/lib/db-types'
 import { PAYMENT_METHODS, paymentMethodLabel, defaultPaymentMethodForKind, type PaymentMethod } from '@/lib/payment-method'
 import { parseDecimal } from '@/lib/utils'
+
+const CREDIT = '__credit__'
 
 const CADENCES = [
   { value: 'monthly', label: 'Monthly' },
@@ -28,19 +30,21 @@ const MONTHS = [
 ]
 
 const recurringSchema = z.object({
-  kind: z.enum(['expense', 'income']),
+  kind: z.enum(['expense', 'income', 'saving']),
   method: z.enum(PAYMENT_METHODS),
   amount: z.string()
     .min(1, 'Amount is required')
     .refine((v) => !isNaN(parseDecimal(v)) && parseDecimal(v) > 0, 'Enter a valid positive amount'),
   name: z.string().min(1, 'Name is required'),
-  categoryId: z.string().min(1, 'Pick a category'),
+  categoryId: z.string(),
   merchantId: z.string().nullable(),
   cadence: z.enum(['monthly', 'yearly']),
   dayOfMonth: z.number().min(-2).max(31).nullable(),
   monthOfYear: z.number().min(1).max(12).nullable(),
   startDate: z.string().min(1, 'Start date is required'),
   endDate: z.string().nullable().optional(),
+  fromAccount: z.string(),
+  toAccount: z.string(),
 }).superRefine((data, ctx) => {
   if (data.endDate && data.endDate < data.startDate) {
     ctx.addIssue({
@@ -48,6 +52,13 @@ const recurringSchema = z.object({
       path: ['endDate'],
       message: 'End date must be on or after start date',
     })
+  }
+  if (data.kind === 'saving') {
+    if (data.fromAccount === data.toAccount) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['toAccount'], message: 'Pick two different accounts' })
+    }
+  } else if (!data.categoryId) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['categoryId'], message: 'Pick a category' })
   }
 })
 
@@ -65,6 +76,8 @@ function getDefaultValues(item?: Recurring | null): RecurringFormValues {
     name: item?.name ?? '',
     categoryId: item?.categoryId ?? '',
     merchantId: item?.merchantId ?? null,
+    fromAccount: item?.sourceSavingAccountId ?? CREDIT,
+    toAccount: item?.destSavingAccountId ?? CREDIT,
     cadence,
     dayOfMonth: cadence === 'yearly' ? d.getDate() : (item?.dayOfMonth ?? new Date().getDate()),
     monthOfYear: cadence === 'yearly' ? d.getMonth() + 1 : new Date().getMonth() + 1,
@@ -73,29 +86,34 @@ function getDefaultValues(item?: Recurring | null): RecurringFormValues {
   }
 }
 
+export type RecurringSheetSave = {
+  name: string
+  amount: number
+  kind: 'expense' | 'income' | 'saving'
+  method: PaymentMethod
+  categoryId: string | null
+  merchantId: string | null
+  cadence: 'monthly' | 'yearly'
+  dayOfMonth: number | null
+  startDate: string
+  endDate?: string | null
+  sourceSavingAccountId: string | null
+  destSavingAccountId: string | null
+}
+
 interface RecurringSheetProps {
   open: boolean
   onClose: () => void
   categories: Category[]
   merchants: Merchant[]
+  savingAccounts?: SavingAccount[]
   item?: Recurring | null
   amounts?: RecurringAmount[]
   actuals?: { date: string; amount: number }[]
-  onSave: (data: {
-    name: string
-    amount: number
-    kind: 'expense' | 'income'
-    method: PaymentMethod
-    categoryId: string | null
-    merchantId: string | null
-    cadence: 'monthly' | 'yearly'
-    dayOfMonth: number | null
-    startDate: string
-    endDate?: string | null
-  }) => void
+  onSave: (data: RecurringSheetSave) => void
 }
 
-export function RecurringSheet({ open, onClose, categories, merchants, item, amounts = [], actuals, onSave }: RecurringSheetProps) {
+export function RecurringSheet({ open, onClose, categories, merchants, savingAccounts = [], item, amounts = [], actuals, onSave }: RecurringSheetProps) {
   const {
     register,
     control,
@@ -109,10 +127,20 @@ export function RecurringSheet({ open, onClose, categories, merchants, item, amo
   const watchedKind = watch('kind')
   const watchedMethod = watch('method')
   const watchedCadence = watch('cadence')
+  const isSaving = watchedKind === 'saving'
+  const savingLocked = !!item
+
+  const accountOptions = useMemo(
+    () => [
+      { value: CREDIT, label: 'Credit account' },
+      ...[...savingAccounts].sort((a, b) => a.name.localeCompare(b.name)).map((a) => ({ value: a.id, label: a.name })),
+    ],
+    [savingAccounts],
+  )
 
   const categoryOptions = useMemo(
     () => categories
-      .filter((c) => c.kind === watchedKind)
+      .filter((c) => c.kind === watchedKind && c.isSavings !== 1)
       .sort((a, b) => a.name.localeCompare(b.name))
       .map((c) => ({ value: c.id, label: c.name })),
     [categories, watchedKind],
@@ -133,17 +161,20 @@ export function RecurringSheet({ open, onClose, categories, merchants, item, amo
       const day = String(data.dayOfMonth ?? 1).padStart(2, '0')
       startDate = `${year}-${month}-${day}`
     }
+    const asId = (v: string) => (v === CREDIT ? null : v)
     onSave({
       name: data.name.trim(),
       amount: parseDecimal(data.amount),
       kind: data.kind,
-      method: data.method,
-      categoryId: data.categoryId,
-      merchantId: data.merchantId,
+      method: data.kind === 'saving' ? 'transfer' : data.method,
+      categoryId: data.kind === 'saving' ? null : data.categoryId,
+      merchantId: data.kind === 'saving' ? null : data.merchantId,
       cadence: data.cadence,
       dayOfMonth: data.cadence === 'monthly' ? Number(data.dayOfMonth) : null,
       startDate,
       endDate: data.endDate && data.endDate.length ? data.endDate : null,
+      sourceSavingAccountId: data.kind === 'saving' ? asId(data.fromAccount) : null,
+      destSavingAccountId: data.kind === 'saving' ? asId(data.toAccount) : null,
     })
     onClose()
   }
@@ -170,6 +201,7 @@ export function RecurringSheet({ open, onClose, categories, merchants, item, amo
             <button
               type="button"
               className={field.value === 'expense' ? 'active expense' : ''}
+              disabled={savingLocked && item?.kind === 'saving'}
               onClick={() => {
                 field.onChange('expense')
                 const currentMethod = watch('method')
@@ -186,6 +218,7 @@ export function RecurringSheet({ open, onClose, categories, merchants, item, amo
             <button
               type="button"
               className={field.value === 'income' ? 'active income' : ''}
+              disabled={savingLocked && item?.kind === 'saving'}
               onClick={() => {
                 field.onChange('income')
                 const currentMethod = watch('method')
@@ -199,82 +232,124 @@ export function RecurringSheet({ open, onClose, categories, merchants, item, amo
             >
               <Icon name="arrowUp" size={14} /> Income
             </button>
+            <button
+              type="button"
+              className={field.value === 'saving' ? 'active' : ''}
+              disabled={savingLocked && item?.kind !== 'saving'}
+              onClick={() => field.onChange('saving')}
+            >
+              <Icon name="bank" size={14} /> Saving
+            </button>
           </div>
         )}
       />
 
-      <Field>
-        <label className="fern-field-label">How</label>
-        <Controller
-          control={control}
-          name="method"
-          render={({ field }) => (
-            <select
-              className="fern-input"
-              value={field.value}
-              onChange={(e) => field.onChange(e.target.value)}
-            >
-              {PAYMENT_METHODS.map((m) => (
-                <option key={m} value={m}>
-                  {paymentMethodLabel(m)}
-                </option>
-              ))}
-            </select>
+      {!isSaving && (
+        <Field>
+          <label className="fern-field-label">How</label>
+          <Controller
+            control={control}
+            name="method"
+            render={({ field }) => (
+              <select
+                className="fern-input"
+                value={field.value}
+                onChange={(e) => field.onChange(e.target.value)}
+              >
+                {PAYMENT_METHODS.map((m) => (
+                  <option key={m} value={m}>
+                    {paymentMethodLabel(m)}
+                  </option>
+                ))}
+              </select>
+            )}
+          />
+          {watchedKind === 'expense' && watchedMethod === 'cash' && (
+            <div style={{ marginTop: 6, fontSize: 11, color: 'var(--ink-faint)' }}>
+              Cash expenses are automatically marked as cleared.
+            </div>
           )}
-        />
-        {watchedKind === 'expense' && watchedMethod === 'cash' && (
-          <div style={{ marginTop: 6, fontSize: 11, color: 'var(--ink-faint)' }}>
-            Cash expenses are automatically marked as cleared.
-          </div>
-        )}
-      </Field>
+        </Field>
+      )}
 
       <AmountField register={register('amount')} invalid={showErr('amount')} error={errors.amount?.message} />
 
       <Field data-invalid={showErr('name')}>
         <label className="fern-field-label">Name</label>
-        <input className="fern-input" placeholder="e.g. Spotify, Rent, Salary" {...register('name')} />
+        <input className="fern-input" placeholder={isSaving ? 'e.g. Monthly savings' : 'e.g. Spotify, Rent, Salary'} {...register('name')} />
         {showErr('name') && <FieldError>{errors.name?.message}</FieldError>}
       </Field>
 
-      <Controller
-        control={control}
-        name="categoryId"
-        render={({ field, fieldState }) => {
-          const showCatErr = !!(fieldState.error && (fieldState.isDirty || isSubmitted))
-          return (
-            <Field data-invalid={showCatErr}>
-              <label className="fern-field-label">Category</label>
-              <SearchableSelect
-                value={field.value || null}
-                onChange={(v) => field.onChange(v ?? '')}
-                options={categoryOptions}
-                placeholder="Choose…"
-              />
-              {showCatErr && <FieldError>{fieldState.error?.message}</FieldError>}
-            </Field>
-          )
-        }}
-      />
-
-      {merchants.length > 0 && (
-        <div>
-          <label className="fern-field-label">Merchant</label>
+      {isSaving ? (
+        <>
+          <Field>
+            <label className="fern-field-label">From</label>
+            <Controller
+              control={control}
+              name="fromAccount"
+              render={({ field }) => (
+                <select className="fern-input" value={field.value} onChange={(e) => field.onChange(e.target.value)}>
+                  {accountOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              )}
+            />
+          </Field>
+          <Field data-invalid={showErr('toAccount')}>
+            <label className="fern-field-label">To</label>
+            <Controller
+              control={control}
+              name="toAccount"
+              render={({ field }) => (
+                <select className="fern-input" value={field.value} onChange={(e) => field.onChange(e.target.value)}>
+                  {accountOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              )}
+            />
+            {showErr('toAccount') && <FieldError>{errors.toAccount?.message}</FieldError>}
+          </Field>
+        </>
+      ) : (
+        <>
           <Controller
             control={control}
-            name="merchantId"
-            render={({ field }) => (
-              <SearchableSelect
-                value={field.value}
-                onChange={(mId) => field.onChange(mId)}
-                options={merchantOptions}
-                placeholder="No merchant"
-                nullable
-                nullLabel="No merchant"
-              />
-            )}
+            name="categoryId"
+            render={({ field, fieldState }) => {
+              const showCatErr = !!(fieldState.error && (fieldState.isDirty || isSubmitted))
+              return (
+                <Field data-invalid={showCatErr}>
+                  <label className="fern-field-label">Category</label>
+                  <SearchableSelect
+                    value={field.value || null}
+                    onChange={(v) => field.onChange(v ?? '')}
+                    options={categoryOptions}
+                    placeholder="Choose…"
+                  />
+                  {showCatErr && <FieldError>{fieldState.error?.message}</FieldError>}
+                </Field>
+              )
+            }}
           />
-        </div>
+
+          {merchants.length > 0 && (
+            <div>
+              <label className="fern-field-label">Merchant</label>
+              <Controller
+                control={control}
+                name="merchantId"
+                render={({ field }) => (
+                  <SearchableSelect
+                    value={field.value}
+                    onChange={(mId) => field.onChange(mId)}
+                    options={merchantOptions}
+                    placeholder="No merchant"
+                    nullable
+                    nullLabel="No merchant"
+                  />
+                )}
+              />
+            </div>
+          )}
+        </>
       )}
 
       <div>

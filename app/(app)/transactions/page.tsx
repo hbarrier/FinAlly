@@ -20,6 +20,7 @@ import {
 } from '@/lib/reimbursement-mapping'
 import { indexReimbursementAllocations } from '@/lib/queries/reimbursement-allocations'
 import { getMovementGroupLinks, getGroupList } from '@/lib/queries/groups'
+import { listSavingAccounts } from '@/lib/queries/saving-accounts'
 import { TransactionsClient } from './transactions-client'
 import { REIMBURSEMENT_CATEGORY_NAME } from '@/lib/utils'
 import { getModules } from '@/lib/queries/user-settings'
@@ -93,6 +94,7 @@ export default async function TransactionsPage({
     allocations,
     claimAllocationRows,
     budget,
+    savingAccounts,
   ] = await Promise.all([
     db.query.categories.findMany(),
     db.query.merchants.findMany({ where: eq(merchants.isActive, 1) }),
@@ -132,6 +134,7 @@ export default async function TransactionsPage({
     modules.budgets
       ? db.query.budgets.findFirst({ with: { lines: true } })
       : Promise.resolve(undefined),
+    listSavingAccounts(),
   ])
 
   // When a merchant filter is active, load the full year for that merchant.
@@ -146,6 +149,12 @@ export default async function TransactionsPage({
         where: (t, { and, gte, lte }) => and(gte(t.date, timelineFrom), lte(t.date, timelineTo)),
         orderBy: [desc(transactions.date), desc(transactions.createdAt)],
       })
+
+  // The Credit Account view shows saving transfers only when they touch credit
+  // (one NULL endpoint); saving-to-saving transfers live only in the account views.
+  const creditTxns = txns.filter(
+    (t) => t.kind !== 'saving' || t.sourceSavingAccountId == null || t.destSavingAccountId == null,
+  )
 
   const years = yearsResult.map((r) => r.year)
   const merchantById = new Map(merchantsList.map((m) => [m.id, m]))
@@ -204,11 +213,12 @@ export default async function TransactionsPage({
 
   return (
     <TransactionsClient
-      transactions={txns}
+      transactions={creditTxns}
       categories={cats}
       merchants={merchantsList}
       recurring={recurringList}
       instances={instancesList}
+      savingAccounts={savingAccounts}
       groups={activeGroups}
       movementLinks={movementLinks}
       reimbursementSummaries={reimbursementSummaries}

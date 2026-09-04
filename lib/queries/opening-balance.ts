@@ -29,7 +29,13 @@ export async function getMonthOpeningBalance(input: {
     return { openingBalance: Number(explicitOpening.openingBalance ?? 0), openingBalanceIsExplicit: true }
   }
 
-  const deltaExpr = sql<number>`COALESCE(SUM(CASE WHEN ${transactions.kind} = 'income' THEN ${transactions.amount} ELSE -${transactions.amount} END), 0)`
+  const deltaExpr = sql<number>`COALESCE(SUM(CASE
+    WHEN ${transactions.kind} = 'income' THEN ${transactions.amount}
+    WHEN ${transactions.kind} = 'expense' THEN -${transactions.amount}
+    WHEN ${transactions.kind} = 'saving' AND ${transactions.destSavingAccountId} IS NULL THEN ${transactions.amount}
+    WHEN ${transactions.kind} = 'saving' AND ${transactions.sourceSavingAccountId} IS NULL THEN -${transactions.amount}
+    ELSE 0
+  END), 0)`
 
   if (latestPriorOpening) {
     const priorStart = `${latestPriorOpening.month}-01`

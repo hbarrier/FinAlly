@@ -19,6 +19,8 @@ import {
   simulationLineDisplayAmount,
   groupTransactionsByMonth,
   currentBalance,
+  creditSignedAmount,
+  savingAccountBalance,
   fmt,
   fmtShort,
   splitCents,
@@ -346,6 +348,37 @@ describe('currentBalance', () => {
       txn({ amount: 250, kind: 'expense' }),
     ]
     expect(currentBalance(500, rows)).toBe(1250)
+  })
+
+  it('applies saving transfers only through their credit endpoint', () => {
+    const rows = [
+      txn({ amount: 200, kind: 'saving', sourceSavingAccountId: null, destSavingAccountId: 'A' }), // credit -> A: -200
+      txn({ amount: 50, kind: 'saving', sourceSavingAccountId: 'A', destSavingAccountId: null }), //  A -> credit: +50
+      txn({ amount: 30, kind: 'saving', sourceSavingAccountId: 'A', destSavingAccountId: 'B' }), //   A -> B: 0
+    ]
+    expect(currentBalance(1000, rows)).toBe(850)
+  })
+})
+
+describe('creditSignedAmount', () => {
+  it('signs each movement kind for the credit account', () => {
+    expect(creditSignedAmount({ kind: 'income', amount: 100 })).toBe(100)
+    expect(creditSignedAmount({ kind: 'expense', amount: 100 })).toBe(-100)
+    expect(creditSignedAmount({ kind: 'saving', amount: 100, sourceSavingAccountId: null, destSavingAccountId: 'A' })).toBe(-100)
+    expect(creditSignedAmount({ kind: 'saving', amount: 100, sourceSavingAccountId: 'A', destSavingAccountId: null })).toBe(100)
+    expect(creditSignedAmount({ kind: 'saving', amount: 100, sourceSavingAccountId: 'A', destSavingAccountId: 'B' })).toBe(0)
+  })
+})
+
+describe('savingAccountBalance', () => {
+  it('adds inbound transfers and subtracts outbound ones', () => {
+    const rows = [
+      txn({ amount: 200, kind: 'saving', sourceSavingAccountId: null, destSavingAccountId: 'A' }),
+      txn({ amount: 50, kind: 'saving', sourceSavingAccountId: 'A', destSavingAccountId: null }),
+      txn({ amount: 30, kind: 'saving', sourceSavingAccountId: 'B', destSavingAccountId: 'A' }),
+      txn({ amount: 999, kind: 'expense' }),
+    ]
+    expect(savingAccountBalance(1000, rows, 'A')).toBe(1180)
   })
 })
 

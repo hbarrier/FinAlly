@@ -116,7 +116,7 @@ export function SimulationLineSheet({
 
   const categoryOptions = useMemo(
     () => categories
-      .filter((c) => c.kind === watchedKind && (c.isActive === 1 || c.id === item?.categoryId))
+      .filter((c) => c.kind === watchedKind && c.isSavings !== 1 && (c.isActive === 1 || c.id === item?.categoryId))
       .sort((a, b) => a.name.localeCompare(b.name))
       .map((c) => ({ value: c.id, label: c.name })),
     [categories, watchedKind, item?.categoryId],

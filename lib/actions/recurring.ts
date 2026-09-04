@@ -8,8 +8,9 @@ import { nanoid } from '../utils'
 import { eq, and, isNull, inArray } from 'drizzle-orm'
 import { resolvedDayOfMonth } from '../derive'
 import {
-  parse, zId, zName, zKind, zCadence, zAmount, zDateISO, zPaymentMethod, zNullableId, zOptionalId,
+  parse, zId, zName, zKind, zMovementKind, zCadence, zAmount, zDateISO, zPaymentMethod, zNullableId, zOptionalId,
 } from '../schemas'
+import { savingsCategoryId, resolveSavingTransfer } from './_savings'
 import { defaultPaymentMethodForKind, type PaymentMethod } from '../payment-method'
 import {
   ensureInstancesForRecurring,
@@ -23,7 +24,7 @@ const zDayOfMonth = z.number().int().min(-2).max(31)
 const recurringCreateSchema = z.object({
   name: zName,
   amount: zAmount,
-  kind: zKind,
+  kind: zMovementKind,
   categoryId: zNullableId,
   merchantId: zOptionalId,
   cadence: zCadence,
@@ -31,6 +32,8 @@ const recurringCreateSchema = z.object({
   startDate: zDateISO,
   endDate: zDateISO.nullable().optional(),
   method: zPaymentMethod.optional(),
+  sourceSavingAccountId: zOptionalId,
+  destSavingAccountId: zOptionalId,
 })
 
 const recurringUpdateSchema = z.object({
@@ -44,6 +47,8 @@ const recurringUpdateSchema = z.object({
   dayOfMonth: zDayOfMonth.nullable().optional(),
   startDate: zDateISO.optional(),
   endDate: zDateISO.nullable().optional(),
+  sourceSavingAccountId: zOptionalId,
+  destSavingAccountId: zOptionalId,
 })
 
 const promoteSchema = z.object({
@@ -61,7 +66,7 @@ const promoteSchema = z.object({
 export async function addRecurring(input: {
   name: string
   amount: number
-  kind: 'expense' | 'income'
+  kind: 'expense' | 'income' | 'saving'
   categoryId: string | null
   merchantId?: string | null
   cadence: 'monthly' | 'yearly'
@@ -69,16 +74,29 @@ export async function addRecurring(input: {
   startDate: string
   endDate?: string | null
   method?: PaymentMethod
+  sourceSavingAccountId?: string | null
+  destSavingAccountId?: string | null
 }) {
   const data = parse(recurringCreateSchema, input)
   const id = nanoid()
-  const method = data.method ?? defaultPaymentMethodForKind(data.kind)
+  const isSaving = data.kind === 'saving'
+  const method = isSaving ? 'transfer' : (data.method ?? defaultPaymentMethodForKind(data.kind))
+  const endpoints = isSaving
+    ? await resolveSavingTransfer({
+        sourceSavingAccountId: data.sourceSavingAccountId,
+        destSavingAccountId: data.destSavingAccountId,
+        amount: data.amount,
+        skipOverdrawCheck: true,
+      })
+    : { sourceSavingAccountId: null, destSavingAccountId: null }
   await db.transaction(async (tx) => {
     await tx.insert(recurring).values({
       id,
       ...data,
       method,
-      merchantId: data.merchantId ?? null,
+      merchantId: isSaving ? null : (data.merchantId ?? null),
+      categoryId: isSaving ? await savingsCategoryId() : data.categoryId,
+      ...endpoints,
     })
     await tx.insert(recurringAmounts).values({
       id: nanoid(),
@@ -105,6 +123,8 @@ export async function updateRecurring(
     dayOfMonth: number | null
     startDate: string
     endDate: string | null
+    sourceSavingAccountId: string | null
+    destSavingAccountId: string | null
   }>,
 ) {
   parse(zId, id)
@@ -116,6 +136,21 @@ export async function updateRecurring(
     if (!current) return
 
     const { amount, ...rest } = data
+
+    if (current.kind === 'saving' &&
+        (rest.sourceSavingAccountId !== undefined || rest.destSavingAccountId !== undefined)) {
+      const endpoints = await resolveSavingTransfer({
+        sourceSavingAccountId:
+          rest.sourceSavingAccountId === undefined ? current.sourceSavingAccountId : rest.sourceSavingAccountId,
+        destSavingAccountId:
+          rest.destSavingAccountId === undefined ? current.destSavingAccountId : rest.destSavingAccountId,
+        amount: amount ?? current.amount,
+        skipOverdrawCheck: true,
+      })
+      rest.sourceSavingAccountId = endpoints.sourceSavingAccountId
+      rest.destSavingAccountId = endpoints.destSavingAccountId
+    }
+
     const nextKind = (data.kind ?? current.kind) as 'expense' | 'income'
 
     let nextMethod: PaymentMethod | undefined

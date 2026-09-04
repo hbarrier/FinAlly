@@ -15,9 +15,13 @@ const categoryFields = z.object({
   kind: zKind,
 })
 
-/** Special categories the reimbursements / divorce modules depend on. */
-function isProtected(cat: { name: string; isPensionAlimentaire: number }) {
-  return cat.isPensionAlimentaire === 1 || cat.name === REIMBURSEMENT_CATEGORY_NAME
+/** Special categories other modules depend on and must always exist. */
+function isProtected(cat: { name: string; isPensionAlimentaire: number; isSavings: number }) {
+  return (
+    cat.isPensionAlimentaire === 1 ||
+    cat.isSavings === 1 ||
+    cat.name === REIMBURSEMENT_CATEGORY_NAME
+  )
 }
 
 export async function addCategory(input: {

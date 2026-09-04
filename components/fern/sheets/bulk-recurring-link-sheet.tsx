@@ -138,7 +138,7 @@ export function BulkRecurringLinkSheet({
         {
           name: data.name.trim(),
           amount: Number(firstTxn.amount),
-          kind: firstTxn.kind,
+          kind: firstTxn.kind as 'expense' | 'income',
           categoryId: data.categoryId,
           merchantId: firstTxn.merchantId ?? null,
           method: data.method,

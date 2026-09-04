@@ -1,5 +1,21 @@
 # Saving accounts + "Saving" movement type
 
+## Status — implemented (branch `restore-divorce-module`)
+
+All 7 phases landed. `npm run typecheck`, `npm run lint` (0 errors), `npm test`
+(113 pass, incl. new `test/actions/saving-accounts.test.ts` + `lib/derive.test.ts`
+cases) and `npm run build` all green. Migration `0017_saving_accounts` applied to
+`finance.db` (backup at `backups/finance.db.pre0017`).
+
+**Deferred to a follow-up** (not blocking): recurring *saving* transfers are
+created/edited/deleted on `/recurring` and appear in a new "Savings" section, but
+they do **not** yet generate planned/ghost rows in the Credit Account view and
+their `recurring_instances` are not auto-linked when a matching transfer is logged
+(saving recurrences are filtered out of `instanceEntries` in
+`transactions-client.tsx`). Wiring `addTransaction`'s saving branch to accept
+`recurringId` + call `upsertLinkedInstance`, and teaching `InstanceEntry` the
+endpoint ids, is the remaining work.
+
 ## Context
 
 Today the app models a single implicit account: a starting balance in `user_settings`

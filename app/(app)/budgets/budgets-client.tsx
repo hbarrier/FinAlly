@@ -73,7 +73,7 @@ export function BudgetsClient({ categories, merchants, budget, actuals }: Budget
     [linesByCat],
   )
   const expenseCats = useMemo(
-    () => categories.filter((c) => c.kind === 'expense' && visible(c)).sort((a, b) => plannedFor(b.id) - plannedFor(a.id)),
+    () => categories.filter((c) => c.kind === 'expense' && c.isSavings !== 1 && visible(c)).sort((a, b) => plannedFor(b.id) - plannedFor(a.id)),
     [categories, plannedFor, visible],
   )
   const incomeCats = useMemo(

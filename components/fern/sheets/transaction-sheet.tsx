@@ -11,37 +11,55 @@ import { SheetShell } from '../sheet-shell'
 import { AmountField } from '../amount-field'
 import { useSheetForm } from '@/hooks/use-sheet-form'
 import type { Category, Transaction } from '@/lib/derive'
-import type { Merchant } from '@/lib/db-types'
+import type { Merchant, SavingAccount } from '@/lib/db-types'
 import { PAYMENT_METHODS, paymentMethodLabel, type PaymentMethod, defaultPaymentMethodForKind } from '@/lib/payment-method'
 import { parseDecimal } from '@/lib/utils'
 
-const transactionSchema = z.object({
-  kind: z.enum(['expense', 'income']),
-  method: z.enum(PAYMENT_METHODS),
-  amount: z.string()
-    .min(1, 'Amount is required')
-    .refine((v) => !isNaN(parseDecimal(v)) && parseDecimal(v) > 0, 'Enter a valid positive amount'),
-  date: z.string().min(1, 'Date is required'),
-  categoryId: z.string().min(1, 'Pick a category'),
-  merchantId: z.string().nullable(),
-  note: z.string(),
-  reimbursable: z.boolean(),
-})
+const CREDIT = '__credit__'
+
+const transactionSchema = z
+  .object({
+    kind: z.enum(['expense', 'income', 'saving']),
+    method: z.enum(PAYMENT_METHODS),
+    amount: z.string()
+      .min(1, 'Amount is required')
+      .refine((v) => !isNaN(parseDecimal(v)) && parseDecimal(v) > 0, 'Enter a valid positive amount'),
+    date: z.string().min(1, 'Date is required'),
+    categoryId: z.string(),
+    merchantId: z.string().nullable(),
+    note: z.string(),
+    reimbursable: z.boolean(),
+    fromAccount: z.string(),
+    toAccount: z.string(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.kind === 'saving') {
+      if (data.fromAccount === data.toAccount) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['toAccount'], message: 'Pick two different accounts' })
+      }
+    } else if (!data.categoryId) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['categoryId'], message: 'Pick a category' })
+    }
+  })
 
 type TransactionFormValues = z.infer<typeof transactionSchema>
 
 type PrefillValues = {
   date?: string
   amount?: number
-  kind?: 'expense' | 'income'
+  kind?: 'expense' | 'income' | 'saving'
   method?: PaymentMethod
   categoryId?: string | null
   merchantId?: string | null
   note?: string
+  sourceSavingAccountId?: string | null
+  destSavingAccountId?: string | null
 }
 
 function getDefaultValues(item?: Transaction | null, prefill?: PrefillValues | null): TransactionFormValues {
   const kind = item?.kind ?? prefill?.kind ?? 'expense'
+  const source = item?.sourceSavingAccountId ?? prefill?.sourceSavingAccountId ?? null
+  const dest = item?.destSavingAccountId ?? prefill?.destSavingAccountId ?? null
   return {
     kind,
     method: item?.method ?? prefill?.method ?? defaultPaymentMethodForKind(kind),
@@ -51,7 +69,22 @@ function getDefaultValues(item?: Transaction | null, prefill?: PrefillValues | n
     merchantId: item?.merchantId ?? prefill?.merchantId ?? null,
     note: item?.note ?? prefill?.note ?? '',
     reimbursable: item?.reimbursable === 1,
+    fromAccount: source ?? CREDIT,
+    toAccount: kind === 'saving' ? (dest ?? CREDIT) : CREDIT,
   }
+}
+
+export type TransactionSheetSave = {
+  date: string
+  amount: number
+  kind: 'expense' | 'income' | 'saving'
+  method: PaymentMethod
+  categoryId: string | null
+  merchantId: string | null
+  note: string | null
+  reimbursable: number
+  sourceSavingAccountId: string | null
+  destSavingAccountId: string | null
 }
 
 interface TransactionSheetProps {
@@ -59,19 +92,13 @@ interface TransactionSheetProps {
   onClose: () => void
   categories: Category[]
   merchants: Merchant[]
+  savingAccounts?: SavingAccount[]
   item?: Transaction | null
   showReimbursable?: boolean
   prefill?: (PrefillValues & { method?: PaymentMethod }) | null
-  onSave: (data: {
-    date: string
-    amount: number
-    kind: 'expense' | 'income'
-    method: PaymentMethod
-    categoryId: string | null
-    merchantId: string | null
-    note: string | null
-    reimbursable: number
-  }) => void
+  /** Hide the expense/income/saving toggle (e.g. the saving-account view only logs transfers). */
+  lockKind?: boolean
+  onSave: (data: TransactionSheetSave) => void
   onDelete?: () => void
 }
 
@@ -80,9 +107,11 @@ export function TransactionSheet({
   onClose,
   categories,
   merchants,
+  savingAccounts = [],
   item,
   showReimbursable = false,
   prefill,
+  lockKind = false,
   onSave,
   onDelete,
 }: TransactionSheetProps) {
@@ -102,12 +131,26 @@ export function TransactionSheet({
 
   const watchedKind = watch('kind')
   const watchedMethod = watch('method')
+  const isSaving = watchedKind === 'saving'
+  const savingLocked = !!item // an existing movement can't switch in/out of the saving kind
+
+  const accountOptions = useMemo(
+    () => [
+      { value: CREDIT, label: 'Credit account' },
+      ...[...savingAccounts]
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map((a) => ({ value: a.id, label: a.name })),
+    ],
+    [savingAccounts],
+  )
+
   const filteredCatsSorted = useMemo(() => {
+    if (isSaving) return []
     return categories
-      .filter((c) => c.kind === watchedKind && (c.isActive === 1 || c.id === item?.categoryId))
+      .filter((c) => c.kind === watchedKind && c.isSavings !== 1 && (c.isActive === 1 || c.id === item?.categoryId))
       .slice()
       .sort((a, b) => a.name.localeCompare(b.name))
-  }, [categories, watchedKind, item?.categoryId])
+  }, [categories, watchedKind, item?.categoryId, isSaving])
 
   const merchantOptions = useMemo(
     () => [...merchants]
@@ -117,15 +160,18 @@ export function TransactionSheet({
   )
 
   const onSubmit = (data: TransactionFormValues) => {
+    const asId = (v: string) => (v === CREDIT ? null : v)
     onSave({
       date: data.date,
       amount: parseDecimal(data.amount),
       kind: data.kind,
-      method: data.method,
-      categoryId: data.categoryId,
-      merchantId: data.merchantId,
+      method: data.kind === 'saving' ? 'transfer' : data.method,
+      categoryId: data.kind === 'saving' ? null : data.categoryId,
+      merchantId: data.kind === 'saving' ? null : data.merchantId,
       note: data.note.trim() || null,
       reimbursable: showReimbursable && data.kind === 'expense' && data.reimbursable ? 1 : 0,
+      sourceSavingAccountId: data.kind === 'saving' ? asId(data.fromAccount) : null,
+      destSavingAccountId: data.kind === 'saving' ? asId(data.toAccount) : null,
     })
     onClose()
   }
@@ -140,6 +186,16 @@ export function TransactionSheet({
     </button>
   ) : undefined
 
+  const switchKind = (next: 'expense' | 'income') => {
+    const currentMethod = getValues('method')
+    if (currentMethod === defaultPaymentMethodForKind(next === 'expense' ? 'income' : 'expense')) {
+      setValue('method', defaultPaymentMethodForKind(next), { shouldValidate: true, shouldDirty: true })
+    }
+    const current = getValues('categoryId')
+    const stillValid = categories.find((c) => c.kind === next && c.id === current)
+    if (!stillValid) setValue('categoryId', '', { shouldValidate: true, shouldDirty: true })
+  }
+
   return (
     <SheetShell
       open={open}
@@ -153,6 +209,7 @@ export function TransactionSheet({
       }}
       secondaryAction={deleteAction}
     >
+      {!lockKind && (
       <Controller
         control={control}
         name="kind"
@@ -161,177 +218,220 @@ export function TransactionSheet({
             <button
               type="button"
               className={field.value === 'expense' ? 'active expense' : ''}
-              onClick={() => {
-                field.onChange('expense')
-                const currentMethod = getValues('method')
-                if (currentMethod === defaultPaymentMethodForKind('income')) {
-                  setValue('method', defaultPaymentMethodForKind('expense'), { shouldValidate: true, shouldDirty: true })
-                }
-                const current = getValues('categoryId')
-                const stillValid = categories.find((c) => c.kind === 'expense' && c.id === current)
-                if (!stillValid) setValue('categoryId', '', { shouldValidate: true, shouldDirty: true })
-              }}
+              disabled={savingLocked && item?.kind === 'saving'}
+              onClick={() => { field.onChange('expense'); switchKind('expense') }}
             >
               <Icon name="arrowDown" size={14} /> Expense
             </button>
             <button
               type="button"
               className={field.value === 'income' ? 'active income' : ''}
-              onClick={() => {
-                field.onChange('income')
-                const currentMethod = getValues('method')
-                if (currentMethod === defaultPaymentMethodForKind('expense')) {
-                  setValue('method', defaultPaymentMethodForKind('income'), { shouldValidate: true, shouldDirty: true })
-                }
-                const current = getValues('categoryId')
-                const stillValid = categories.find((c) => c.kind === 'income' && c.id === current)
-                if (!stillValid) setValue('categoryId', '', { shouldValidate: true, shouldDirty: true })
-              }}
+              disabled={savingLocked && item?.kind === 'saving'}
+              onClick={() => { field.onChange('income'); switchKind('income') }}
             >
               <Icon name="arrowUp" size={14} /> Income
+            </button>
+            <button
+              type="button"
+              className={field.value === 'saving' ? 'active' : ''}
+              disabled={savingLocked && item?.kind !== 'saving'}
+              onClick={() => field.onChange('saving')}
+            >
+              <Icon name="bank" size={14} /> Saving
             </button>
           </div>
         )}
       />
-
-      <Field>
-        <label className="fern-field-label">How</label>
-        <Controller
-          control={control}
-          name="method"
-          render={({ field }) => {
-            const locked = !!item?.recurringId
-            return (
-              <select
-                className="fern-input"
-                value={field.value}
-                disabled={locked}
-                onChange={(e) => field.onChange(e.target.value as PaymentMethod)}
-              >
-                {PAYMENT_METHODS.map((m) => (
-                  <option key={m} value={m}>
-                    {paymentMethodLabel(m)}
-                  </option>
-                ))}
-              </select>
-            )
-          }}
-        />
-        {item?.recurringId && (
-          <div style={{ marginTop: 6, fontSize: 11, color: 'var(--ink-faint)' }}>
-            Controlled by recurring.
-          </div>
-        )}
-        {watchedKind === 'expense' && watchedMethod === 'cash' && (
-          <div style={{ marginTop: 6, fontSize: 11, color: 'var(--ink-faint)' }}>
-            Cash expenses are automatically marked as cleared.
-          </div>
-        )}
-      </Field>
-
-      <AmountField register={register('amount')} invalid={showErr('amount')} error={errors.amount?.message} autoFocus />
-
-      {merchants.length > 0 && (
-        <div>
-          <label className="fern-field-label">Merchant</label>
-          <Controller
-            control={control}
-            name="merchantId"
-            render={({ field }) => (
-              <SearchableSelect
-                value={field.value}
-                onChange={(mId) => {
-                  field.onChange(mId)
-                  if (mId) {
-                    const m = merchants.find((x) => x.id === mId)
-                    if (m?.categoryId) {
-                      const catBelongsToKind = categories.some(
-                        (c) => c.id === m.categoryId && c.kind === watchedKind
-                      )
-                      if (catBelongsToKind) {
-                        setValue('categoryId', m.categoryId, { shouldValidate: true, shouldDirty: true })
-                      }
-                    }
-                  }
-                }}
-                options={merchantOptions}
-                placeholder="No merchant"
-                nullable
-                nullLabel="No merchant"
-              />
-            )}
-          />
-        </div>
       )}
 
-      <Controller
-        control={control}
-        name="categoryId"
-        render={({ field, fieldState }) => {
-          const showCatErr = !!(fieldState.error && (fieldState.isDirty || isSubmitted))
-          return (
-            <Field data-invalid={showCatErr}>
-              <label className="fern-field-label wide">Category</label>
-              {filteredCatsSorted.length === 0 ? (
-                <p style={{ fontSize: 13, color: 'var(--ink-faint)', padding: '12px', background: 'var(--bg-sunken)', borderRadius: 10 }}>
-                  No {watchedKind} categories — add one in Categories.
-                </p>
-              ) : (
-                <div className="fern-cat-grid">
-                  {filteredCatsSorted.map((c) => (
-                      <button
-                        key={c.id}
-                        type="button"
-                        className={`fern-cat-tile ${field.value === c.id ? 'selected' : ''}`}
-                        onClick={() => field.onChange(c.id)}
-                      >
-                        <CatSwatch color={c.color} icon={c.icon} size={28} />
-                        <div style={{ fontSize: 11, lineHeight: 1.3 }}>{c.name}</div>
-                      </button>
-                    ))}
-                </div>
+      {isSaving ? (
+        <>
+          <AmountField register={register('amount')} invalid={showErr('amount')} error={errors.amount?.message} autoFocus />
+
+          <Field>
+            <label className="fern-field-label">From</label>
+            <Controller
+              control={control}
+              name="fromAccount"
+              render={({ field }) => (
+                <select className="fern-input" value={field.value} onChange={(e) => field.onChange(e.target.value)}>
+                  {accountOptions.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
               )}
-              {showCatErr && <FieldError>{fieldState.error?.message}</FieldError>}
-            </Field>
-          )
-        }}
-      />
+            />
+          </Field>
 
-      <Field data-invalid={showErr('date')}>
-        <label className="fern-field-label">Date</label>
-        <input className="fern-input" type="date" {...register('date')} />
-        {showErr('date') && <FieldError>{errors.date?.message}</FieldError>}
-        {watch('date') > new Date().toISOString().slice(0, 10) && (
-          <p style={{ fontSize: 12, color: 'var(--ink-faint)', marginTop: 4 }}>
-            A future date logs this as a planned expense.
-          </p>
-        )}
-      </Field>
+          <Field data-invalid={showErr('toAccount')}>
+            <label className="fern-field-label">To</label>
+            <Controller
+              control={control}
+              name="toAccount"
+              render={({ field }) => (
+                <select className="fern-input" value={field.value} onChange={(e) => field.onChange(e.target.value)}>
+                  {accountOptions.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              )}
+            />
+            {showErr('toAccount') && <FieldError>{errors.toAccount?.message}</FieldError>}
+          </Field>
 
-      <div>
-        <label className="fern-field-label">Note</label>
-        <input className="fern-input" placeholder="What was this for?" {...register('note')} />
-      </div>
+          <Field data-invalid={showErr('date')}>
+            <label className="fern-field-label">Date</label>
+            <input className="fern-input" type="date" {...register('date')} />
+            {showErr('date') && <FieldError>{errors.date?.message}</FieldError>}
+          </Field>
 
-      {showReimbursable && watchedKind === 'expense' && (
-        <Controller
-          control={control}
-          name="reimbursable"
-          render={({ field }) => (
-            <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', padding: '10px 14px', background: field.value ? 'var(--teal-bg)' : 'var(--bg-sunken)', borderRadius: 10, transition: 'background 0.15s' }}>
-              <input
-                type="checkbox"
-                checked={field.value}
-                onChange={(e) => field.onChange(e.target.checked)}
-                style={{ width: 16, height: 16, accentColor: 'var(--teal)', cursor: 'pointer' }}
-              />
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: field.value ? 'var(--teal-ink)' : 'var(--ink)' }}>Remboursable</div>
-                <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>À saisir dans la vue Remboursements</div>
+          <div>
+            <label className="fern-field-label">Note</label>
+            <input className="fern-input" placeholder="What was this for?" {...register('note')} />
+          </div>
+        </>
+      ) : (
+        <>
+          <Field>
+            <label className="fern-field-label">How</label>
+            <Controller
+              control={control}
+              name="method"
+              render={({ field }) => {
+                const locked = !!item?.recurringId
+                return (
+                  <select
+                    className="fern-input"
+                    value={field.value}
+                    disabled={locked}
+                    onChange={(e) => field.onChange(e.target.value as PaymentMethod)}
+                  >
+                    {PAYMENT_METHODS.map((m) => (
+                      <option key={m} value={m}>
+                        {paymentMethodLabel(m)}
+                      </option>
+                    ))}
+                  </select>
+                )
+              }}
+            />
+            {item?.recurringId && (
+              <div style={{ marginTop: 6, fontSize: 11, color: 'var(--ink-faint)' }}>
+                Controlled by recurring.
               </div>
-            </label>
+            )}
+            {watchedKind === 'expense' && watchedMethod === 'cash' && (
+              <div style={{ marginTop: 6, fontSize: 11, color: 'var(--ink-faint)' }}>
+                Cash expenses are automatically marked as cleared.
+              </div>
+            )}
+          </Field>
+
+          <AmountField register={register('amount')} invalid={showErr('amount')} error={errors.amount?.message} autoFocus />
+
+          {merchants.length > 0 && (
+            <div>
+              <label className="fern-field-label">Merchant</label>
+              <Controller
+                control={control}
+                name="merchantId"
+                render={({ field }) => (
+                  <SearchableSelect
+                    value={field.value}
+                    onChange={(mId) => {
+                      field.onChange(mId)
+                      if (mId) {
+                        const m = merchants.find((x) => x.id === mId)
+                        if (m?.categoryId) {
+                          const catBelongsToKind = categories.some(
+                            (c) => c.id === m.categoryId && c.kind === watchedKind
+                          )
+                          if (catBelongsToKind) {
+                            setValue('categoryId', m.categoryId, { shouldValidate: true, shouldDirty: true })
+                          }
+                        }
+                      }
+                    }}
+                    options={merchantOptions}
+                    placeholder="No merchant"
+                    nullable
+                    nullLabel="No merchant"
+                  />
+                )}
+              />
+            </div>
           )}
-        />
+
+          <Controller
+            control={control}
+            name="categoryId"
+            render={({ field, fieldState }) => {
+              const showCatErr = !!(fieldState.error && (fieldState.isDirty || isSubmitted))
+              return (
+                <Field data-invalid={showCatErr}>
+                  <label className="fern-field-label wide">Category</label>
+                  {filteredCatsSorted.length === 0 ? (
+                    <p style={{ fontSize: 13, color: 'var(--ink-faint)', padding: '12px', background: 'var(--bg-sunken)', borderRadius: 10 }}>
+                      No {watchedKind} categories — add one in Categories.
+                    </p>
+                  ) : (
+                    <div className="fern-cat-grid">
+                      {filteredCatsSorted.map((c) => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            className={`fern-cat-tile ${field.value === c.id ? 'selected' : ''}`}
+                            onClick={() => field.onChange(c.id)}
+                          >
+                            <CatSwatch color={c.color} icon={c.icon} size={28} />
+                            <div style={{ fontSize: 11, lineHeight: 1.3 }}>{c.name}</div>
+                          </button>
+                        ))}
+                    </div>
+                  )}
+                  {showCatErr && <FieldError>{fieldState.error?.message}</FieldError>}
+                </Field>
+              )
+            }}
+          />
+
+          <Field data-invalid={showErr('date')}>
+            <label className="fern-field-label">Date</label>
+            <input className="fern-input" type="date" {...register('date')} />
+            {showErr('date') && <FieldError>{errors.date?.message}</FieldError>}
+            {watch('date') > new Date().toISOString().slice(0, 10) && (
+              <p style={{ fontSize: 12, color: 'var(--ink-faint)', marginTop: 4 }}>
+                A future date logs this as a planned expense.
+              </p>
+            )}
+          </Field>
+
+          <div>
+            <label className="fern-field-label">Note</label>
+            <input className="fern-input" placeholder="What was this for?" {...register('note')} />
+          </div>
+
+          {showReimbursable && watchedKind === 'expense' && (
+            <Controller
+              control={control}
+              name="reimbursable"
+              render={({ field }) => (
+                <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', padding: '10px 14px', background: field.value ? 'var(--teal-bg)' : 'var(--bg-sunken)', borderRadius: 10, transition: 'background 0.15s' }}>
+                  <input
+                    type="checkbox"
+                    checked={field.value}
+                    onChange={(e) => field.onChange(e.target.checked)}
+                    style={{ width: 16, height: 16, accentColor: 'var(--teal)', cursor: 'pointer' }}
+                  />
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: field.value ? 'var(--teal-ink)' : 'var(--ink)' }}>Remboursable</div>
+                    <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>À saisir dans la vue Remboursements</div>
+                  </div>
+                </label>
+              )}
+            />
+          )}
+        </>
       )}
     </SheetShell>
   )

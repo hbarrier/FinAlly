@@ -111,7 +111,7 @@ export function RecurringLinkSheet({
       const result = await promoteToRecurring(transaction.id, {
         name: data.name.trim(),
         amount: Number(transaction.amount),
-        kind: transaction.kind,
+        kind: transaction.kind as 'expense' | 'income',
         categoryId: data.categoryId,
         merchantId: transaction.merchantId ?? null,
         method: data.method,

@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { Icon } from '@/components/fern/icon'
-import type { ModuleKey, Modules } from '@/lib/db-types'
+import type { ModuleKey, Modules, SavingAccount } from '@/lib/db-types'
 import styles from './sidebar-nav.module.css'
 
 type NavItem = { href: string; label: string; icon: string; module?: ModuleKey }
@@ -13,7 +13,7 @@ const NAV: NavSection[] = [
   {
     items: [
       { href: '/dashboard', label: 'Dashboard', icon: 'home' },
-      { href: '/transactions', label: 'Movements', icon: 'list' },
+      { href: '/transactions', label: 'Credit Account', icon: 'list' },
       { href: '/recurring', label: 'Recurrings', icon: 'repeat', module: 'recurring' },
     ],
   },
@@ -40,6 +40,7 @@ const NAV: NavSection[] = [
   {
     title: 'Admin',
     items: [
+      { href: '/accounts', label: 'Accounts', icon: 'bank' },
       { href: '/merchants', label: 'Merchants', icon: 'store' },
       { href: '/categories', label: 'Categories', icon: 'tag' },
       { href: '/settings', label: 'Settings', icon: 'settings' },
@@ -47,13 +48,29 @@ const NAV: NavSection[] = [
   },
 ]
 
-export function SidebarNav({ modules }: { modules: Modules }) {
+export function SidebarNav({
+  modules,
+  savingAccounts = [],
+}: {
+  modules: Modules
+  savingAccounts?: SavingAccount[]
+}) {
   const pathname = usePathname()
 
-  const sections = NAV.map((section) => ({
-    ...section,
-    items: section.items.filter((item) => !item.module || modules[item.module]),
-  })).filter((section) => section.items.length > 0)
+  const savingItems: NavItem[] = savingAccounts.map((a) => ({
+    href: `/savings/${a.id}`,
+    label: a.name,
+    icon: 'bank',
+  }))
+
+  const sections = NAV.map((section) => {
+    const items = section.items.filter((item) => !item.module || modules[item.module])
+    const creditIdx = items.findIndex((item) => item.href === '/transactions')
+    if (creditIdx !== -1 && savingItems.length > 0) {
+      items.splice(creditIdx + 1, 0, ...savingItems)
+    }
+    return { ...section, items }
+  }).filter((section) => section.items.length > 0)
 
   return (
     <>

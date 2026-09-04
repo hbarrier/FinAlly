@@ -7,8 +7,9 @@ import { nanoid, REIMBURSEMENT_CATEGORY_NAME } from '../utils'
 import { and, eq, inArray, or } from 'drizzle-orm'
 import { revalidateApp } from './_shared'
 import {
-  parse, zId, zNullableId, zOptionalId, zDateISO, zAmount, zKind, zPaymentMethod, zFlag, zOptionalText,
+  parse, zId, zNullableId, zOptionalId, zDateISO, zAmount, zKind, zMovementKind, zPaymentMethod, zFlag, zOptionalText,
 } from '../schemas'
+import { savingsCategoryId, resolveSavingTransfer } from './_savings'
 import { defaultPaymentMethodForKind, type PaymentMethod } from '../payment-method'
 import { upsertLinkedInstance, revertInstanceToExpected } from '../recurring-instances'
 import {
@@ -21,7 +22,7 @@ import {
 const addTransactionSchema = z.object({
   date: zDateISO,
   amount: zAmount,
-  kind: zKind,
+  kind: zMovementKind,
   categoryId: zNullableId,
   merchantId: zOptionalId,
   note: zOptionalText,
@@ -30,6 +31,8 @@ const addTransactionSchema = z.object({
   reimbursable: zFlag.optional(),
   cleared: zFlag.optional(),
   method: zPaymentMethod.optional(),
+  sourceSavingAccountId: zOptionalId,
+  destSavingAccountId: zOptionalId,
 })
 
 const updateTransactionSchema = z.object({
@@ -46,7 +49,7 @@ const updateTransactionSchema = z.object({
 export async function addTransaction(input: {
   date: string
   amount: number
-  kind: 'expense' | 'income'
+  kind: 'expense' | 'income' | 'saving'
   categoryId: string | null
   merchantId?: string | null
   note?: string | null
@@ -55,8 +58,32 @@ export async function addTransaction(input: {
   reimbursable?: number
   cleared?: number
   method?: PaymentMethod
+  sourceSavingAccountId?: string | null
+  destSavingAccountId?: string | null
 }) {
   const data = parse(addTransactionSchema, input)
+
+  if (data.kind === 'saving') {
+    const endpoints = await resolveSavingTransfer({
+      sourceSavingAccountId: data.sourceSavingAccountId,
+      destSavingAccountId: data.destSavingAccountId,
+      amount: data.amount,
+    })
+    await db.insert(transactions).values({
+      id: nanoid(),
+      date: data.date,
+      amount: data.amount,
+      kind: 'saving',
+      method: 'transfer',
+      categoryId: await savingsCategoryId(),
+      merchantId: null,
+      note: data.note ?? null,
+      ...endpoints,
+    })
+    revalidateApp()
+    return
+  }
+
   const method = data.method ?? defaultPaymentMethodForKind(data.kind)
   const cleared =
     typeof data.cleared === 'number'
@@ -65,11 +92,15 @@ export async function addTransaction(input: {
         ? 1
         : undefined
 
+  const { sourceSavingAccountId: _s, destSavingAccountId: _d, ...rest } = data
+  void _s
+  void _d
+
   const txId = nanoid()
   await db.transaction(async (tx) => {
     await tx.insert(transactions).values({
       id: txId,
-      ...data,
+      ...rest,
       method,
       ...(cleared === undefined ? {} : { cleared }),
     })
@@ -95,6 +126,63 @@ export async function updateTransaction(
   },
 ) {
   return updateTransactionWithRecurringAmountOption(id, data, { propagateRecurringAmount: false })
+}
+
+const updateSavingTransferSchema = z.object({
+  date: zDateISO.optional(),
+  amount: zAmount.optional(),
+  note: zOptionalText,
+  sourceSavingAccountId: zOptionalId,
+  destSavingAccountId: zOptionalId,
+})
+
+/** Edit an existing kind='saving' transfer. Its kind never changes. */
+export async function updateSavingTransfer(
+  id: string,
+  input: {
+    date?: string
+    amount?: number
+    note?: string | null
+    sourceSavingAccountId?: string | null
+    destSavingAccountId?: string | null
+  },
+) {
+  parse(zId, id)
+  const data = parse(updateSavingTransferSchema, input)
+  const existing = await db.query.transactions.findFirst({
+    where: eq(transactions.id, id),
+    columns: {
+      kind: true,
+      amount: true,
+      date: true,
+      sourceSavingAccountId: true,
+      destSavingAccountId: true,
+    },
+  })
+  if (!existing || existing.kind !== 'saving') throw new Error('Not a saving transfer.')
+
+  const amount = data.amount ?? existing.amount
+  const endpoints = await resolveSavingTransfer({
+    sourceSavingAccountId:
+      data.sourceSavingAccountId === undefined ? existing.sourceSavingAccountId : data.sourceSavingAccountId,
+    destSavingAccountId:
+      data.destSavingAccountId === undefined ? existing.destSavingAccountId : data.destSavingAccountId,
+    amount,
+    excludeTxId: id,
+  })
+
+  await db
+    .update(transactions)
+    .set({
+      ...(data.date ? { date: data.date } : {}),
+      amount,
+      note: data.note === undefined ? undefined : data.note,
+      method: 'transfer',
+      categoryId: await savingsCategoryId(),
+      ...endpoints,
+    })
+    .where(eq(transactions.id, id))
+  revalidateApp()
 }
 
 export async function updateTransactionWithRecurringAmountOption(
@@ -135,6 +223,9 @@ export async function updateTransactionWithRecurringAmountOption(
       .limit(1)
 
     if (!existing) return
+    if (existing.kind === 'saving') {
+      throw new Error('Use updateSavingTransfer for saving transfers.')
+    }
 
     const nextDate = data.date ?? existing.date
     const nextAmount = data.amount ?? existing.amount

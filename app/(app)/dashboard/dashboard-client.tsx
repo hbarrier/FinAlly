@@ -19,6 +19,7 @@ import {
   sumByKind,
   spendingByCategory,
   recurringExpensesByCategory,
+  creditSignedAmount,
   isPlannedDate,
   fmt,
   formatDate,
@@ -30,8 +31,11 @@ import {
 import {
   addTransaction,
   updateTransaction,
+  updateSavingTransfer,
   deleteTransaction,
 } from '@/lib/actions/transactions'
+import type { TransactionSheetSave } from '@/components/fern/sheets/transaction-sheet'
+import type { SavingAccount } from '@/lib/db-types'
 import { upsertMonthlyOpeningBalance } from '@/lib/actions/monthly-opening-balances'
 import { runAction } from '@/lib/utils'
 import type { Merchant } from '@/lib/db-types'
@@ -68,6 +72,7 @@ interface DashboardClientProps {
   categories: Category[]
   merchants: Merchant[]
   instances: RecurringInstance[]
+  savingAccounts: (SavingAccount & { balance: number })[]
   recurringEnabled: boolean
   divorceEnabled: boolean
 }
@@ -84,6 +89,7 @@ export function DashboardClient({
   categories,
   merchants,
   instances,
+  savingAccounts,
   recurringEnabled,
   divorceEnabled,
 }: DashboardClientProps) {
@@ -133,7 +139,7 @@ export function DashboardClient({
       const iso = cursor.toISOString().slice(0, 10)
       while (idx < sorted.length && sorted[idx].date <= iso) {
         const t = sorted[idx]
-        bal += (t.kind === 'income' ? 1 : -1) * Number(t.amount || 0)
+        bal += creditSignedAmount(t)
         idx++
       }
       result.push({ date: iso, balance: bal })
@@ -175,7 +181,7 @@ export function DashboardClient({
       openingBalance +
       monthTxns
         .filter((t) => t.date >= monthStart && t.date <= todayIso)
-        .reduce((s, t) => s + (t.kind === 'income' ? 1 : -1) * Number(t.amount || 0), 0),
+        .reduce((s, t) => s + creditSignedAmount(t), 0),
     [openingBalance, monthTxns, monthStart, todayIso],
   )
 
@@ -184,7 +190,7 @@ export function DashboardClient({
       openingBalance +
       monthTxns
         .filter((t) => t.date >= monthStart && t.date <= monthEndIso)
-        .reduce((s, t) => s + (t.kind === 'income' ? 1 : -1) * Number(t.amount || 0), 0),
+        .reduce((s, t) => s + creditSignedAmount(t), 0),
     [openingBalance, monthTxns, monthStart, monthEndIso],
   )
 
@@ -236,10 +242,29 @@ export function DashboardClient({
   const chartStart = chartSeries[0]?.balance
   const chartEnd = chartSeries[chartSeries.length - 1]?.balance
 
-  const handleSave = async (data: Parameters<typeof addTransaction>[0]) => {
+  const handleSave = async (data: TransactionSheetSave) => {
     startTransition(runAction(async () => {
       if (editingTxn) {
-        await updateTransaction(editingTxn.id, data)
+        if (data.kind === 'saving') {
+          await updateSavingTransfer(editingTxn.id, {
+            date: data.date,
+            amount: data.amount,
+            note: data.note,
+            sourceSavingAccountId: data.sourceSavingAccountId,
+            destSavingAccountId: data.destSavingAccountId,
+          })
+        } else {
+          await updateTransaction(editingTxn.id, {
+            date: data.date,
+            amount: data.amount,
+            kind: data.kind,
+            categoryId: data.categoryId,
+            merchantId: data.merchantId,
+            note: data.note,
+            reimbursable: data.reimbursable,
+            method: data.method,
+          })
+        }
       } else {
         await addTransaction(data)
       }
@@ -315,6 +340,27 @@ export function DashboardClient({
               Net {net >= 0 ? '+' : '−'}{fmt(Math.abs(net), { noSymbol: true })}€
             </span>
           </div>
+
+          {savingAccounts.length > 0 && (
+            <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--line-soft)' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {savingAccounts.map((a) => (
+                  <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                    <Link href={`/savings/${a.id}`} style={{ color: 'var(--ink-soft)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <Icon name="bank" size={12} /> {a.name}
+                    </Link>
+                    <span style={{ fontFamily: 'var(--mono-fern)', color: 'var(--ink)' }}>{fmt(a.balance)}</span>
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 10, fontSize: 13, fontWeight: 600 }}>
+                <span style={{ color: 'var(--ink-faint)', fontFamily: 'var(--mono-fern)', textTransform: 'uppercase', letterSpacing: '0.08em', fontSize: 11 }}>Net worth</span>
+                <span style={{ fontFamily: 'var(--mono-fern)', color: 'var(--ink)' }}>
+                  {fmt(balanceToday + savingAccounts.reduce((s, a) => s + a.balance, 0))}
+                </span>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Balance evolution card */}
@@ -500,6 +546,7 @@ export function DashboardClient({
         onClose={() => { setSheetOpen(false); setEditingTxn(null) }}
         categories={categories}
         merchants={merchants}
+        savingAccounts={savingAccounts}
         item={editingTxn}
         showReimbursable={divorceEnabled}
         onSave={handleSave}

@@ -53,7 +53,7 @@ export async function seedZeroCategoryLines(simulationId: string): Promise<void>
     ])
     const present = new Set(existing.map((l) => `${l.kind}:${l.categoryId ?? ''}`))
     const rows = activeCats
-      .filter((c) => !present.has(`${c.kind}:${c.id}`))
+      .filter((c) => c.isSavings !== 1 && !present.has(`${c.kind}:${c.id}`))
       .map((c) => ({
         id: nanoid(),
         simulationId,
@@ -262,12 +262,12 @@ async function recurringLines(
     )
 
   return rows
-    .filter((r) => wantedKeys.has(`${r.cadence}:${r.kind}`))
+    .filter((r) => r.kind !== 'saving' && wantedKeys.has(`${r.cadence}:${r.kind}`))
     .map((r) => ({
       id: nanoid(),
       simulationId,
       name: r.name,
-      kind: r.kind,
+      kind: r.kind as 'expense' | 'income',
       categoryId: r.categoryId,
       merchantId: r.merchantId,
       amount: r.amount,

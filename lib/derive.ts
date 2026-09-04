@@ -322,7 +322,7 @@ type BudgetTxnLite = {
   id: string
   date: string
   amount: number
-  kind: 'expense' | 'income'
+  kind: 'expense' | 'income' | 'saving'
   categoryId: string | null
   merchantId: string | null
   recurringId: string | null
@@ -686,10 +686,15 @@ export function describeSimulationInputs(inputs: SimulationInputs): string[] {
 }
 
 export function currentRecurringMonthlyNet(recurringItems: Recurring[], ref: Date = new Date()): number {
-  return recurringItems.reduce(
-    (net, r) => net + (r.kind === 'income' ? 1 : -1) * monthlyEstimate(r, ref),
-    0,
-  )
+  return recurringItems.reduce((net, r) => {
+    if (r.kind === 'saving') {
+      // A recurring transfer only moves the credit balance through its NULL endpoint.
+      if (r.destSavingAccountId == null) return net + monthlyEstimate(r, ref)
+      if (r.sourceSavingAccountId == null) return net - monthlyEstimate(r, ref)
+      return net
+    }
+    return net + (r.kind === 'income' ? 1 : -1) * monthlyEstimate(r, ref)
+  }, 0)
 }
 
 export function simulationBalanceProjection(
@@ -724,7 +729,7 @@ export interface SimMonthComparison {
 type ComparisonTxn = {
   date: string
   amount: number
-  kind: 'expense' | 'income'
+  kind: 'expense' | 'income' | 'saving'
   categoryId: string | null
   recurringId: string | null
   cleared: number
@@ -853,7 +858,7 @@ export function simulationVsActualsMonthly(
 export function buildCategorySelectOptions(
   cats: Category[],
 ): { value: string; label: string; group: string }[] {
-  const active = cats.filter((c) => c.isActive === 1)
+  const active = cats.filter((c) => c.isActive === 1 && c.isSavings !== 1)
   return [
     ...active
       .filter((c) => c.kind === 'expense')
@@ -911,15 +916,51 @@ export function splitCents(amt: number | string) {
 
 // ---- balance ----
 
+type CreditMovement = {
+  kind: 'expense' | 'income' | 'saving'
+  amount: number | string
+  sourceSavingAccountId?: string | null
+  destSavingAccountId?: string | null
+}
+
+/**
+ * How one movement changes the CREDIT (main) account balance.
+ * income `+`, expense `−`. A `saving` transfer only touches credit through its
+ * NULL endpoint: money leaving credit (`source` NULL) is `−`, money returning to
+ * credit (`dest` NULL) is `+`; a saving↔saving transfer leaves credit untouched.
+ */
+export function creditSignedAmount(t: CreditMovement): number {
+  const amount = Number(t.amount || 0)
+  if (t.kind === 'income') return amount
+  if (t.kind === 'expense') return -amount
+  if (t.destSavingAccountId == null) return amount
+  if (t.sourceSavingAccountId == null) return -amount
+  return 0
+}
+
 export function currentBalance(
   startingBalance: number,
   txns: Transaction[],
 ): number {
+  return startingBalance + txns.reduce((s, t) => s + creditSignedAmount(t), 0)
+}
+
+/**
+ * Current balance of one saving account: its start balance plus every transfer
+ * in (`dest` = id) minus every transfer out (`source` = id).
+ */
+export function savingAccountBalance(
+  startBalance: number,
+  txns: Pick<Transaction, 'kind' | 'amount' | 'sourceSavingAccountId' | 'destSavingAccountId'>[],
+  accountId: string,
+): number {
   return (
-    startingBalance +
-    txns.reduce(
-      (s, t) => s + (t.kind === 'income' ? 1 : -1) * Number(t.amount || 0),
-      0,
-    )
+    startBalance +
+    txns.reduce((s, t) => {
+      if (t.kind !== 'saving') return s
+      if (t.destSavingAccountId === accountId) return s + Number(t.amount || 0)
+      if (t.sourceSavingAccountId === accountId) return s - Number(t.amount || 0)
+      return s
+    }, 0)
   )
 }

@@ -26,6 +26,8 @@ export const zAmountOrZero = z.number().finite('Amount must be a number').nonneg
 export const zSignedAmount = z.number().finite('Amount must be a number')
 
 export const zKind = z.enum(['expense', 'income'])
+/** Movement kind including transfers to/from saving accounts. */
+export const zMovementKind = z.enum(['expense', 'income', 'saving'])
 export const zCadence = z.enum(['monthly', 'yearly'])
 export const zFrequency = z.enum(['monthly', 'yearly'])
 export const zPaymentMethod = z.enum(PAYMENT_METHODS)

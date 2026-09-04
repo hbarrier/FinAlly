@@ -3,6 +3,7 @@ import { twMerge } from "tailwind-merge"
 import { alertDialog } from "@/lib/dialogs-store"
 
 export const REIMBURSEMENT_CATEGORY_NAME = 'Remboursements'
+export const SAVINGS_CATEGORY_NAME = 'Savings'
 
 export const parseDecimal = (v: string) => Number(v.replace(',', '.'))
 
