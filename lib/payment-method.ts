@@ -1,8 +1,8 @@
 export const PAYMENT_METHODS = ['card', 'transfer', 'cash', 'check', 'debit', 'paypal'] as const
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number]
 
-export function defaultPaymentMethodForKind(kind: 'expense' | 'income' | 'saving'): PaymentMethod {
-  if (kind === 'saving') return 'transfer'
+export function defaultPaymentMethodForKind(kind: 'expense' | 'income' | 'saving' | 'interest'): PaymentMethod {
+  if (kind === 'saving' || kind === 'interest') return 'transfer'
   return kind === 'income' ? 'transfer' : 'card'
 }
 

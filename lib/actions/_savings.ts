@@ -65,3 +65,20 @@ export async function resolveSavingTransfer(input: {
 
   return { sourceSavingAccountId: source, destSavingAccountId: dest }
 }
+
+/**
+ * Validates the destination account for an interest credit. Interest has no
+ * source at all (not another saving account, not the credit account), so
+ * there's nothing to check but that the destination exists.
+ */
+export async function resolveInterestTarget(
+  destSavingAccountId: string | null | undefined,
+): Promise<string> {
+  if (!destSavingAccountId) throw new Error('Pick a saving account.')
+  const [acc] = await db
+    .select({ id: savingAccounts.id })
+    .from(savingAccounts)
+    .where(eq(savingAccounts.id, destSavingAccountId))
+  if (!acc) throw new Error('Saving account not found.')
+  return destSavingAccountId
+}

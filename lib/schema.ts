@@ -210,7 +210,7 @@ export const transactions = sqliteTable(
     id: text('id').primaryKey(),
     date: text('date').notNull(),
     amount: real('amount').notNull(),
-    kind: text('kind', { enum: ['expense', 'income', 'saving'] }).notNull(),
+    kind: text('kind', { enum: ['expense', 'income', 'saving', 'interest'] }).notNull(),
     method: text('method', { enum: ['card', 'transfer', 'cash', 'check', 'debit', 'paypal'] })
       .notNull()
       .default('card'),
@@ -221,6 +221,7 @@ export const transactions = sqliteTable(
       onDelete: 'set null',
     }),
     // For kind='saving' transfers: NULL endpoint = the credit account.
+    // For kind='interest': source is always NULL (no source at all) and dest is the credited account.
     sourceSavingAccountId: text('source_saving_account_id').references(() => savingAccounts.id, {
       onDelete: 'set null',
     }),

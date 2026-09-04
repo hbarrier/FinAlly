@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
-import { and, desc, eq, or } from 'drizzle-orm'
+import { and, desc, eq, inArray, or } from 'drizzle-orm'
 import { db } from '@/lib/db'
 import { categories, savingAccounts, transactions } from '@/lib/schema'
 import { listSavingAccounts, getSavingAccountBalances } from '@/lib/queries/saving-accounts'
@@ -24,7 +24,7 @@ export default async function SavingAccountPage({
       .from(transactions)
       .where(
         and(
-          eq(transactions.kind, 'saving'),
+          inArray(transactions.kind, ['saving', 'interest']),
           or(eq(transactions.sourceSavingAccountId, id), eq(transactions.destSavingAccountId, id)),
         ),
       )

@@ -27,6 +27,13 @@ export type DialogState =
       defaultValue: string
       done: (value: string | null) => void
     }
+  | {
+      kind: 'choose'
+      title: string
+      message: string
+      options: { value: string; label: string }[]
+      done: (value: string | null) => void
+    }
 
 let current: DialogState | null = null
 const listeners = new Set<() => void>()
@@ -77,6 +84,28 @@ export function confirmDialog(opts: {
         current = null
         emit()
         resolve(ok)
+      },
+    }
+    emit()
+  })
+}
+
+/** Prompts the user to pick one of several named options. Resolves null on cancel. */
+export function chooseDialog(opts: {
+  message: string
+  title?: string
+  options: { value: string; label: string }[]
+}): Promise<string | null> {
+  return new Promise((resolve) => {
+    current = {
+      kind: 'choose',
+      title: opts.title ?? 'Choose an option',
+      message: opts.message,
+      options: opts.options,
+      done: (value) => {
+        current = null
+        emit()
+        resolve(value)
       },
     }
     emit()

@@ -17,7 +17,7 @@ export default async function AccountsPage() {
         dest: transactions.destSavingAccountId,
       })
       .from(transactions)
-      .where(sql`${transactions.kind} = 'saving'`),
+      .where(sql`${transactions.kind} IN ('saving', 'interest')`),
   ])
 
   const usedIds = new Set<string>()

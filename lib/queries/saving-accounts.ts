@@ -1,5 +1,5 @@
 import { cache } from 'react'
-import { asc, eq, sql } from 'drizzle-orm'
+import { asc, eq, inArray, sql } from 'drizzle-orm'
 import { db } from '@/lib/db'
 import { savingAccounts, transactions } from '@/lib/schema'
 import type { SavingAccount } from '@/lib/db-types'
@@ -24,7 +24,7 @@ export const getSavingAccountBalances = cache(async (): Promise<Map<string, numb
     db
       .select({ id: transactions.destSavingAccountId, total: sql<number>`sum(${transactions.amount})` })
       .from(transactions)
-      .where(eq(transactions.kind, 'saving'))
+      .where(inArray(transactions.kind, ['saving', 'interest']))
       .groupBy(transactions.destSavingAccountId),
     db
       .select({ id: transactions.sourceSavingAccountId, total: sql<number>`sum(${transactions.amount})` })
@@ -66,7 +66,7 @@ export async function savingAccountLiveBalance(
     })
     .from(transactions)
     .where(
-      sql`${transactions.kind} = 'saving' AND (${transactions.sourceSavingAccountId} = ${accountId} OR ${transactions.destSavingAccountId} = ${accountId})`,
+      sql`${transactions.kind} IN ('saving', 'interest') AND (${transactions.sourceSavingAccountId} = ${accountId} OR ${transactions.destSavingAccountId} = ${accountId})`,
     )
 
   let balance = account.startBalance

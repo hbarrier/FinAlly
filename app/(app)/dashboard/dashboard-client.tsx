@@ -32,6 +32,7 @@ import {
   addTransaction,
   updateTransaction,
   updateSavingTransfer,
+  updateInterest,
   deleteTransaction,
 } from '@/lib/actions/transactions'
 import type { TransactionSheetSave } from '@/components/fern/sheets/transaction-sheet'
@@ -251,6 +252,13 @@ export function DashboardClient({
             amount: data.amount,
             note: data.note,
             sourceSavingAccountId: data.sourceSavingAccountId,
+            destSavingAccountId: data.destSavingAccountId,
+          })
+        } else if (data.kind === 'interest') {
+          await updateInterest(editingTxn.id, {
+            date: data.date,
+            amount: data.amount,
+            note: data.note,
             destSavingAccountId: data.destSavingAccountId,
           })
         } else {

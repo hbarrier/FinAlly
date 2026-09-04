@@ -66,6 +66,26 @@ function DialogView({ state }: { state: DialogState }) {
     )
   }
 
+  if (state.kind === 'choose') {
+    return (
+      <Modal open onClose={() => state.done(null)} title={state.title}>
+        <p style={{ margin: '0 0 12px', whiteSpace: 'pre-line' }}>{state.message}</p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {state.options.map((o) => (
+            <button
+              key={o.value}
+              type="button"
+              className="fern-btn sheet-secondary"
+              onClick={() => state.done(o.value)}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+      </Modal>
+    )
+  }
+
   return (
     <Modal
       open

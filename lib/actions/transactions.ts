@@ -7,9 +7,9 @@ import { nanoid, REIMBURSEMENT_CATEGORY_NAME } from '../utils'
 import { and, eq, inArray, or } from 'drizzle-orm'
 import { revalidateApp } from './_shared'
 import {
-  parse, zId, zNullableId, zOptionalId, zDateISO, zAmount, zKind, zMovementKind, zPaymentMethod, zFlag, zOptionalText,
+  parse, zId, zNullableId, zOptionalId, zDateISO, zAmount, zKind, zTransactionKind, zPaymentMethod, zFlag, zOptionalText,
 } from '../schemas'
-import { savingsCategoryId, resolveSavingTransfer } from './_savings'
+import { savingsCategoryId, resolveSavingTransfer, resolveInterestTarget } from './_savings'
 import { defaultPaymentMethodForKind, type PaymentMethod } from '../payment-method'
 import { upsertLinkedInstance, revertInstanceToExpected } from '../recurring-instances'
 import {
@@ -22,7 +22,7 @@ import {
 const addTransactionSchema = z.object({
   date: zDateISO,
   amount: zAmount,
-  kind: zMovementKind,
+  kind: zTransactionKind,
   categoryId: zNullableId,
   merchantId: zOptionalId,
   note: zOptionalText,
@@ -49,7 +49,7 @@ const updateTransactionSchema = z.object({
 export async function addTransaction(input: {
   date: string
   amount: number
-  kind: 'expense' | 'income' | 'saving'
+  kind: 'expense' | 'income' | 'saving' | 'interest'
   categoryId: string | null
   merchantId?: string | null
   note?: string | null
@@ -79,6 +79,24 @@ export async function addTransaction(input: {
       merchantId: null,
       note: data.note ?? null,
       ...endpoints,
+    })
+    revalidateApp()
+    return
+  }
+
+  if (data.kind === 'interest') {
+    const destSavingAccountId = await resolveInterestTarget(data.destSavingAccountId)
+    await db.insert(transactions).values({
+      id: nanoid(),
+      date: data.date,
+      amount: data.amount,
+      kind: 'interest',
+      method: 'transfer',
+      categoryId: await savingsCategoryId(),
+      merchantId: null,
+      note: data.note ?? null,
+      sourceSavingAccountId: null,
+      destSavingAccountId,
     })
     revalidateApp()
     return
@@ -185,6 +203,50 @@ export async function updateSavingTransfer(
   revalidateApp()
 }
 
+const updateInterestSchema = z.object({
+  date: zDateISO.optional(),
+  amount: zAmount.optional(),
+  note: zOptionalText,
+  destSavingAccountId: zOptionalId,
+})
+
+/** Edit an existing kind='interest' credit. Its kind never changes; it never has a source. */
+export async function updateInterest(
+  id: string,
+  input: {
+    date?: string
+    amount?: number
+    note?: string | null
+    destSavingAccountId?: string | null
+  },
+) {
+  parse(zId, id)
+  const data = parse(updateInterestSchema, input)
+  const existing = await db.query.transactions.findFirst({
+    where: eq(transactions.id, id),
+    columns: { kind: true, destSavingAccountId: true },
+  })
+  if (!existing || existing.kind !== 'interest') throw new Error('Not an interest credit.')
+
+  const destSavingAccountId = await resolveInterestTarget(
+    data.destSavingAccountId === undefined ? existing.destSavingAccountId : data.destSavingAccountId,
+  )
+
+  await db
+    .update(transactions)
+    .set({
+      ...(data.date ? { date: data.date } : {}),
+      ...(data.amount === undefined ? {} : { amount: data.amount }),
+      note: data.note === undefined ? undefined : data.note,
+      method: 'transfer',
+      categoryId: await savingsCategoryId(),
+      sourceSavingAccountId: null,
+      destSavingAccountId,
+    })
+    .where(eq(transactions.id, id))
+  revalidateApp()
+}
+
 export async function updateTransactionWithRecurringAmountOption(
   id: string,
   input: {
@@ -225,6 +287,9 @@ export async function updateTransactionWithRecurringAmountOption(
     if (!existing) return
     if (existing.kind === 'saving') {
       throw new Error('Use updateSavingTransfer for saving transfers.')
+    }
+    if (existing.kind === 'interest') {
+      throw new Error('Use updateInterest for interest credits.')
     }
 
     const nextDate = data.date ?? existing.date

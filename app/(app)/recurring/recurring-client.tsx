@@ -9,8 +9,9 @@ import { FernButton } from '@/components/fern/button'
 import { EmptyState } from '@/components/fern/empty-state'
 import { fmt, monthlyEstimate, type Category, type RecurringWithAmounts } from '@/lib/derive'
 import { addRecurring, updateRecurring, deleteRecurring } from '@/lib/actions/recurring'
+import { backfillRecurringInstances } from '@/lib/actions/recurring-instances'
 import { runAction } from '@/lib/utils'
-import { confirmDialog } from '@/lib/dialogs-store'
+import { confirmDialog, chooseDialog } from '@/lib/dialogs-store'
 import type { Merchant, SavingAccount } from '@/lib/db-types'
 
 const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -36,15 +37,32 @@ export function RecurringClient({ recurring, categories, merchants, savingAccoun
   const editingItem = editing && editing !== 'new' ? recurring.find((r) => r.id === editing) : null
 
   const handleSave = async (data: RecurringSheetSave) => {
+    const reopenedEndDate = !!(editingItem?.endDate && !data.endDate)
+    const id = editing
     startTransition(runAction(async () => {
-      if (editing && editing !== 'new') {
+      if (id && id !== 'new') {
         const { kind, ...rest } = data
-        await updateRecurring(editing, kind === 'saving' ? rest : data)
+        await updateRecurring(id, kind === 'saving' ? rest : data)
       } else {
         await addRecurring(data)
       }
     }))
     setEditing(null)
+
+    if (reopenedEndDate && id && id !== 'new') {
+      const scope = await chooseDialog({
+        title: 'Backfill instances?',
+        message: 'The end date was removed. Create expected instances for which months?',
+        options: [
+          { value: 'current', label: 'Current month only' },
+          { value: 'all', label: 'All months since start date' },
+          { value: 'none', label: 'None' },
+        ],
+      })
+      if (scope === 'current' || scope === 'all') {
+        startTransition(runAction(async () => { await backfillRecurringInstances(id, scope) }))
+      }
+    }
   }
 
   const handleDelete = async (id: string) => {

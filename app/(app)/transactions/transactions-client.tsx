@@ -17,6 +17,7 @@ import {
   addTransaction,
   updateTransactionWithRecurringAmountOption,
   updateSavingTransfer,
+  updateInterest,
   deleteTransaction,
   clearTransaction,
   detachTransactionFromRecurring,
@@ -535,6 +536,23 @@ export function TransactionsClient({
       return
     }
 
+    if (data.kind === 'interest') {
+      startTransition(runAction(async () => {
+        if (editingTxn) {
+          await updateInterest(editingTxn.id, {
+            date: data.date,
+            amount: data.amount,
+            note: data.note,
+            destSavingAccountId: data.destSavingAccountId,
+          })
+        } else {
+          await addTransaction(data)
+        }
+      }))
+      closeSheet()
+      return
+    }
+
     if (editingTxn) {
       const mappingCount = reimbursementMappingCounts[editingTxn.id] ?? 0
       const currentCategory = editingTxn.categoryId ? categoryById.get(editingTxn.categoryId) : undefined
@@ -606,7 +624,7 @@ export function TransactionsClient({
           {
             date: data.date,
             amount: data.amount,
-            kind: data.kind === 'saving' ? undefined : data.kind,
+            kind: data.kind === 'saving' || data.kind === 'interest' ? undefined : data.kind,
             categoryId: data.categoryId,
             merchantId: data.merchantId,
             note: data.note,
@@ -1017,7 +1035,7 @@ export function TransactionsClient({
                     const t = m as Transaction
                     const merchant = t.merchantId ? merchantById.get(t.merchantId) : undefined
                     const savingAccountName =
-                      t.kind === 'saving'
+                      t.kind === 'saving' || t.kind === 'interest'
                         ? savingAccountById.get(t.destSavingAccountId ?? t.sourceSavingAccountId ?? '')?.name
                         : undefined
                     const isSelected = selectedIds.has(t.id)

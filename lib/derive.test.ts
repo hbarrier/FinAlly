@@ -368,6 +368,10 @@ describe('creditSignedAmount', () => {
     expect(creditSignedAmount({ kind: 'saving', amount: 100, sourceSavingAccountId: 'A', destSavingAccountId: null })).toBe(100)
     expect(creditSignedAmount({ kind: 'saving', amount: 100, sourceSavingAccountId: 'A', destSavingAccountId: 'B' })).toBe(0)
   })
+
+  it('never touches the credit account for interest', () => {
+    expect(creditSignedAmount({ kind: 'interest', amount: 100, sourceSavingAccountId: null, destSavingAccountId: 'A' })).toBe(0)
+  })
 })
 
 describe('savingAccountBalance', () => {
@@ -379,6 +383,15 @@ describe('savingAccountBalance', () => {
       txn({ amount: 999, kind: 'expense' }),
     ]
     expect(savingAccountBalance(1000, rows, 'A')).toBe(1180)
+  })
+
+  it('adds interest credited to the account and ignores interest credited elsewhere', () => {
+    const rows = [
+      txn({ amount: 200, kind: 'saving', sourceSavingAccountId: null, destSavingAccountId: 'A' }),
+      txn({ amount: 5, kind: 'interest', sourceSavingAccountId: null, destSavingAccountId: 'A' }),
+      txn({ amount: 3, kind: 'interest', sourceSavingAccountId: null, destSavingAccountId: 'B' }),
+    ]
+    expect(savingAccountBalance(1000, rows, 'A')).toBe(1205)
   })
 })
 

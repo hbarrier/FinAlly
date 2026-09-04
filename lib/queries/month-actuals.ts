@@ -30,7 +30,7 @@ export const getCurrentMonthActuals = cache(async (): Promise<MonthActuals> => {
 
   const out: MonthActuals = { expense: {}, income: {} }
   for (const r of rows) {
-    if (r.categoryId && r.kind !== 'saving') out[r.kind][r.categoryId] = Number(r.total ?? 0)
+    if (r.categoryId && r.kind !== 'saving' && r.kind !== 'interest') out[r.kind][r.categoryId] = Number(r.total ?? 0)
   }
   return out
 })

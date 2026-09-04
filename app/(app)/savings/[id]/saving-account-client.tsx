@@ -14,6 +14,7 @@ import type { SavingAccount } from '@/lib/db-types'
 import {
   addTransaction,
   updateSavingTransfer,
+  updateInterest,
   deleteTransaction,
 } from '@/lib/actions/transactions'
 import { updateSavingAccount } from '@/lib/actions/saving-accounts'
@@ -30,6 +31,7 @@ interface Props {
 export function SavingAccountClient({ account, balance, transfers, savingAccounts, categoryIcon }: Props) {
   const [sheetOpen, setSheetOpen] = useState(false)
   const [editingTxn, setEditingTxn] = useState<Transaction | null>(null)
+  const [interestPrefill, setInterestPrefill] = useState(false)
   const [accountSheetOpen, setAccountSheetOpen] = useState(false)
   const [q, setQ] = useState('')
   const { run } = useServerAction()
@@ -40,6 +42,7 @@ export function SavingAccountClient({ account, balance, transfers, savingAccount
   )
 
   const counterparty = (t: Transaction) => {
+    if (t.kind === 'interest') return 'Interest'
     const other = t.sourceSavingAccountId === account.id ? t.destSavingAccountId : t.sourceSavingAccountId
     return other ? nameById.get(other) ?? 'Saving account' : 'Credit account'
   }
@@ -69,24 +72,47 @@ export function SavingAccountClient({ account, balance, transfers, savingAccount
 
   const openNew = () => {
     setEditingTxn(null)
+    setInterestPrefill(false)
+    setSheetOpen(true)
+  }
+
+  const openInterest = () => {
+    setEditingTxn(null)
+    setInterestPrefill(true)
     setSheetOpen(true)
   }
 
   const handleSave = (data: TransactionSheetSave) => {
-    if (data.kind !== 'saving') return
-    run(async () => {
-      if (editingTxn) {
-        await updateSavingTransfer(editingTxn.id, {
-          date: data.date,
-          amount: data.amount,
-          note: data.note,
-          sourceSavingAccountId: data.sourceSavingAccountId,
-          destSavingAccountId: data.destSavingAccountId,
-        })
-      } else {
-        await addTransaction(data)
-      }
-    })
+    if (data.kind === 'saving') {
+      run(async () => {
+        if (editingTxn) {
+          await updateSavingTransfer(editingTxn.id, {
+            date: data.date,
+            amount: data.amount,
+            note: data.note,
+            sourceSavingAccountId: data.sourceSavingAccountId,
+            destSavingAccountId: data.destSavingAccountId,
+          })
+        } else {
+          await addTransaction(data)
+        }
+      })
+    } else if (data.kind === 'interest') {
+      run(async () => {
+        if (editingTxn) {
+          await updateInterest(editingTxn.id, {
+            date: data.date,
+            amount: data.amount,
+            note: data.note,
+            destSavingAccountId: data.destSavingAccountId,
+          })
+        } else {
+          await addTransaction(data)
+        }
+      })
+    } else {
+      return
+    }
     setSheetOpen(false)
     setEditingTxn(null)
   }
@@ -127,6 +153,9 @@ export function SavingAccountClient({ account, balance, transfers, savingAccount
         <FernButton onClick={openNew}>
           <Icon name="plus" size={16} /> Move money
         </FernButton>
+        <FernButton tone="outline" onClick={openInterest}>
+          <Icon name="sparkle" size={16} /> Add interest
+        </FernButton>
       </div>
 
       {byMonth.length === 0 ? (
@@ -159,11 +188,11 @@ export function SavingAccountClient({ account, balance, transfers, savingAccount
                       onClick={() => { setEditingTxn(t); setSheetOpen(true) }}
                     >
                       <div style={{ width: 34, height: 34, borderRadius: 10, display: 'grid', placeItems: 'center', background: incoming ? 'var(--sage-bg)' : 'var(--rose-bg)', color: incoming ? 'var(--sage-ink)' : 'var(--rose-ink)', flexShrink: 0 }}>
-                        <Icon name={categoryIcon} size={16} />
+                        <Icon name={t.kind === 'interest' ? 'sparkle' : categoryIcon} size={16} />
                       </div>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--ink)' }}>
-                          {incoming ? 'From ' : 'To '}{counterparty(t)}
+                          {t.kind === 'interest' ? counterparty(t) : `${incoming ? 'From ' : 'To '}${counterparty(t)}`}
                         </div>
                         <div style={{ fontSize: 12, color: 'var(--ink-faint)' }}>
                           {formatDate(t.date + 'T12:00:00', 'en-US', { day: 'numeric', month: 'short' })}
@@ -186,13 +215,19 @@ export function SavingAccountClient({ account, balance, transfers, savingAccount
 
       <TransactionSheet
         open={sheetOpen}
-        onClose={() => { setSheetOpen(false); setEditingTxn(null) }}
+        onClose={() => { setSheetOpen(false); setEditingTxn(null); setInterestPrefill(false) }}
         categories={[]}
         merchants={[]}
         savingAccounts={savingAccounts}
         item={editingTxn}
         lockKind
-        prefill={editingTxn ? null : { kind: 'saving', sourceSavingAccountId: account.id, destSavingAccountId: null }}
+        prefill={
+          editingTxn
+            ? null
+            : interestPrefill
+              ? { kind: 'interest', destSavingAccountId: account.id }
+              : { kind: 'saving', sourceSavingAccountId: account.id, destSavingAccountId: null }
+        }
         onSave={handleSave}
         onDelete={editingTxn ? handleDelete : undefined}
       />

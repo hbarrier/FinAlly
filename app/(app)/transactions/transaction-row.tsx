@@ -90,7 +90,11 @@ export function TransactionRow({
           {t.note ?? merchant?.name ?? cat?.name ?? 'Transaction'}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
-          {t.kind === 'saving' && savingAccountName ? (
+          {t.kind === 'interest' && savingAccountName ? (
+            <span style={{ fontSize: 12, color: 'var(--ink-faint)' }}>
+              Interest · {savingAccountName}
+            </span>
+          ) : t.kind === 'saving' && savingAccountName ? (
             <span style={{ fontSize: 12, color: 'var(--ink-faint)' }}>
               {t.destSavingAccountId ? 'To' : 'From'} {savingAccountName}
             </span>
@@ -118,7 +122,11 @@ export function TransactionRow({
         </div>
       </div>
       {(() => {
-        const signed = t.kind === 'saving' ? creditSignedAmount(t) : (t.kind === 'income' ? 1 : -1) * Number(t.amount ?? 0)
+        const signed = t.kind === 'interest'
+          ? Number(t.amount ?? 0)
+          : t.kind === 'saving'
+            ? creditSignedAmount(t)
+            : (t.kind === 'income' ? 1 : -1) * Number(t.amount ?? 0)
         return (
           <div style={{ fontSize: 14, fontWeight: 600, color: signed >= 0 ? 'var(--sage-ink)' : 'var(--rose-ink)', fontFamily: 'var(--mono-fern)', flexShrink: 0 }}>
             {signed >= 0 ? '+' : '−'}{fmt(Math.abs(t.amount ?? 0))}
