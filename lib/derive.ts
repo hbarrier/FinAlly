@@ -31,6 +31,7 @@ import {
   parseLocalDate,
   completeMonthsWindow,
 } from './dates'
+import { formatConfig, currencySymbol } from './format-config'
 
 export { completeMonthsWindow } from './dates'
 
@@ -765,7 +766,7 @@ export function simulationVsActualsMonthly(
     const d = new Date(ref.getFullYear(), ref.getMonth() - i, 1)
     months.push({
       month: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
-      label: d.toLocaleDateString('fr-FR', { month: 'short' }),
+      label: d.toLocaleDateString(formatConfig().locale, { month: 'short' }),
       ongoing: i === 0,
       actual: { recurring: 0, variable: 0, recurringYearly: 0 },
       sim: { recurring: 0, variable: 0, recurringYearly: 0 },
@@ -875,20 +876,19 @@ export function buildCategorySelectOptions(
 
 export function formatDate(
   iso: string,
-  locale: string = 'fr-FR',
   opts: Intl.DateTimeFormatOptions = { day: '2-digit', month: '2-digit', year: 'numeric' },
 ): string {
-  return new Date(iso).toLocaleDateString(locale, opts)
+  return new Date(iso).toLocaleDateString(formatConfig().locale, opts)
 }
 
 export function fmt(amt: number | string, opts: { noSymbol?: boolean } = {}): string {
+  const { locale, currency } = formatConfig()
   const n = Number(amt || 0)
   const abs = Math.abs(n)
-  const s = abs.toLocaleString('de-DE', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })
-  return (n < 0 ? '−' : '') + (opts.noSymbol ? s : '€' + s)
+  const s = opts.noSymbol
+    ? abs.toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    : abs.toLocaleString(locale, { style: 'currency', currency })
+  return (n < 0 ? '−' : '') + s
 }
 
 /** `fmt` with an explicit leading `+` for non-negative amounts. */
@@ -897,9 +897,10 @@ export function signedFmt(amt: number): string {
 }
 
 export function fmtShort(amt: number | string): string {
+  const sym = currencySymbol()
   const n = Math.abs(Number(amt || 0))
-  if (n >= 1000) return '€' + (n / 1000).toFixed(n >= 10000 ? 0 : 1) + 'k'
-  return '€' + n.toFixed(0)
+  if (n >= 1000) return sym + (n / 1000).toFixed(n >= 10000 ? 0 : 1) + 'k'
+  return sym + n.toFixed(0)
 }
 
 export function splitCents(amt: number | string) {
@@ -909,7 +910,7 @@ export function splitCents(amt: number | string) {
   const totalCents = Math.round(n * 100)
   return {
     sign: Number(amt) < 0 ? '−' : '',
-    whole: Math.floor(totalCents / 100).toLocaleString('de-DE'),
+    whole: Math.floor(totalCents / 100).toLocaleString(formatConfig().locale),
     cents: String(totalCents % 100).padStart(2, '0'),
   }
 }

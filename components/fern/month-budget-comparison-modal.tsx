@@ -29,7 +29,7 @@ export function MonthBudgetComparisonModal({ open, onClose, month, budget, categ
   const [includeYearly, setIncludeYearly] = useState(true)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const merchantById = useMemo(() => new Map(merchants.map((m) => [m.id, m])), [merchants])
-  const title = `${formatDate(month + '-15T12:00:00', 'en-US', { month: 'long', year: 'numeric' })} vs budget`
+  const title = `${formatDate(month + '-15T12:00:00', { month: 'long', year: 'numeric' })} vs budget`
 
   const cmp = useMemo(
     () =>

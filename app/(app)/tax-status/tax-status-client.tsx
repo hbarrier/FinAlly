@@ -2,6 +2,7 @@
 
 import { useMemo, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
+import { useTranslations } from 'next-intl'
 import { fmt, formatDate } from '@/lib/derive'
 import { setTaxAllocation } from '@/lib/actions/tax-allocations'
 import { runAction } from '@/lib/utils'
@@ -18,6 +19,7 @@ interface Props {
 
 function AllocationPicker({ txId, current }: { txId: string; current: TaxAllocationValue | null }) {
   const [isPending, startTransition] = useTransition()
+  const tAlloc = useTranslations('enums.taxAllocation')
 
   const pick = (v: TaxAllocationValue) => {
     startTransition(runAction(async () => {
@@ -26,9 +28,9 @@ function AllocationPicker({ txId, current }: { txId: string; current: TaxAllocat
   }
 
   const options: { value: TaxAllocationValue; label: string }[] = [
-    { value: 'audrey', label: 'Audrey' },
-    { value: 'split', label: '50/50' },
-    { value: 'lucie', label: 'Lucie' },
+    { value: 'audrey', label: tAlloc('audrey') },
+    { value: 'split', label: tAlloc('split') },
+    { value: 'lucie', label: tAlloc('lucie') },
   ]
 
   return (
@@ -59,6 +61,8 @@ function AllocationPicker({ txId, current }: { txId: string; current: TaxAllocat
 
 export function TaxStatusClient({ rows, expenseRows, years, selectedYear }: Props) {
   const router = useRouter()
+  const t = useTranslations('taxStatus')
+  const tAlloc = useTranslations('enums.taxAllocation')
 
   const totals = useMemo(() => {
     let audrey = 0, lucie = 0, unallocated = 0
@@ -96,13 +100,13 @@ export function TaxStatusClient({ rows, expenseRows, years, selectedYear }: Prop
     <div style={{ display: 'flex', flexDirection: 'column', gap: 28, padding: '32px 0' }}>
       <header style={{ display: 'grid', gap: 14 }}>
         <div style={{ fontSize: 11, fontFamily: 'var(--mono-fern)', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--teal-ink)', fontWeight: 700 }}>
-          Tax
+          {t('kicker')}
         </div>
         <h1 style={{ fontSize: 28, lineHeight: 1.05, fontWeight: 700, color: 'var(--ink)', margin: '6px 0 0' }}>
-          Yearly Status
+          {t('title')}
         </h1>
         <p style={{ fontSize: 13, color: 'var(--ink-soft)', margin: '8px 0 0', maxWidth: 620 }}>
-          Allocate reimbursements and pension alimentaire to Audrey or Lucie for tax declaration.
+          {t('intro')}
         </p>
       </header>
 
@@ -121,25 +125,25 @@ export function TaxStatusClient({ rows, expenseRows, years, selectedYear }: Prop
 
       {/* Summary cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
-        <SummaryCard label="Audrey" value={fmt(totals.audrey)} tone="teal" reimbursement={totals.audreyReimb} pension={totals.audreyPension} />
-        <SummaryCard label="Lucie" value={fmt(totals.lucie)} tone="sage" reimbursement={totals.lucieReimb} pension={totals.luciePension} />
+        <SummaryCard label={tAlloc('audrey')} value={fmt(totals.audrey)} tone="teal" reimbursement={totals.audreyReimb} pension={totals.audreyPension} />
+        <SummaryCard label={tAlloc('lucie')} value={fmt(totals.lucie)} tone="sage" reimbursement={totals.lucieReimb} pension={totals.luciePension} />
         {totals.unallocated > 0 && (
-          <SummaryCard label="Unallocated" value={String(totals.unallocated)} tone="muted" />
+          <SummaryCard label={t('unallocated')} value={String(totals.unallocated)} tone="muted" />
         )}
       </div>
 
       {/* Income rows */}
       {rows.length === 0 ? (
         <div style={{ padding: '32px 0', textAlign: 'center', color: 'var(--ink-faint)', fontSize: 14 }}>
-          No reimbursements or pension alimentaire found for {selectedYear}.
+          {t('empty', { year: selectedYear })}
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
           {reimbursements.length > 0 && (
-            <TxSection title="Reimbursements" rows={reimbursements} />
+            <TxSection title={t('reimbursementsSection')} rows={reimbursements} />
           )}
           {pensions.length > 0 && (
-            <TxSection title="Pensions alimentaires" rows={pensions} />
+            <TxSection title={t('pensionsSection')} rows={pensions} />
           )}
         </div>
       )}
@@ -148,14 +152,14 @@ export function TaxStatusClient({ rows, expenseRows, years, selectedYear }: Prop
       {expenseRows.length > 0 && (
         <div>
           <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-faint)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>
-            Dépenses remboursables
+            {t('expensesSection')}
           </div>
           <div style={{ background: 'var(--bg-elevated)', borderRadius: 14, overflow: 'hidden', border: '1px solid var(--line-soft)' }}>
             <div style={{ display: 'grid', gridTemplateColumns: '100px 90px 1fr auto', gap: 12, padding: '10px 16px', background: 'var(--bg-sunken)', borderBottom: '1px solid var(--line-soft)', fontSize: 11, fontWeight: 700, color: 'var(--ink-faint)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-              <span>Date</span>
-              <span>Montant</span>
-              <span>Description</span>
-              <span>Allocation</span>
+              <span>{t('colDate')}</span>
+              <span>{t('colAmount')}</span>
+              <span>{t('colDescription')}</span>
+              <span>{t('colAllocation')}</span>
             </div>
             {expenseRows.map((row, i) => (
               <div
@@ -193,6 +197,7 @@ function SummaryCard({
   reimbursement?: number
   pension?: number
 }) {
+  const t = useTranslations('taxStatus')
   const bg =
     tone === 'teal' ? 'var(--teal-bg)' : tone === 'sage' ? 'var(--sage-bg)' : 'var(--bg-elevated)'
   const color =
@@ -205,12 +210,12 @@ function SummaryCard({
         <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 2 }}>
           {reimbursement !== undefined && reimbursement > 0 && (
             <div style={{ fontSize: 11, color: 'var(--ink-faint)' }}>
-              Reimb. <span style={{ fontWeight: 600 }}>{fmt(reimbursement)}</span>
+              {t('reimbShort')} <span style={{ fontWeight: 600 }}>{fmt(reimbursement)}</span>
             </div>
           )}
           {pension !== undefined && pension > 0 && (
             <div style={{ fontSize: 11, color: 'var(--ink-faint)' }}>
-              Pension <span style={{ fontWeight: 600 }}>{fmt(pension)}</span>
+              {t('pensionShort')} <span style={{ fontWeight: 600 }}>{fmt(pension)}</span>
             </div>
           )}
         </div>
@@ -220,6 +225,7 @@ function SummaryCard({
 }
 
 function TxSection({ title, rows }: { title: string; rows: TaxIncomeRow[] }) {
+  const t = useTranslations('taxStatus')
   return (
     <div>
       <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-faint)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>
@@ -227,10 +233,10 @@ function TxSection({ title, rows }: { title: string; rows: TaxIncomeRow[] }) {
       </div>
       <div style={{ background: 'var(--bg-elevated)', borderRadius: 14, overflow: 'hidden', border: '1px solid var(--line-soft)' }}>
         <div style={{ display: 'grid', gridTemplateColumns: '100px 90px 1fr auto', gap: 12, padding: '10px 16px', background: 'var(--bg-sunken)', borderBottom: '1px solid var(--line-soft)', fontSize: 11, fontWeight: 700, color: 'var(--ink-faint)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-          <span>Date</span>
-          <span>Amount</span>
-          <span>For</span>
-          <span>Allocation</span>
+          <span>{t('colDate')}</span>
+          <span>{t('colAmount')}</span>
+          <span>{t('colFor')}</span>
+          <span>{t('colAllocation')}</span>
         </div>
         {rows.map((row, i) => {
           const forText =

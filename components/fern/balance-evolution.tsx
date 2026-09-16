@@ -1,6 +1,7 @@
 'use client'
 
 import { useId, useMemo } from 'react'
+import { formatConfig } from '@/lib/format-config'
 
 interface BalanceEvolutionProps {
   series: { date: string; balance: number }[]
@@ -85,12 +86,12 @@ export function BalanceEvolution({ series, height = 200 }: BalanceEvolutionProps
         if (d === 1) {
           xTicks.push({
             x: xScale(i),
-            label: new Date(+y, m - 1).toLocaleString('en-US', { month: 'short' }),
+            label: new Date(+y, m - 1).toLocaleString(formatConfig().locale, { month: 'short' }),
           })
         }
       } else if (spanDays <= 1100) {
         if (d === 1 && m % 3 === 1) {
-          const mo = new Date(+y, m - 1).toLocaleString('en-US', { month: 'short' })
+          const mo = new Date(+y, m - 1).toLocaleString(formatConfig().locale, { month: 'short' })
           xTicks.push({ x: xScale(i), label: m === 1 ? `${mo} '${y.slice(2)}` : mo })
         }
       } else {

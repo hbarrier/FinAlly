@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
+import { useTranslations } from 'next-intl'
 import dynamic from 'next/dynamic'
 import { Icon } from '@/components/fern/icon'
 import { CatSwatch } from '@/components/fern/cat-swatch'
@@ -12,7 +13,7 @@ import { PageHeader } from '@/components/fern/page-header'
 import { FernButton } from '@/components/fern/button'
 import { EmptyState } from '@/components/fern/empty-state'
 import { Fab } from '@/components/fern/fab'
-import { paymentMethodLabel, paymentMethodIcon, type PaymentMethod } from '@/lib/payment-method'
+import { paymentMethodIcon, type PaymentMethod } from '@/lib/payment-method'
 import {
   addTransaction,
   updateTransactionWithRecurringAmountOption,
@@ -119,6 +120,7 @@ export function TransactionsClient({
   initialMonths = 2,
 }: TransactionsClientProps) {
   const router = useRouter()
+  const tMethod = useTranslations('enums.paymentMethod')
   const currentYear = new Date().getFullYear()
   const nowMonth = new Date().toISOString().slice(0, 7)
   const [expandedMonths, setExpandedMonths] = useState<Set<string>>(new Set([nowMonth]))
@@ -392,7 +394,7 @@ export function TransactionsClient({
       const month = `${selectedYear}-${String(m).padStart(2, '0')}`
       out.push({
         value: month,
-        label: formatDate(month + '-15T12:00:00', 'en-US', { month: 'short' }),
+        label: formatDate(month + '-15T12:00:00', { month: 'short' }),
       })
     }
     return out
@@ -838,7 +840,7 @@ export function TransactionsClient({
         <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
           {allMonths.slice(0, futureMonthCount + visibleMonths).map((month) => {
             const dgs = monthGroupsMap[month] ?? []
-            const monthLabel = formatDate(month + '-15T12:00:00', 'en-US', { month: 'long', year: 'numeric' })
+            const monthLabel = formatDate(month + '-15T12:00:00', { month: 'long', year: 'numeric' })
             const cb = cbExpensesByMonth[month] ?? { cleared: 0, total: 0 }
             const isExpanded = expandedMonths.has(month)
             return (
@@ -905,7 +907,7 @@ export function TransactionsClient({
                   )}
                   {dgs.map(([date, items]) => {
                     const total = items.reduce((s, m) => s + creditSignedAmount(m), 0)
-                    const label = formatDate(date + 'T12:00:00', 'en-US', { weekday: 'long', day: 'numeric', month: 'long' })
+                    const label = formatDate(date + 'T12:00:00', { weekday: 'long', day: 'numeric', month: 'long' })
                     return (
                       <div key={date}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 4px 6px', fontSize: 12, borderBottom: '1px solid var(--line-soft)' }}>
@@ -933,7 +935,7 @@ export function TransactionsClient({
                               <span style={{ fontSize: 12, color: 'var(--ink-faint)' }}>{cat?.name ?? 'Uncategorized'}</span>
                               {!m.isNa && (
                                 <Chip tone="scheduled">
-                                  <Icon name={paymentMethodIcon(m.method)} size={10} /> {paymentMethodLabel(m.method)}
+                                  <Icon name={paymentMethodIcon(m.method)} size={10} /> {tMethod(m.method)}
                                 </Chip>
                               )}
                               <Chip tone="recurring"><Icon name="repeat" size={10} /> {m.isNa ? 'N/A' : 'recurring'}</Chip>

@@ -87,7 +87,7 @@ export function GoalsClient({ goals: goalsList }: GoalsClientProps) {
                 </div>
                 {g.deadline && (
                   <div style={{ fontSize: 11, color: 'var(--ink-faint)', marginBottom: 12, fontFamily: 'var(--mono-fern)' }}>
-                    Due {formatDate(g.deadline + 'T12:00:00', 'en-US', { month: 'short', year: 'numeric' })}
+                    Due {formatDate(g.deadline + 'T12:00:00', { month: 'short', year: 'numeric' })}
                   </div>
                 )}
                 <div style={{ width: '100%', height: 1, background: 'var(--line-soft)', margin: '0 0 12px' }} />

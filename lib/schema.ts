@@ -18,7 +18,7 @@ export const categories = sqliteTable('categories', {
   // Special categories the reimbursements / divorce modules depend on: exactly one each.
   uniqueIndex('categories_reimbursement_name_unique')
     .on(t.name)
-    .where(sql`${t.name} = 'Remboursements'`),
+    .where(sql`${t.name} = 'Reimbursements'`),
   uniqueIndex('categories_pension_alimentaire_unique')
     .on(t.isPensionAlimentaire)
     .where(sql`${t.isPensionAlimentaire} = 1`),
@@ -325,6 +325,7 @@ export const userSettings = sqliteTable('user_settings', {
   name: text('name').notNull().default('You'),
   startingBalance: real('starting_balance').notNull().default(0),
   currency: text('currency').notNull().default('EUR'),
+  locale: text('locale').notNull().default('en'),
   onboarded: int('onboarded').notNull().default(0),
   moduleRecurring: int('module_recurring').notNull().default(1),
   moduleGroups: int('module_groups').notNull().default(0),
@@ -333,6 +334,32 @@ export const userSettings = sqliteTable('user_settings', {
   moduleSimulations: int('module_simulations').notNull().default(0),
   moduleObjectives: int('module_objectives').notNull().default(0),
 })
+
+// --- languages (user-added UI languages; English is implicit and never a row) ---
+export const languages = sqliteTable('languages', {
+  code: text('code').primaryKey(),
+  label: text('label').notNull(),
+  createdAt: text('created_at')
+    .notNull()
+    .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
+})
+
+// --- translations (per-language overrides of message keys, edited in /languages) ---
+export const translations = sqliteTable(
+  'translations',
+  {
+    id: text('id').primaryKey(),
+    languageCode: text('language_code')
+      .notNull()
+      .references(() => languages.code, { onDelete: 'cascade' }),
+    key: text('key').notNull(),
+    value: text('value').notNull(),
+  },
+  (t) => [
+    unique('translations_language_key_unique').on(t.languageCode, t.key),
+    index('translations_language_code_idx').on(t.languageCode),
+  ],
+)
 
 // --- monthly opening balances (global, per calendar month) ---
 export const monthlyOpeningBalances = sqliteTable(

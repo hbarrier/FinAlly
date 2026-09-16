@@ -173,30 +173,5 @@ export function calculateReimbursementAllocations(
     })
 }
 
-export function expenseReimbursementStatusLabel(status: ExpenseReimbursementStatus): string {
-  switch (status) {
-    case 'manually_settled':
-      return 'Manually settled'
-    case 'reimbursed':
-      return 'Reimbursed'
-    case 'partially_reimbursed':
-      return 'Partially reimbursed'
-    case 'no_rate':
-      return 'No rate'
-    case 'not_reimbursed':
-      return 'Not reimbursed'
-  }
-}
-
-export function incomeReimbursementStatusLabel(status: IncomeReimbursementStatus): string {
-  switch (status) {
-    case 'fully_allocated':
-      return 'Fully allocated'
-    case 'partially_allocated':
-      return 'Partially allocated'
-    case 'claim_linked':
-      return 'Claim linked'
-    case 'unmapped':
-      return 'Unmapped'
-  }
-}
+// Status display labels are translated at the call site via
+// `getTranslations('enums.reimbursementExpenseStatus' | 'enums.reimbursementIncomeStatus')`.

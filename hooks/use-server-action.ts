@@ -17,7 +17,7 @@ export function useServerAction() {
       try {
         await fn()
       } catch (e) {
-        await alertDialog(e instanceof Error ? e.message : 'An error occurred')
+        await alertDialog(e instanceof Error ? e.message : 'errors.generic')
       }
     })
   }, [])

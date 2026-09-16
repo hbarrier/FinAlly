@@ -25,6 +25,7 @@ import {
   fmtShort,
   splitCents,
 } from './derive'
+import { setFormatConfig } from './format-config'
 import type {
   Category, Transaction, RecurringAmount, Recurring, RecurringInstance, SimulationLine,
 } from './db-types'
@@ -396,10 +397,19 @@ describe('savingAccountBalance', () => {
 })
 
 describe('formatting', () => {
-  it('fmt renders a euro amount with a real minus sign', () => {
-    expect(fmt(1234.5)).toBe('€1.234,50')
-    expect(fmt(-1234.5)).toBe('−€1.234,50')
-    expect(fmt(0, { noSymbol: true })).toBe('0,00')
+  it('fmt renders a currency amount with a real minus sign (default en/EUR)', () => {
+    expect(fmt(1234.5)).toBe('€1,234.50')
+    expect(fmt(-1234.5)).toBe('−€1,234.50')
+    expect(fmt(0, { noSymbol: true })).toBe('0.00')
+  })
+
+  it('fmt follows the active locale + currency', () => {
+    setFormatConfig({ locale: 'en', currency: 'USD' })
+    expect(fmt(1234.5)).toBe('$1,234.50')
+    setFormatConfig({ locale: 'fr', currency: 'EUR' })
+    expect(fmt(1234.5)).toMatch(/^1.234,50/)
+    expect(fmt(1234.5)).toContain('€')
+    setFormatConfig({ locale: 'en', currency: 'EUR' })
   })
 
   it('fmtShort abbreviates thousands', () => {
@@ -409,7 +419,7 @@ describe('formatting', () => {
   })
 
   it('splitCents separates whole and cents', () => {
-    expect(splitCents(1234.5)).toEqual({ sign: '', whole: '1.234', cents: '50' })
+    expect(splitCents(1234.5)).toEqual({ sign: '', whole: '1,234', cents: '50' })
     expect(splitCents(-9.05)).toEqual({ sign: '−', whole: '9', cents: '05' })
   })
 

@@ -2,7 +2,7 @@ import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
 import { alertDialog } from "@/lib/dialogs-store"
 
-export const REIMBURSEMENT_CATEGORY_NAME = 'Remboursements'
+export const REIMBURSEMENT_CATEGORY_NAME = 'Reimbursements'
 export const SAVINGS_CATEGORY_NAME = 'Savings'
 
 export const parseDecimal = (v: string) => Number(v.replace(',', '.'))
@@ -12,7 +12,7 @@ export function runAction(fn: () => Promise<unknown>): () => Promise<void> {
     try {
       await fn()
     } catch (e) {
-      void alertDialog(e instanceof Error ? e.message : 'An error occurred')
+      void alertDialog(e instanceof Error ? e.message : 'errors.generic')
     }
   }
 }

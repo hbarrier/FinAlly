@@ -209,7 +209,7 @@ export function SimulationLineDetailSheet({
                     >
                       <Icon name={isCollapsed ? 'chevronRight' : 'chevronDown'} size={12} />
                       <span style={{ flex: 1, textAlign: 'left', fontSize: 12, fontWeight: 600, color: 'var(--ink-faint)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                        {formatDate(`${g.month}-01`, 'fr-FR', { month: 'long', year: 'numeric' })}
+                        {formatDate(`${g.month}-01`, { month: 'long', year: 'numeric' })}
                       </span>
                       <span style={{ fontSize: 11, fontFamily: 'var(--mono-fern)', color: 'var(--ink-faint)' }}>
                         {fmt(g.total)}

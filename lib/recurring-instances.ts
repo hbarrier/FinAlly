@@ -1,10 +1,11 @@
 import { db } from './db'
-import { recurring } from './schema'
+import { recurring, recurringInstances } from './schema'
 import { nanoid } from './utils'
-import { sql } from 'drizzle-orm'
+import { sql, and, eq, inArray } from 'drizzle-orm'
 import type { Recurring } from './db-types'
 import { monthsBetween } from './dates'
 import { monthRulesSchema } from './schemas'
+import { resolvedDayOfMonth } from './derive'
 
 export { monthsBetween, currentMonth } from './dates'
 
@@ -42,7 +43,13 @@ function recurringCoversMonth(r: Recurring, month: string): boolean {
     // Only fires in the same calendar month as startDate, each year
     return r.startDate.slice(5, 7) === month.slice(5, 7)
   }
-  // monthly fires every month within range
+  // monthly fires every month within range, unless the end date falls before
+  // this month's actual occurrence day (e.g. dayOfMonth=20 but endDate=the 1st)
+  if (r.endDate && r.endDate >= monthStart && r.endDate <= monthEnd) {
+    const dom = resolvedDayOfMonth(r.dayOfMonth || 1, new Date(month + '-15'))
+    const occurrenceDate = `${month}-${String(dom).padStart(2, '0')}`
+    return occurrenceDate <= r.endDate
+  }
   return true
 }
 
@@ -110,5 +117,21 @@ export async function revertInstanceToExpected(
     SET status = 'expected', transaction_id = NULL
     WHERE transaction_id = ${transactionId}
   `)
+}
+
+/**
+ * Deletes 'expected' instances that are no longer valid, e.g. after the recurring's
+ * endDate was moved earlier than a month that already got an instance created for it.
+ * Never touches 'linked' or 'not_applicable' instances.
+ */
+export async function pruneExpiredInstances(client: DbClient, r: Recurring): Promise<void> {
+  const rows = await client
+    .select({ id: recurringInstances.id, month: recurringInstances.month })
+    .from(recurringInstances)
+    .where(and(eq(recurringInstances.recurringId, r.id), eq(recurringInstances.status, 'expected')))
+  const staleIds = rows.filter((row) => !recurringCoversMonth(r, row.month)).map((row) => row.id)
+  if (staleIds.length > 0) {
+    await client.delete(recurringInstances).where(inArray(recurringInstances.id, staleIds))
+  }
 }
 

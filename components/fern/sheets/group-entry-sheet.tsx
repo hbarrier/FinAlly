@@ -1,13 +1,13 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useTranslations } from 'next-intl'
 import { SheetShell } from '../sheet-shell'
 import { Icon } from '../icon'
 import { parseDecimal } from '@/lib/utils'
 import { todayISO } from '@/lib/dates'
 import {
   PAYMENT_METHODS,
-  paymentMethodLabel,
   defaultPaymentMethodForKind,
   type PaymentMethod,
 } from '@/lib/payment-method'
@@ -50,6 +50,7 @@ export function GroupEntrySheet({
   onSave,
   onDelete,
 }: GroupEntrySheetProps) {
+  const tMethod = useTranslations('enums.paymentMethod')
   const [direction, setDirection] = useState<'expense' | 'income'>('expense')
   const [amount, setAmount] = useState('')
   const [date, setDate] = useState(todayISO())
@@ -263,7 +264,7 @@ export function GroupEntrySheet({
             >
               {PAYMENT_METHODS.map((m) => (
                 <option key={m} value={m}>
-                  {paymentMethodLabel(m)}
+                  {tMethod(m)}
                 </option>
               ))}
             </select>

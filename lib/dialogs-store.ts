@@ -2,34 +2,39 @@
  * Framework-free store behind the app dialogs. Kept separate from the React host
  * so server-only modules (lib/utils, lib/seed) can call alertDialog without
  * pulling in client components.
+ *
+ * Default titles / button labels are NOT stored here — the host (`lib/dialogs.tsx`)
+ * fills them from the `dialogs` messages so they follow the selected language.
+ * Callers that pass `title` / `confirmLabel` are expected to pass already-translated
+ * text.
  */
 
 export type DialogState =
   | {
       kind: 'alert'
-      title: string
+      title?: string
       message: string
       done: () => void
     }
   | {
       kind: 'confirm'
-      title: string
+      title?: string
       message: string
-      confirmLabel: string
+      confirmLabel?: string
       tone: 'primary' | 'danger'
       done: (ok: boolean) => void
     }
   | {
       kind: 'prompt'
-      title: string
+      title?: string
       message: string
-      confirmLabel: string
+      confirmLabel?: string
       defaultValue: string
       done: (value: string | null) => void
     }
   | {
       kind: 'choose'
-      title: string
+      title?: string
       message: string
       options: { value: string; label: string }[]
       done: (value: string | null) => void
@@ -50,7 +55,7 @@ export const subscribeDialog = (l: () => void) => {
 export const getDialogSnapshot = () => current
 
 /** App-styled replacement for window.alert. */
-export function alertDialog(message: string, title = 'Something went wrong'): Promise<void> {
+export function alertDialog(message: string, title?: string): Promise<void> {
   return new Promise((resolve) => {
     current = {
       kind: 'alert',
@@ -76,9 +81,9 @@ export function confirmDialog(opts: {
   return new Promise((resolve) => {
     current = {
       kind: 'confirm',
-      title: opts.title ?? 'Are you sure?',
+      title: opts.title,
       message: opts.message,
-      confirmLabel: opts.confirmLabel ?? 'Confirm',
+      confirmLabel: opts.confirmLabel,
       tone: opts.tone ?? 'primary',
       done: (ok) => {
         current = null
@@ -99,7 +104,7 @@ export function chooseDialog(opts: {
   return new Promise((resolve) => {
     current = {
       kind: 'choose',
-      title: opts.title ?? 'Choose an option',
+      title: opts.title,
       message: opts.message,
       options: opts.options,
       done: (value) => {
@@ -122,9 +127,9 @@ export function promptDialog(opts: {
   return new Promise((resolve) => {
     current = {
       kind: 'prompt',
-      title: opts.title ?? 'Enter a value',
+      title: opts.title,
       message: opts.message,
-      confirmLabel: opts.confirmLabel ?? 'OK',
+      confirmLabel: opts.confirmLabel,
       defaultValue: opts.defaultValue ?? '',
       done: (value) => {
         current = null

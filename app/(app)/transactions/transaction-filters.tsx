@@ -1,12 +1,13 @@
 'use client'
 
 import { useMemo } from 'react'
+import { useTranslations } from 'next-intl'
 import { Icon } from '@/components/fern/icon'
 import { CatSwatch } from '@/components/fern/cat-swatch'
 import { SegmentedControl } from '@/components/fern/segmented-control'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
-import { PAYMENT_METHODS, paymentMethodLabel, paymentMethodIcon, type PaymentMethod } from '@/lib/payment-method'
+import { PAYMENT_METHODS, paymentMethodIcon, type PaymentMethod } from '@/lib/payment-method'
 import type { Category } from '@/lib/derive'
 import type { Merchant } from '@/lib/db-types'
 
@@ -65,6 +66,9 @@ export function TransactionFilters({
   reimbursementFilter, reimbFilterOpen, onReimbFilterOpenChange, onReimbursementFilterChange,
   showReimbursementFilter, showNaToggle,
 }: TransactionFiltersProps) {
+  const tMethod = useTranslations('enums.paymentMethod')
+  const tKindPlural = useTranslations('enums.movementKindPlural')
+
   const merchantsSortedByName = useMemo(
     () => [...merchants].sort((a, b) => a.name.localeCompare(b.name)),
     [merchants],
@@ -82,8 +86,8 @@ export function TransactionFilters({
 
   const methodFilterLabel = useMemo(() => {
     if (methodFilter.size === 0) return 'All payment types'
-    return [...methodFilter].map((m) => paymentMethodLabel(m)).sort((a, b) => a.localeCompare(b)).join(', ')
-  }, [methodFilter])
+    return [...methodFilter].map((m) => tMethod(m)).sort((a, b) => a.localeCompare(b)).join(', ')
+  }, [methodFilter, tMethod])
 
   const reimbFilterLabel = useMemo(() => {
     if (reimbursementFilter.size === 0) return 'All reimbursement states'
@@ -111,7 +115,7 @@ export function TransactionFilters({
         <SegmentedControl
           value={kindFilter}
           onChange={onKindFilterChange}
-          options={[{ value: 'all', label: 'All' }, { value: 'expense', label: 'Expenses' }, { value: 'income', label: 'Income' }]}
+          options={[{ value: 'all', label: tKindPlural('all') }, { value: 'expense', label: tKindPlural('expense') }, { value: 'income', label: tKindPlural('income') }]}
         />
         <SegmentedControl
           value={clearedFilter}
@@ -220,12 +224,12 @@ export function TransactionFilters({
                     {PAYMENT_METHODS.map((m) => (
                       <CommandItem
                         key={m}
-                        value={paymentMethodLabel(m)}
+                        value={tMethod(m)}
                         data-checked={methodFilter.has(m) ? 'true' : 'false'}
                         onSelect={() => onMethodFilterChange((() => { const next = new Set(methodFilter); if (next.has(m)) next.delete(m); else next.add(m); return next })())}
                       >
                         <Icon name={paymentMethodIcon(m)} size={14} style={{ color: 'var(--ink-faint)' }} />
-                        {paymentMethodLabel(m)}
+                        {tMethod(m)}
                       </CommandItem>
                     ))}
                   </CommandGroup>

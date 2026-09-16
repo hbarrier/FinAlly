@@ -1,6 +1,7 @@
 'use client'
 
 import { Controller } from 'react-hook-form'
+import { useTranslations } from 'next-intl'
 import { z } from 'zod'
 import { Field, FieldError } from '@/components/ui/field'
 import { Icon } from '../icon'
@@ -45,6 +46,7 @@ export function CategorySheet({ open, onClose, item, onSave }: CategorySheetProp
     formState: { errors, isValid },
   } = useSheetForm(categorySchema, () => getDefaultValues(item), { open, resetDeps: [item] })
 
+  const tKind = useTranslations('enums.movementKind')
   const watchedColor = watch('color')
   const watchedIcon = watch('icon')
 
@@ -75,10 +77,10 @@ export function CategorySheet({ open, onClose, item, onSave }: CategorySheetProp
         render={({ field }) => (
           <div className="fern-type-toggle" style={{ marginBottom: 0 }}>
             <button type="button" className={field.value === 'expense' ? 'active expense' : ''} onClick={() => field.onChange('expense')}>
-              <Icon name="arrowDown" size={14} /> Expense
+              <Icon name="arrowDown" size={14} /> {tKind('expense')}
             </button>
             <button type="button" className={field.value === 'income' ? 'active income' : ''} onClick={() => field.onChange('income')}>
-              <Icon name="arrowUp" size={14} /> Income
+              <Icon name="arrowUp" size={14} /> {tKind('income')}
             </button>
           </div>
         )}

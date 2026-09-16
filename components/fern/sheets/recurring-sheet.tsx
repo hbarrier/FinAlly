@@ -14,15 +14,12 @@ import { useSheetForm } from '@/hooks/use-sheet-form'
 import { fmt, type Category, type Recurring, type RecurringAmount } from '@/lib/derive'
 import { addRecurringAmount, deleteRecurringAmount } from '@/lib/actions/recurring'
 import type { Merchant, SavingAccount } from '@/lib/db-types'
-import { PAYMENT_METHODS, paymentMethodLabel, defaultPaymentMethodForKind, type PaymentMethod } from '@/lib/payment-method'
+import { useTranslations } from 'next-intl'
+import { PAYMENT_METHODS, defaultPaymentMethodForKind, type PaymentMethod } from '@/lib/payment-method'
+import { useFrequencyOptions } from '../use-enum-options'
 import { parseDecimal } from '@/lib/utils'
 
 const CREDIT = '__credit__'
-
-const CADENCES = [
-  { value: 'monthly', label: 'Monthly' },
-  { value: 'yearly', label: 'Yearly' },
-]
 
 const MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -124,6 +121,8 @@ export function RecurringSheet({ open, onClose, categories, merchants, savingAcc
     formState: { errors, isValid, isSubmitted },
   } = useSheetForm(recurringSchema, () => getDefaultValues(item), { open, resetDeps: [item] })
 
+  const tMethod = useTranslations('enums.paymentMethod')
+  const CADENCES = useFrequencyOptions()
   const watchedKind = watch('kind')
   const watchedMethod = watch('method')
   const watchedCadence = watch('cadence')
@@ -258,7 +257,7 @@ export function RecurringSheet({ open, onClose, categories, merchants, savingAcc
               >
                 {PAYMENT_METHODS.map((m) => (
                   <option key={m} value={m}>
-                    {paymentMethodLabel(m)}
+                    {tMethod(m)}
                   </option>
                 ))}
               </select>

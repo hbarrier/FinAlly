@@ -12,25 +12,35 @@ import type { Modules } from '@/lib/db-types'
 interface SettingsClientProps {
   name: string
   currency: string
+  locale: string
+  languages: { code: string; label: string }[]
   modules: Modules
 }
 
-export function SettingsClient({ name: initialName, currency: initialCurrency, modules: initialModules }: SettingsClientProps) {
+export function SettingsClient({
+  name: initialName,
+  currency: initialCurrency,
+  locale: initialLocale,
+  languages,
+  modules: initialModules,
+}: SettingsClientProps) {
   const router = useRouter()
   const [pending, startTransition] = useTransition()
   const [name, setName] = useState(initialName)
   const [currency, setCurrency] = useState(initialCurrency)
+  const [locale, setLocale] = useState(initialLocale)
   const [modules, setModules] = useState<Modules>(initialModules)
 
   const dirty =
     name !== initialName ||
     currency !== initialCurrency ||
+    locale !== initialLocale ||
     (Object.keys(modules) as (keyof Modules)[]).some((k) => modules[k] !== initialModules[k])
 
   const save = () => {
     startTransition(async () => {
       try {
-        await updateSettings({ name, currency, modules })
+        await updateSettings({ name, currency, locale, modules })
         router.refresh()
       } catch (e) {
         void alertDialog(e instanceof Error ? e.message : 'An error occurred')
@@ -54,6 +64,16 @@ export function SettingsClient({ name: initialName, currency: initialCurrency, m
             <select className="fern-input" value={currency} onChange={(e) => setCurrency(e.target.value)}>
               {CURRENCIES.map((c) => (
                 <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="fern-field-label">Language</label>
+            <select className="fern-input" value={locale} onChange={(e) => setLocale(e.target.value)}>
+              <option value="en">English</option>
+              {languages.map((l) => (
+                <option key={l.code} value={l.code}>{l.label}</option>
               ))}
             </select>
           </div>

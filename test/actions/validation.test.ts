@@ -19,10 +19,10 @@ describe('server-action input validation', () => {
     const { addTransaction } = await import('@/lib/actions/transactions')
     await expect(addTransaction({
       date: '2026-01-10', amount: -5, kind: 'expense', categoryId: null,
-    })).rejects.toThrow(/positive/i)
+    })).rejects.toThrow('errors.amountPositive')
     await expect(addTransaction({
       date: '10/01/2026', amount: 5, kind: 'expense', categoryId: null,
-    })).rejects.toThrow(/YYYY-MM-DD/)
+    })).rejects.toThrow('errors.dateFormat')
   })
 
   it('addRecurring rejects an out-of-range day of month', async () => {
@@ -45,7 +45,7 @@ describe('server-action input validation', () => {
     await expect(addSimulationLine(id, {
       name: null, kind: 'expense', categoryId: 'c1', merchantId: null,
       amount: -1, frequency: 'monthly',
-    })).rejects.toThrow(/negative/i)
+    })).rejects.toThrow('errors.amountNonNegative')
   })
 })
 

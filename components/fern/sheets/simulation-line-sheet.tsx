@@ -10,15 +10,11 @@ import { SheetShell } from '../sheet-shell'
 import { FernButton } from '../button'
 import { AmountField } from '../amount-field'
 import { useSheetForm } from '@/hooks/use-sheet-form'
+import { useFrequencyOptions } from '../use-enum-options'
 import { SimulationLineDetailSheet } from './simulation-line-detail-sheet'
 import type { Category, Recurring } from '@/lib/derive'
 import type { Merchant, SimulationInputs, SimulationLine, Transaction } from '@/lib/db-types'
 import { parseDecimal } from '@/lib/utils'
-
-const FREQUENCIES = [
-  { value: 'monthly', label: 'Monthly' },
-  { value: 'yearly', label: 'Yearly' },
-]
 
 const SOURCES = [
   { value: 'scratch', label: 'From scratch' },
@@ -106,6 +102,8 @@ export function SimulationLineSheet({
     open,
     resetDeps: [item, initialKind],
   })
+
+  const FREQUENCIES = useFrequencyOptions()
 
   useEffect(() => {
     setDetailOpen(false)

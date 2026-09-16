@@ -9,21 +9,24 @@ import { CURRENCIES } from './settings-options'
  * the database; a failure throws, which `runAction` surfaces as an alert dialog.
  */
 
-export const zId = z.string().min(1, 'Missing id')
+// Validation messages are message keys (see `messages/en.ts` → `errors`). The
+// display boundary (`lib/dialogs.tsx`) resolves them to the selected language;
+// an unkeyed string passes through unchanged.
+export const zId = z.string().min(1, 'errors.missingId')
 export const zNullableId = zId.nullable()
 export const zOptionalId = zId.nullable().optional()
 
 /** `YYYY-MM-DD`. */
-export const zDateISO = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected a YYYY-MM-DD date')
+export const zDateISO = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'errors.dateFormat')
 /** `YYYY-MM`. */
-export const zMonth = z.string().regex(/^\d{4}-\d{2}$/, 'Expected a YYYY-MM month')
+export const zMonth = z.string().regex(/^\d{4}-\d{2}$/, 'errors.monthFormat')
 
 /** A positive money amount. */
-export const zAmount = z.number().finite('Amount must be a number').positive('Amount must be positive')
+export const zAmount = z.number().finite('errors.amountNumber').positive('errors.amountPositive')
 /** A money amount that may be zero (e.g. a placeholder simulation line). */
-export const zAmountOrZero = z.number().finite('Amount must be a number').nonnegative('Amount cannot be negative')
+export const zAmountOrZero = z.number().finite('errors.amountNumber').nonnegative('errors.amountNonNegative')
 /** A money amount that may be zero or negative (balances, overrides). */
-export const zSignedAmount = z.number().finite('Amount must be a number')
+export const zSignedAmount = z.number().finite('errors.amountNumber')
 
 export const zKind = z.enum(['expense', 'income'])
 /** Movement kind including transfers to/from saving accounts. */
@@ -34,18 +37,22 @@ export const zCadence = z.enum(['monthly', 'yearly'])
 export const zFrequency = z.enum(['monthly', 'yearly'])
 export const zPaymentMethod = z.enum(PAYMENT_METHODS)
 export const zCurrency = z.enum(CURRENCIES)
+/** A UI locale code: `en` or a user-added language. Membership is checked in the action. */
+export const zLocale = z.string().trim().min(2)
+/** An ISO-639-1(-ish) language code for a user-added UI language. */
+export const zLangCode = z.string().trim().toLowerCase().regex(/^[a-z]{2,3}$/, 'errors.invalidInput')
 export const zPriority = z.enum(['must', 'should', 'nice'])
 export const zTaxAllocation = z.enum(['audrey', 'lucie', 'split'])
 
 /** A percentage 0..100. */
-export const zPercent = z.number().finite('Percent must be a number').min(0).max(100)
+export const zPercent = z.number().finite('errors.percentNumber').min(0).max(100)
 export const zGroupEntryDirection = z.enum(['expense', 'income'])
 
 /** 0 | 1 integer flags as stored in SQLite. */
 export const zFlag = z.union([z.literal(0), z.literal(1)])
 
 /** Trimmed non-empty text. */
-export const zName = z.string().trim().min(1, 'Name is required')
+export const zName = z.string().trim().min(1, 'errors.nameRequired')
 export const zOptionalText = z.string().nullable().optional()
 
 /** Wizard inputs stored as JSON in `simulations.inputs`. */
@@ -78,7 +85,7 @@ export const monthRulesSchema = z.record(
 export function parse<T>(schema: z.ZodType<T>, input: unknown): T {
   const result = schema.safeParse(input)
   if (!result.success) {
-    throw new Error(result.error.issues[0]?.message ?? 'Invalid input')
+    throw new Error(result.error.issues[0]?.message ?? 'errors.invalidInput')
   }
   return result.data
 }

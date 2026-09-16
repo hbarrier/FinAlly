@@ -2,48 +2,50 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useTranslations } from 'next-intl'
 import { Icon } from '@/components/fern/icon'
 import type { ModuleKey, Modules, SavingAccount } from '@/lib/db-types'
 import styles from './sidebar-nav.module.css'
 
-type NavItem = { href: string; label: string; icon: string; module?: ModuleKey }
-type NavSection = { title?: string; items: NavItem[] }
+type NavItem = { href: string; labelKey: string; icon: string; module?: ModuleKey; label?: string }
+type NavSection = { titleKey?: string; items: NavItem[] }
 
 const NAV: NavSection[] = [
   {
     items: [
-      { href: '/dashboard', label: 'Dashboard', icon: 'home' },
-      { href: '/transactions', label: 'Credit Account', icon: 'list' },
-      { href: '/recurring', label: 'Recurrings', icon: 'repeat', module: 'recurring' },
+      { href: '/dashboard', labelKey: 'dashboard', icon: 'home' },
+      { href: '/transactions', labelKey: 'transactions', icon: 'list' },
+      { href: '/recurring', labelKey: 'recurring', icon: 'repeat', module: 'recurring' },
     ],
   },
   {
     items: [
-      { href: '/budgets', label: 'Budget', icon: 'pie', module: 'budgets' },
-      { href: '/goals', label: 'Goals', icon: 'target', module: 'objectives' },
-      { href: '/simulations', label: 'Simulations', icon: 'flask', module: 'simulations' },
+      { href: '/budgets', labelKey: 'budgets', icon: 'pie', module: 'budgets' },
+      { href: '/goals', labelKey: 'goals', icon: 'target', module: 'objectives' },
+      { href: '/simulations', labelKey: 'simulations', icon: 'flask', module: 'simulations' },
     ],
   },
   {
-    title: 'Groups',
+    titleKey: 'groups',
     items: [
-      { href: '/groups', label: 'Groups', icon: 'users', module: 'groups' },
+      { href: '/groups', labelKey: 'groups', icon: 'users', module: 'groups' },
     ],
   },
   {
-    title: 'Divorce',
+    titleKey: 'divorce',
     items: [
-      { href: '/reimbursements', label: 'Reimbursements', icon: 'receipt', module: 'divorce' },
-      { href: '/tax-status', label: 'Tax Status', icon: 'fileText', module: 'divorce' },
+      { href: '/reimbursements', labelKey: 'reimbursements', icon: 'receipt', module: 'divorce' },
+      { href: '/tax-status', labelKey: 'taxStatus', icon: 'fileText', module: 'divorce' },
     ],
   },
   {
-    title: 'Admin',
+    titleKey: 'admin',
     items: [
-      { href: '/accounts', label: 'Accounts', icon: 'bank' },
-      { href: '/merchants', label: 'Merchants', icon: 'store' },
-      { href: '/categories', label: 'Categories', icon: 'tag' },
-      { href: '/settings', label: 'Settings', icon: 'settings' },
+      { href: '/accounts', labelKey: 'accounts', icon: 'bank' },
+      { href: '/merchants', labelKey: 'merchants', icon: 'store' },
+      { href: '/categories', labelKey: 'categories', icon: 'tag' },
+      { href: '/languages', labelKey: 'languages', icon: 'globe' },
+      { href: '/settings', labelKey: 'settings', icon: 'settings' },
     ],
   },
 ]
@@ -56,9 +58,11 @@ export function SidebarNav({
   savingAccounts?: SavingAccount[]
 }) {
   const pathname = usePathname()
+  const t = useTranslations('nav')
 
   const savingItems: NavItem[] = savingAccounts.map((a) => ({
     href: `/savings/${a.id}`,
+    labelKey: '',
     label: a.name,
     icon: 'bank',
   }))
@@ -75,9 +79,9 @@ export function SidebarNav({
   return (
     <>
       {sections.map((section, i) => (
-        <div key={section.title ?? i} className={styles.section}>
+        <div key={section.titleKey ?? i} className={styles.section}>
           {i > 0 && <div className={styles.separator} />}
-          {section.title && <div className={styles.groupTitle}>{section.title}</div>}
+          {section.titleKey && <div className={styles.groupTitle}>{t(`section.${section.titleKey}`)}</div>}
           {section.items.map((item) => {
             const active = pathname === item.href || pathname.startsWith(item.href + '/')
             return (
@@ -87,7 +91,7 @@ export function SidebarNav({
                 className={active ? `${styles.link} ${styles.active}` : styles.link}
               >
                 <Icon name={item.icon} size={16} />
-                {item.label}
+                {item.label ?? t(item.labelKey)}
               </Link>
             )
           })}

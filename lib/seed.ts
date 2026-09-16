@@ -1,7 +1,9 @@
 import { db } from './db'
-import { categories } from './schema'
+import { categories, languages, translations } from './schema'
 import { nanoid, REIMBURSEMENT_CATEGORY_NAME, SAVINGS_CATEGORY_NAME } from './utils'
 import { eq, sql } from 'drizzle-orm'
+import { flatten, type Messages } from '@/i18n/catalog'
+import frMessages from '@/messages/fr'
 
 const DEFAULT_CATEGORIES = [
   { icon: 'cat-cart', name: 'Groceries', color: 'sage', kind: 'expense' as const, isPensionAlimentaire: 0 },
@@ -17,7 +19,7 @@ const DEFAULT_CATEGORIES = [
 // Special categories that must always exist (seeded by name, not in the initial batch)
 const SPECIAL_CATEGORIES = [
   { icon: 'receipt', name: REIMBURSEMENT_CATEGORY_NAME, color: 'teal', kind: 'income' as const, isPensionAlimentaire: 0, isSavings: 0 },
-  { icon: 'cat-gift', name: 'Pension alimentaire', color: 'lilac', kind: 'income' as const, isPensionAlimentaire: 1, isSavings: 0 },
+  { icon: 'cat-gift', name: 'Child support', color: 'lilac', kind: 'income' as const, isPensionAlimentaire: 1, isSavings: 0 },
   { icon: 'cat-seed', name: SAVINGS_CATEGORY_NAME, color: 'sage', kind: 'expense' as const, isPensionAlimentaire: 0, isSavings: 1 },
 ]
 
@@ -54,6 +56,23 @@ async function doSeed() {
       await db.insert(categories).values({ ...special, id: nanoid() })
     }
   }
+
+  await seedFrench()
+}
+
+/** Pre-seed the deletable "Français" language from `messages/fr.ts`. */
+async function seedFrench() {
+  const existing = await db.query.languages.findFirst({ where: eq(languages.code, 'fr') })
+  if (existing) return
+
+  await db.insert(languages).values({ code: 'fr', label: 'Français' })
+  const rows = Object.entries(flatten(frMessages as unknown as Messages)).map(([key, value]) => ({
+    id: nanoid(),
+    languageCode: 'fr',
+    key,
+    value,
+  }))
+  if (rows.length > 0) await db.insert(translations).values(rows)
 }
 
 export function seed(): Promise<void> {

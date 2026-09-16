@@ -171,7 +171,7 @@ export function SavingAccountClient({ account, balance, transfers, savingAccount
             <div key={month} style={{ marginBottom: 16 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 4px', fontSize: 12 }}>
                 <h3 style={{ margin: 0, fontSize: 13, fontWeight: 600, color: 'var(--ink-soft)' }}>
-                  {formatDate(month + '-01T12:00:00', 'en-US', { month: 'long', year: 'numeric' })}
+                  {formatDate(month + '-01T12:00:00', { month: 'long', year: 'numeric' })}
                 </h3>
                 <span style={{ fontFamily: 'var(--mono-fern)', color: monthTotal >= 0 ? 'var(--sage-ink)' : 'var(--rose-ink)' }}>
                   {monthTotal >= 0 ? '+' : '−'}{fmt(Math.abs(monthTotal))}
@@ -195,7 +195,7 @@ export function SavingAccountClient({ account, balance, transfers, savingAccount
                           {t.kind === 'interest' ? counterparty(t) : `${incoming ? 'From ' : 'To '}${counterparty(t)}`}
                         </div>
                         <div style={{ fontSize: 12, color: 'var(--ink-faint)' }}>
-                          {formatDate(t.date + 'T12:00:00', 'en-US', { day: 'numeric', month: 'short' })}
+                          {formatDate(t.date + 'T12:00:00', { day: 'numeric', month: 'short' })}
                           {t.note ? ` · ${t.note}` : ''}
                         </div>
                       </div>

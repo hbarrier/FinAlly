@@ -17,12 +17,9 @@ import { SearchableSelect } from '../searchable-select'
 import { fmt, type Category, type Transaction, type Recurring } from '@/lib/derive'
 import { promoteToRecurring } from '@/lib/actions/recurring'
 import { linkTransactionToRecurring } from '@/lib/actions/transactions'
-import { PAYMENT_METHODS, paymentMethodLabel } from '@/lib/payment-method'
-
-const CADENCES = [
-  { value: 'monthly', label: 'Monthly' },
-  { value: 'yearly', label: 'Yearly' },
-]
+import { useTranslations } from 'next-intl'
+import { PAYMENT_METHODS } from '@/lib/payment-method'
+import { useFrequencyOptions } from '../use-enum-options'
 
 const createSchema = z.object({
   name: z.string().min(1, 'Name is required'),
@@ -51,6 +48,8 @@ export function RecurringLinkSheet({
   recurring,
   onDetach,
 }: RecurringLinkSheetProps) {
+  const tMethod = useTranslations('enums.paymentMethod')
+  const CADENCES = useFrequencyOptions()
   const [tab, setTab] = useState<'create' | 'attach'>('create')
   const [successName, setSuccessName] = useState<string | null>(null)
   const [linkedCount, setLinkedCount] = useState(0)
@@ -266,7 +265,7 @@ export function RecurringLinkSheet({
                           >
                             {PAYMENT_METHODS.map((m) => (
                               <option key={m} value={m}>
-                                {paymentMethodLabel(m)}
+                                {tMethod(m)}
                               </option>
                             ))}
                           </select>

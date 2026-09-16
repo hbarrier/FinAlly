@@ -17,12 +17,9 @@ import { SearchableSelect } from '../searchable-select'
 import { fmt, type Category, type Transaction, type Recurring } from '@/lib/derive'
 import { bulkPromoteToRecurring } from '@/lib/actions/recurring'
 import { bulkLinkTransactionsToRecurring } from '@/lib/actions/transactions'
-import { PAYMENT_METHODS, paymentMethodLabel } from '@/lib/payment-method'
-
-const CADENCES = [
-  { value: 'monthly', label: 'Monthly' },
-  { value: 'yearly', label: 'Yearly' },
-]
+import { useTranslations } from 'next-intl'
+import { PAYMENT_METHODS } from '@/lib/payment-method'
+import { useFrequencyOptions } from '../use-enum-options'
 
 const createSchema = z.object({
   name: z.string().min(1, 'Name is required'),
@@ -51,6 +48,9 @@ export function BulkRecurringLinkSheet({
   recurring,
   onDone,
 }: BulkRecurringLinkSheetProps) {
+  const tMethod = useTranslations('enums.paymentMethod')
+  const tKindPlural = useTranslations('enums.movementKindPlural')
+  const CADENCES = useFrequencyOptions()
   const [tab, setTab] = useState<'create' | 'attach'>('create')
   const [successName, setSuccessName] = useState<string | null>(null)
   const [linkedCount, setLinkedCount] = useState(0)
@@ -125,9 +125,9 @@ export function BulkRecurringLinkSheet({
         .map((r) => ({
           value: r.id,
           label: r.name,
-          group: r.kind === 'expense' ? 'Expenses' : 'Income',
+          group: r.kind === 'expense' ? tKindPlural('expense') : tKindPlural('income'),
         })),
-    [recurring],
+    [recurring, tKindPlural],
   )
 
   const onCreateSubmit = (data: CreateFormValues) => {
@@ -319,7 +319,7 @@ export function BulkRecurringLinkSheet({
                       >
                         {PAYMENT_METHODS.map((m) => (
                           <option key={m} value={m}>
-                            {paymentMethodLabel(m)}
+                            {tMethod(m)}
                           </option>
                         ))}
                       </select>

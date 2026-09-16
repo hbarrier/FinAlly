@@ -10,7 +10,7 @@ type IconName =
   | 'cat-pen' | 'cat-gift' | 'cat-chart' | 'cat-dots' | 'cat-coffee'
   | 'cat-phone' | 'cat-fuel' | 'cat-paw' | 'cat-seed' | 'cat-bank' | 'cat-education' | 'cat-gov'
   | 'cat-holidays' | 'cat-divorce' | 'cat-receipt'
-  | 'upload' | 'fileText' | 'flask' | 'target' | 'settings' | 'info' | 'users' | string
+  | 'upload' | 'fileText' | 'flask' | 'target' | 'settings' | 'info' | 'users' | 'globe' | string
 
 interface IconProps extends React.SVGProps<SVGSVGElement> {
   name: IconName
@@ -47,6 +47,7 @@ const paths: Record<string, React.ReactNode> = {
   receipt: <><path d="M4 3v18l3-2 3 2 3-2 3 2 3-2V3l-3 2-3-2-3 2-3-2-3 2Z" /><path d="M8 10h8M8 14h5" /></>,
   users: <><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></>,
   info: <><circle cx="12" cy="12" r="9" /><path d="M12 11v5" /><circle cx="12" cy="8" r="0.6" fill="currentColor" /></>,
+  globe: <><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3c2.5 2.7 3.8 5.8 3.8 9S14.5 18.3 12 21c-2.5-2.7-3.8-5.8-3.8-9S9.5 5.7 12 3Z" /></>,
   
   // Category icons
   'cat-cart': <><circle cx="9" cy="20" r="1.5" /><circle cx="17" cy="20" r="1.5" /><path d="M3 4h3l2.5 11h10l2-7H7" /></>,

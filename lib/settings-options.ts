@@ -4,11 +4,12 @@ export const CURRENCIES = ['EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD', 'JPY', 'SEK
 
 export const DEFAULT_CURRENCY = 'EUR'
 
-export const MODULE_META: { key: ModuleKey; label: string; description: string }[] = [
-  { key: 'recurring', label: 'Recurrings', description: 'Bills and income that repeat on a schedule' },
-  { key: 'budgets', label: 'Budget', description: 'Monthly spending limits per category' },
-  { key: 'objectives', label: 'Goals', description: 'Savings goals with progress rings' },
-  { key: 'simulations', label: 'Simulations', description: 'What-if scenarios for future income and expenses' },
-  { key: 'groups', label: 'Groups', description: 'Shared expenses split with other people' },
-  { key: 'divorce', label: 'Divorce', description: 'Reimbursements and tax status' },
+/** Module toggles in display order. Labels/descriptions come from the `modules` messages. */
+export const MODULE_KEYS: ModuleKey[] = [
+  'recurring',
+  'budgets',
+  'objectives',
+  'simulations',
+  'groups',
+  'divorce',
 ]

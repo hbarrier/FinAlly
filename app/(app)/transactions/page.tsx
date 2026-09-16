@@ -12,11 +12,10 @@ import {
   recurringAmounts,
   recurringInstances,
 } from '@/lib/schema'
+import { getTranslations } from 'next-intl/server'
 import {
-  expenseReimbursementStatusLabel,
   getExpenseReimbursementSummary,
   getIncomeReimbursementSummary,
-  incomeReimbursementStatusLabel,
 } from '@/lib/reimbursement-mapping'
 import { indexReimbursementAllocations } from '@/lib/queries/reimbursement-allocations'
 import { getMovementGroupLinks, getGroupList } from '@/lib/queries/groups'
@@ -178,6 +177,11 @@ export default async function TransactionsPage({
       (reimbursementMappingCounts[allocation.expenseTxId] ?? 0) + 1
   }
 
+  const [tExpStatus, tIncStatus] = await Promise.all([
+    getTranslations('enums.reimbursementExpenseStatus'),
+    getTranslations('enums.reimbursementIncomeStatus'),
+  ])
+
   for (const txn of modules.divorce ? txns : []) {
     if (txn.kind === 'income' && txn.categoryId && reimbursementCategoryIds.has(txn.categoryId)) {
       const summary = getIncomeReimbursementSummary(
@@ -188,7 +192,7 @@ export default async function TransactionsPage({
         summary.status === 'unmapped' && claimedIncomeTxIds.has(txn.id)
           ? ('claim_linked' as const)
           : summary.status
-      reimbursementSummaries[txn.id] = { status, label: incomeReimbursementStatusLabel(status) }
+      reimbursementSummaries[txn.id] = { status, label: tIncStatus(status) }
     }
 
     if (txn.kind === 'expense' && txn.reimbursable === 1) {
@@ -199,7 +203,7 @@ export default async function TransactionsPage({
       )
       reimbursementSummaries[txn.id] = {
         status: summary.status,
-        label: expenseReimbursementStatusLabel(summary.status),
+        label: tExpStatus(summary.status),
       }
     }
   }

@@ -1,10 +1,11 @@
 'use client'
 
+import { useTranslations } from 'next-intl'
 import { Icon } from '@/components/fern/icon'
 import { CatSwatch } from '@/components/fern/cat-swatch'
 import { Chip } from '@/components/fern/chip'
 import { fmt, isPlannedDate, creditSignedAmount, type Category, type Transaction } from '@/lib/derive'
-import { paymentMethodLabel, type PaymentMethod } from '@/lib/payment-method'
+import { type PaymentMethod } from '@/lib/payment-method'
 import type { Merchant } from '@/lib/db-types'
 import type { MovementGroupLink } from '@/lib/queries/groups'
 
@@ -54,6 +55,7 @@ export function TransactionRow({
   onAllocate,
   onClear,
 }: TransactionRowProps) {
+  const tMethod = useTranslations('enums.paymentMethod')
   const isCleared = t.cleared === 1
   const isPlanned = isPlannedDate(t.date)
 
@@ -108,7 +110,7 @@ export function TransactionRow({
             </Chip>
           )}
           <Chip tone="scheduled">
-            <Icon name={paymentMethodIcon(t.method)} size={10} /> {paymentMethodLabel(t.method)}
+            <Icon name={paymentMethodIcon(t.method)} size={10} /> {tMethod(t.method)}
           </Chip>
           {recurringEnabled && t.recurringId && <Chip tone="recurring"><Icon name="repeat" size={10} /> recurring</Chip>}
           {divorceEnabled && reimbursementSummary && (

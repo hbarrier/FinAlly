@@ -2,11 +2,13 @@
 
 import { useState, useTransition, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { useTranslations } from 'next-intl'
 import Link from 'next/link'
 import { CatSwatch } from '@/components/fern/cat-swatch'
 import { Icon } from '@/components/fern/icon'
 import { SegmentedControl } from '@/components/fern/segmented-control'
 import { fmt, formatDate } from '@/lib/derive'
+import { currencySymbol } from '@/lib/format-config'
 import type { ReimbursementRate as Rate, TaxAllocationValue } from '@/lib/db-types'
 import {
   addReimbursementRate,
@@ -98,7 +100,7 @@ type StatusTone = 'green' | 'orange' | 'red'
 
 type ClaimStatus = {
   tone: StatusTone
-  label: string
+  statusKey: string
   icon: string
   isNoPay: boolean
   isSettled: boolean
@@ -111,18 +113,18 @@ function getClaimStatus(claim: ClaimData, linkedIncomes: LinkedIncome[]): ClaimS
 
   if (linkedIncomes.length === 0) {
     if (claim.settledAt) {
-      return { tone: 'green', label: 'Clôturé', icon: 'check', isNoPay: false, isSettled: true }
+      return { tone: 'green', statusKey: 'closed', icon: 'check', isNoPay: false, isSettled: true }
     }
-    if (today < d1) return { tone: 'green', label: 'En attente de paiement', icon: 'calendar', isNoPay: false, isSettled: false }
-    if (today < d2) return { tone: 'orange', label: 'Pas de paiement — 1 mois de retard', icon: 'x', isNoPay: true, isSettled: false }
-    return { tone: 'red', label: 'Pas de paiement — +1 mois de retard', icon: 'x', isNoPay: true, isSettled: false }
+    if (today < d1) return { tone: 'green', statusKey: 'awaitingPayment', icon: 'calendar', isNoPay: false, isSettled: false }
+    if (today < d2) return { tone: 'orange', statusKey: 'noPayment1', icon: 'x', isNoPay: true, isSettled: false }
+    return { tone: 'red', statusKey: 'noPayment2', icon: 'x', isNoPay: true, isSettled: false }
   }
 
   const latestDate = [...linkedIncomes].map((i) => i.date).sort().at(-1)!
   const settled = !!claim.settledAt
-  if (latestDate < d1) return { tone: 'green', label: settled ? 'Clôturé — Payé dans les délais' : 'Payé dans les délais', icon: 'check', isNoPay: false, isSettled: settled }
-  if (latestDate < d2) return { tone: 'orange', label: settled ? 'Clôturé — Payé en retard (< 1 mois)' : 'Payé en retard (< 1 mois)', icon: 'minus', isNoPay: false, isSettled: settled }
-  return { tone: 'red', label: settled ? 'Clôturé — Payé en retard (> 1 mois)' : 'Payé en retard (> 1 mois)', icon: 'minus', isNoPay: false, isSettled: settled }
+  if (latestDate < d1) return { tone: 'green', statusKey: 'paidOnTime', icon: 'check', isNoPay: false, isSettled: settled }
+  if (latestDate < d2) return { tone: 'orange', statusKey: 'paidLateUnder1', icon: 'minus', isNoPay: false, isSettled: settled }
+  return { tone: 'red', statusKey: 'paidLateOver1', icon: 'minus', isNoPay: false, isSettled: settled }
 }
 
 const TONE: Record<StatusTone, { ink: string; bg: string; solid: string }> = {
@@ -132,7 +134,7 @@ const TONE: Record<StatusTone, { ink: string; bg: string; solid: string }> = {
 }
 
 function monthTitle(month: string): string {
-  return formatDate(month + '-15T12:00:00', 'fr-FR', { month: 'long', year: 'numeric' })
+  return formatDate(month + '-15T12:00:00', { month: 'long', year: 'numeric' })
 }
 
 function clearedTotal(expenses: MonthExpense[]): number {
@@ -147,6 +149,7 @@ function clearedTotal(expenses: MonthExpense[]): number {
 
 export function ReimbursementsClient({ monthData, pickerIncomes, rates, years, selectedYear }: Props) {
   const router = useRouter()
+  const t = useTranslations('reimbursements')
   const [, startTransition] = useTransition()
   const [settlementFilter, setSettlementFilter] = useState<'all' | 'unsettled' | 'settled'>('all')
   const [showAllExpenses, setShowAllExpenses] = useState(false)
@@ -194,10 +197,10 @@ export function ReimbursementsClient({ monthData, pickerIncomes, rates, years, s
       <header style={{ display: 'grid', gap: 12 }}>
         <div>
           <div style={{ fontSize: 11, fontFamily: 'var(--mono-fern)', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--teal-ink)', fontWeight: 700 }}>
-            Remboursements
+            {t('kicker')}
           </div>
           <h1 style={{ fontSize: 28, lineHeight: 1.05, fontWeight: 700, color: 'var(--ink)', margin: '6px 0 0' }}>
-            Suivre les remboursements.
+            {t('title')}
           </h1>
         </div>
 
@@ -210,17 +213,17 @@ export function ReimbursementsClient({ monthData, pickerIncomes, rates, years, s
             value={settlementFilter}
             onChange={(v) => setSettlementFilter(v as typeof settlementFilter)}
             options={[
-              { value: 'all', label: 'Tout' },
-              { value: 'unsettled', label: 'En cours' },
-              { value: 'settled', label: 'Clôturé' },
+              { value: 'all', label: t('filterAll') },
+              { value: 'unsettled', label: t('filterOpen') },
+              { value: 'settled', label: t('filterSettled') },
             ]}
           />
           <SegmentedControl
             value={showAllExpenses ? 'all' : 'cleared'}
             onChange={(v) => setShowAllExpenses(v === 'all')}
             options={[
-              { value: 'cleared', label: 'Encaissées uniquement' },
-              { value: 'all', label: 'Toutes' },
+              { value: 'cleared', label: t('clearedOnly') },
+              { value: 'all', label: t('showAll') },
             ]}
           />
         </div>
@@ -228,7 +231,7 @@ export function ReimbursementsClient({ monthData, pickerIncomes, rates, years, s
 
       {filteredMonths.length === 0 ? (
         <div style={{ padding: '48px 0', textAlign: 'center', color: 'var(--ink-faint)', fontSize: 14 }}>
-          Aucune dépense remboursable.
+          {t('empty')}
         </div>
       ) : (
         filteredMonths.map((md) => (
@@ -256,7 +259,7 @@ export function ReimbursementsClient({ monthData, pickerIncomes, rates, years, s
           style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: 'var(--ink-soft)', background: 'none', border: 'none', cursor: 'pointer', padding: '4px 0' }}
         >
           <Icon name={showRates ? 'chevronDown' : 'chevronRight'} size={12} />
-          Taux de remboursement
+          {t('ratesToggle')}
         </button>
         {showRates && <RatesSection rates={rates} />}
       </div>
@@ -335,6 +338,7 @@ function displayToIso(text: string): string | null {
 }
 
 function ClaimDateInput({ value, onChange }: { value: string; onChange: (iso: string) => void }) {
+  const t = useTranslations('reimbursements')
   const pickerRef = useRef<HTMLInputElement>(null)
   const [text, setText] = useState(isoToDisplay(value))
 
@@ -353,7 +357,7 @@ function ClaimDateInput({ value, onChange }: { value: string; onChange: (iso: st
         className="fern-input"
         style={{ flex: 1, fontSize: 12 }}
         value={text}
-        placeholder="JJ/MM/AAAA"
+        placeholder={t('dateInputPlaceholder')}
         onChange={(e) => setText(e.target.value)}
         onBlur={(e) => commit(e.target.value)}
         onKeyDown={(e) => { if (e.key === 'Enter') commit(text) }}
@@ -392,6 +396,7 @@ function ExpensesPanel({
   showAll: boolean
   onOpenOverride: (expense: MonthExpense) => void
 }) {
+  const t = useTranslations('reimbursements')
   const [, startTransition] = useTransition()
 
   const visible = showAll ? expenses : expenses.filter((e) => e.cleared === 1)
@@ -412,12 +417,12 @@ function ExpensesPanel({
             {monthTitle(month)}
           </div>
           <div style={{ fontSize: 18, fontWeight: 700, fontFamily: 'var(--mono-fern)', color: 'var(--teal-ink)', flexShrink: 0 }}>
-            €{total}
+            {fmt(total)}
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)', flexShrink: 0, whiteSpace: 'nowrap' }}>
-            Date demande
+            {t('claimDateLabel')}
           </label>
           <ClaimDateInput value={claim?.claimDate ?? ''} onChange={handleClaimDate} />
         </div>
@@ -426,7 +431,7 @@ function ExpensesPanel({
       <div>
         {visible.length === 0 ? (
           <div style={{ padding: '16px', fontSize: 13, color: 'var(--ink-faint)' }}>
-            {showAll ? 'Aucune dépense.' : 'Aucune dépense encaissée.'}
+            {showAll ? t('noExpenses') : t('noClearedExpenses')}
           </div>
         ) : (
           visible.map((expense, i) => (
@@ -454,6 +459,8 @@ function ExpenseRow({
   isLast: boolean
   onOpenOverride: (expense: MonthExpense) => void
 }) {
+  const t = useTranslations('reimbursements')
+  const tAlloc = useTranslations('enums.taxAllocation')
   const [, startTransition] = useTransition()
   const amount = reimbursableAmount(expense)
   const isOverride = expense.reimbursementAmountOverride !== null
@@ -491,7 +498,7 @@ function ExpenseRow({
           </span>
           {expense.cleared === 0 && (
             <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--butter-ink)', background: 'var(--butter-bg)', borderRadius: 4, padding: '1px 5px' }}>
-              Non encaissée
+              {t('notCleared')}
             </span>
           )}
         </div>
@@ -508,7 +515,7 @@ function ExpenseRow({
                 color: expense.taxAllocation === v ? 'var(--teal-ink)' : 'var(--ink-faint)',
               }}
             >
-              {v === 'split' ? '50/50' : v.charAt(0).toUpperCase() + v.slice(1)}
+              {tAlloc(v)}
             </button>
           ))}
         </div>
@@ -527,14 +534,14 @@ function ExpenseRow({
             color: isOverride ? 'var(--terracotta-ink)' : 'var(--ink)',
           }}>
             {amount !== null
-              ? amount.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+              ? fmt(amount, { noSymbol: true })
               : '—'}
           </span>
           <button
             type="button"
             onClick={() => onOpenOverride(expense)}
             style={{ background: 'none', border: 'none', cursor: 'pointer', color: isOverride ? 'var(--terracotta-ink)' : 'var(--ink-faint)', padding: 2, display: 'grid', placeItems: 'center' }}
-            title={isOverride ? 'Montant personnalisé' : 'Modifier le montant'}
+            title={isOverride ? t('customAmount') : t('editAmount')}
           >
             <Icon name="edit" size={12} />
           </button>
@@ -562,6 +569,7 @@ function ClaimsPanel({
   linkedIncomes: LinkedIncome[]
   pickerIncomes: PickerIncome[]
 }) {
+  const t = useTranslations('reimbursements')
   const [, startTransition] = useTransition()
   const [pickerOpen, setPickerOpen] = useState(false)
   const [pendingIds, setPendingIds] = useState<Set<string>>(new Set())
@@ -571,7 +579,7 @@ function ClaimsPanel({
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 120, padding: 24 }}>
         <div style={{ textAlign: 'center', color: 'var(--ink-faint)', fontSize: 12, lineHeight: 1.5 }}>
           <Icon name="calendar" size={18} style={{ display: 'block', margin: '0 auto 8px', opacity: 0.35 }} />
-          Saisir une date de demande<br />pour suivre le remboursement
+          {t('enterClaimDatePrompt')}
         </div>
       </div>
     )
@@ -622,7 +630,11 @@ function ClaimsPanel({
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <Icon name={status.icon} size={13} style={{ color: colors.ink }} />
-          <span style={{ fontSize: 12, fontWeight: 700, color: colors.ink }}>{status.label}</span>
+          <span style={{ fontSize: 12, fontWeight: 700, color: colors.ink }}>
+            {status.isSettled && status.statusKey !== 'closed'
+              ? t('status.closedPrefix', { label: t(`status.${status.statusKey}`) })
+              : t(`status.${status.statusKey}`)}
+          </span>
         </div>
         <button
           type="button"
@@ -633,7 +645,7 @@ function ClaimsPanel({
             color: status.isSettled ? colors.ink : 'white',
           }}
         >
-          {status.isSettled ? 'Rouvrir' : 'Clôturer'}
+          {status.isSettled ? t('reopen') : t('settleAction')}
         </button>
       </div>
 
@@ -674,7 +686,7 @@ function ClaimsPanel({
             }}
           >
             <Icon name={pickerOpen ? 'x' : 'plus'} size={11} />
-            {pickerOpen ? 'Fermer' : 'Ajouter'}
+            {pickerOpen ? t('close') : t('add')}
           </button>
           {linkedIncomes.length > 0 && (
             <button
@@ -685,7 +697,7 @@ function ClaimsPanel({
                 background: 'transparent', color: 'var(--ink-soft)',
               }}
             >
-              Tout détacher
+              {t('detachAll')}
             </button>
           )}
         </div>
@@ -697,11 +709,11 @@ function ClaimsPanel({
               padding: '8px 10px', background: 'var(--bg-sunken)', borderBottom: '1px solid var(--line-soft)',
               fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)',
             }}>
-              Remboursements reçus après le {formatDate(claim.claimDate)}
+              {t('incomeReceivedAfter', { date: formatDate(claim.claimDate) })}
             </div>
             {eligible.length === 0 ? (
               <div style={{ padding: '12px 10px', fontSize: 12, color: 'var(--ink-faint)' }}>
-                Aucun remboursement disponible.
+                {t('noIncomeAvailable')}
               </div>
             ) : (
               eligible.map((inc) => {
@@ -737,7 +749,7 @@ function ClaimsPanel({
                       +{fmt(inc.amount)}
                     </span>
                     {isLinked && (
-                      <span style={{ fontSize: 10, color: 'var(--sage-ink)', flexShrink: 0 }}>Lié</span>
+                      <span style={{ fontSize: 10, color: 'var(--sage-ink)', flexShrink: 0 }}>{t('linked')}</span>
                     )}
                   </label>
                 )
@@ -750,7 +762,7 @@ function ClaimsPanel({
                   onClick={handleLinkSelected}
                   style={{ fontSize: 12, fontWeight: 600, padding: '5px 12px', borderRadius: 8, border: 'none', cursor: 'pointer', background: 'var(--teal)', color: 'white' }}
                 >
-                  Lier {pendingIds.size} sélection{pendingIds.size > 1 ? 's' : ''}
+                  {t('linkSelection', { count: pendingIds.size })}
                 </button>
               </div>
             )}
@@ -782,6 +794,8 @@ function AmountOverrideModal({
   onClear: () => void
   onClose: () => void
 }) {
+  const t = useTranslations('reimbursements')
+  const tc = useTranslations('common')
   return (
     <div
       role="dialog"
@@ -793,17 +807,17 @@ function AmountOverrideModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>
-          Modifier le montant remboursable
+          {t('overrideModal.title')}
         </div>
         <div style={{ fontSize: 12, color: 'var(--ink-soft)' }}>
           {expense.merchantName ?? expense.categoryName ?? expense.note ?? '—'} · {formatDate(expense.date)}
           {expense.rate !== null && (
-            <span style={{ marginLeft: 8, color: 'var(--ink-faint)' }}>Taux : {expense.rate}%</span>
+            <span style={{ marginLeft: 8, color: 'var(--ink-faint)' }}>{t('overrideModal.rate', { rate: expense.rate })}</span>
           )}
         </div>
         <div>
           <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)', display: 'block', marginBottom: 4 }}>
-            Montant (€)
+            {t('overrideModal.amount', { symbol: currencySymbol() })}
           </label>
           <input
             className="fern-input"
@@ -818,13 +832,13 @@ function AmountOverrideModal({
         </div>
         <div>
           <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)', display: 'block', marginBottom: 4 }}>
-            Commentaire (optionnel)
+            {t('overrideModal.comment')}
           </label>
           <input
             className="fern-input"
             value={draftComment}
             onChange={(e) => onDraftCommentChange(e.target.value)}
-            placeholder="Raison de la modification…"
+            placeholder={t('overrideModal.commentPlaceholder')}
           />
         </div>
         <div style={{ display: 'flex', gap: 8, justifyContent: 'space-between', alignItems: 'center' }}>
@@ -833,7 +847,7 @@ function AmountOverrideModal({
             onClick={onClear}
             style={{ fontSize: 11, padding: '6px 10px', borderRadius: 8, border: 'none', cursor: 'pointer', background: 'var(--bg-sunken)', color: 'var(--ink-soft)' }}
           >
-            Rétablir le calcul
+            {t('overrideModal.reset')}
           </button>
           <div style={{ display: 'flex', gap: 6 }}>
             <button
@@ -841,14 +855,14 @@ function AmountOverrideModal({
               onClick={onClose}
               style={{ fontSize: 12, padding: '7px 12px', borderRadius: 8, border: 'none', cursor: 'pointer', background: 'var(--bg-sunken)', color: 'var(--ink-soft)' }}
             >
-              Annuler
+              {tc('cancel')}
             </button>
             <button
               type="button"
               onClick={onSave}
               style={{ fontSize: 12, fontWeight: 600, padding: '7px 12px', borderRadius: 8, border: 'none', cursor: 'pointer', background: 'var(--teal)', color: 'white' }}
             >
-              Enregistrer
+              {tc('save')}
             </button>
           </div>
         </div>
@@ -860,6 +874,8 @@ function AmountOverrideModal({
 // ---- RatesSection ----
 
 function RatesSection({ rates }: { rates: Rate[] }) {
+  const t = useTranslations('reimbursements')
+  const tc = useTranslations('common')
   const [, startTransition] = useTransition()
   const [showForm, setShowForm] = useState(false)
   const [ratePercent, setRatePercent] = useState('')
@@ -893,29 +909,29 @@ function RatesSection({ rates }: { rates: Rate[] }) {
     <div style={{ marginTop: 12 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
         <span style={{ fontSize: 12, color: 'var(--ink-faint)' }}>
-          {rates.length} taux configuré{rates.length !== 1 ? 's' : ''}
+          {t('rates.count', { count: rates.length })}
         </span>
         <button
           type="button"
           onClick={() => { setShowForm((v) => !v); setEditingId(null) }}
           style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 600, color: 'var(--terracotta-ink)', background: 'var(--terracotta-bg)', border: 'none', borderRadius: 8, padding: '5px 12px', cursor: 'pointer' }}
         >
-          <Icon name="plus" size={12} /> Nouveau taux
+          <Icon name="plus" size={12} /> {t('rates.new')}
         </button>
       </div>
 
       {showForm && (
         <div style={{ background: 'var(--bg-elevated)', borderRadius: 12, padding: 14, marginBottom: 10, display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
           <div style={{ flex: '1 1 140px' }}>
-            <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)', display: 'block', marginBottom: 3 }}>Taux (%)</label>
-            <input className="fern-input" placeholder="ex: 75" inputMode="decimal" value={ratePercent} onChange={(e) => setRatePercent(e.target.value)} />
+            <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)', display: 'block', marginBottom: 3 }}>{t('rates.percent')}</label>
+            <input className="fern-input" placeholder={t('rates.percentPlaceholder')} inputMode="decimal" value={ratePercent} onChange={(e) => setRatePercent(e.target.value)} />
           </div>
           <div style={{ flex: '1 1 160px' }}>
-            <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)', display: 'block', marginBottom: 3 }}>Applicable dès le</label>
+            <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)', display: 'block', marginBottom: 3 }}>{t('rates.effectiveFrom')}</label>
             <input className="fern-input" type="date" value={rateDate} onChange={(e) => setRateDate(e.target.value)} />
           </div>
-          <button type="button" onClick={handleAdd} style={{ background: 'var(--terracotta)', color: 'white', border: 'none', borderRadius: 10, padding: '9px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Ajouter</button>
-          <button type="button" onClick={() => setShowForm(false)} style={{ background: 'var(--bg-sunken)', color: 'var(--ink-soft)', border: 'none', borderRadius: 10, padding: '9px 14px', fontSize: 13, cursor: 'pointer' }}>Annuler</button>
+          <button type="button" onClick={handleAdd} style={{ background: 'var(--terracotta)', color: 'white', border: 'none', borderRadius: 10, padding: '9px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>{t('add')}</button>
+          <button type="button" onClick={() => setShowForm(false)} style={{ background: 'var(--bg-sunken)', color: 'var(--ink-soft)', border: 'none', borderRadius: 10, padding: '9px 14px', fontSize: 13, cursor: 'pointer' }}>{tc('cancel')}</button>
         </div>
       )}
 
@@ -925,11 +941,11 @@ function RatesSection({ rates }: { rates: Rate[] }) {
             editingId === rate.id ? (
               <div key={rate.id} style={{ padding: '10px 14px', borderBottom: i < rates.length - 1 ? '1px solid var(--line-soft)' : undefined, display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
                 <div style={{ flex: '1 1 120px' }}>
-                  <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)', display: 'block', marginBottom: 3 }}>Taux (%)</label>
-                  <input className="fern-input" placeholder="ex: 75" inputMode="decimal" value={editPercent} onChange={(e) => setEditPercent(e.target.value)} />
+                  <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)', display: 'block', marginBottom: 3 }}>{t('rates.percent')}</label>
+                  <input className="fern-input" placeholder={t('rates.percentPlaceholder')} inputMode="decimal" value={editPercent} onChange={(e) => setEditPercent(e.target.value)} />
                 </div>
                 <div style={{ flex: '1 1 140px' }}>
-                  <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)', display: 'block', marginBottom: 3 }}>Applicable dès le</label>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)', display: 'block', marginBottom: 3 }}>{t('rates.effectiveFrom')}</label>
                   <input className="fern-input" type="date" value={editDate} onChange={(e) => setEditDate(e.target.value)} />
                 </div>
                 <button type="button" onClick={handleSaveEdit} style={{ background: 'var(--teal)', color: 'white', border: 'none', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', height: 36 }}><Icon name="check" size={14} /></button>
@@ -938,14 +954,14 @@ function RatesSection({ rates }: { rates: Rate[] }) {
             ) : (
               <div key={rate.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', borderBottom: i < rates.length - 1 ? '1px solid var(--line-soft)' : undefined }}>
                 <div>
-                  <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{i === 0 ? 'Taux actuel' : 'Taux historique'}</div>
+                  <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{i === 0 ? t('rates.current') : t('rates.historical')}</div>
                   <div style={{ fontSize: i === 0 ? 20 : 14, fontWeight: 700, color: i === 0 ? 'var(--teal-ink)' : 'var(--ink)' }}>{rate.percent}%</div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>dès le {formatDate(rate.startDate)}</span>
-                  <button type="button" onClick={() => { setEditingId(rate.id); setEditPercent(String(rate.percent)); setEditDate(rate.startDate) }} style={{ background: 'none', border: 'none', color: 'var(--ink-faint)', cursor: 'pointer', padding: 4 }} title="Modifier"><Icon name="edit" size={14} /></button>
+                  <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>{t('rates.since', { date: formatDate(rate.startDate) })}</span>
+                  <button type="button" onClick={() => { setEditingId(rate.id); setEditPercent(String(rate.percent)); setEditDate(rate.startDate) }} style={{ background: 'none', border: 'none', color: 'var(--ink-faint)', cursor: 'pointer', padding: 4 }} title={tc('edit')}><Icon name="edit" size={14} /></button>
                   {i > 0 && (
-                    <button type="button" onClick={() => handleDelete(rate.id)} style={{ background: 'none', border: 'none', color: 'var(--ink-faint)', cursor: 'pointer', padding: 4 }} title="Supprimer"><Icon name="trash" size={14} /></button>
+                    <button type="button" onClick={() => handleDelete(rate.id)} style={{ background: 'none', border: 'none', color: 'var(--ink-faint)', cursor: 'pointer', padding: 4 }} title={tc('delete')}><Icon name="trash" size={14} /></button>
                   )}
                 </div>
               </div>

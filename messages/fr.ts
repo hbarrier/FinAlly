@@ -1,0 +1,305 @@
+/**
+ * French message catalog — partial. Seed source for the pre-seeded, deletable
+ * "Français" language. Anything missing here falls back to `messages/en.ts`.
+ *
+ * Covers every string that is currently hardcoded in French in the app plus
+ * easy wins. The user refines the rest from the /languages admin screen.
+ */
+import type en from './en'
+
+/** Same nested shape as the English catalog, every key optional, values widened to string. */
+type Loose<T> = { [K in keyof T]?: T[K] extends string ? string : Loose<T[K]> }
+
+const fr: Loose<typeof en> = {
+  common: {
+    save: 'Enregistrer',
+    create: 'Créer',
+    add: 'Ajouter',
+    edit: 'Modifier',
+    delete: 'Supprimer',
+    cancel: 'Annuler',
+    close: 'Fermer',
+    saving: 'Enregistrement…',
+    saveChanges: 'Enregistrer les modifications',
+    remove: 'Retirer',
+    rename: 'Renommer',
+  },
+
+  nav: {
+    section: {
+      groups: 'Groupes',
+      divorce: 'Divorce',
+      admin: 'Administration',
+    },
+    dashboard: 'Tableau de bord',
+    transactions: 'Compte courant',
+    recurring: 'Récurrents',
+    budgets: 'Budget',
+    goals: 'Objectifs',
+    simulations: 'Simulations',
+    groups: 'Groupes',
+    reimbursements: 'Remboursements',
+    taxStatus: 'Statut fiscal',
+    accounts: 'Comptes',
+    merchants: 'Commerçants',
+    categories: 'Catégories',
+    languages: 'Langues',
+    settings: 'Paramètres',
+  },
+
+  dialogs: {
+    alertTitle: 'Une erreur est survenue',
+    confirmTitle: 'Confirmer ?',
+    confirmLabel: 'Confirmer',
+    chooseTitle: 'Choisir une option',
+    promptTitle: 'Saisir une valeur',
+    ok: 'OK',
+    cancel: 'Annuler',
+  },
+
+  errors: {
+    generic: 'Une erreur est survenue',
+    invalidInput: 'Saisie invalide',
+    missingId: 'Identifiant manquant',
+    nameRequired: 'Le nom est requis',
+    dateFormat: 'Date attendue au format AAAA-MM-JJ',
+    monthFormat: 'Mois attendu au format AAAA-MM',
+    amountNumber: 'Le montant doit être un nombre',
+    amountPositive: 'Le montant doit être positif',
+    amountNonNegative: 'Le montant ne peut pas être négatif',
+    percentNumber: 'Le pourcentage doit être un nombre',
+  },
+
+  fallbacks: {
+    uncategorized: 'Sans catégorie',
+    other: 'Autre',
+    otherNamed: 'Autre {name}',
+    creditAccount: 'Compte courant',
+    noMerchant: 'Aucun commerçant',
+    noCategory: 'Aucune catégorie',
+    savingAccount: 'Compte épargne',
+    sharedExpense: 'Dépense partagée',
+    sharedRevenue: 'Revenu partagé',
+  },
+
+  modules: {
+    core: {
+      label: 'Essentiel',
+      description: 'Tableau de bord, Mouvements, Commerçants, Catégories — toujours actifs',
+    },
+    recurring: {
+      label: 'Récurrents',
+      description: 'Dépenses et revenus qui reviennent selon un calendrier',
+    },
+    budgets: {
+      label: 'Budget',
+      description: 'Plafonds de dépenses mensuels par catégorie',
+    },
+    objectives: {
+      label: 'Objectifs',
+      description: "Objectifs d'épargne avec anneaux de progression",
+    },
+    simulations: {
+      label: 'Simulations',
+      description: 'Scénarios hypothétiques de revenus et dépenses futurs',
+    },
+    groups: {
+      label: 'Groupes',
+      description: "Dépenses partagées réparties avec d'autres personnes",
+    },
+    divorce: {
+      label: 'Divorce',
+      description: 'Remboursements et statut fiscal',
+    },
+  },
+
+  reimbursements: {
+    kicker: 'Remboursements',
+    title: 'Suivre les remboursements.',
+    filterAll: 'Tout',
+    filterOpen: 'En cours',
+    filterSettled: 'Clôturé',
+    clearedOnly: 'Encaissées uniquement',
+    showAll: 'Toutes',
+    empty: 'Aucune dépense remboursable.',
+    ratesToggle: 'Taux de remboursement',
+    noExpenses: 'Aucune dépense.',
+    noClearedExpenses: 'Aucune dépense encaissée.',
+    claimDateLabel: 'Date demande',
+    dateInputPlaceholder: 'JJ/MM/AAAA',
+    notCleared: 'Non encaissée',
+    customAmount: 'Montant personnalisé',
+    editAmount: 'Modifier le montant',
+    enterClaimDatePrompt: 'Saisir une date de demande pour suivre le remboursement',
+    reopen: 'Rouvrir',
+    settleAction: 'Clôturer',
+    close: 'Fermer',
+    add: 'Ajouter',
+    detachAll: 'Tout détacher',
+    incomeReceivedAfter: 'Remboursements reçus après le {date}',
+    noIncomeAvailable: 'Aucun remboursement disponible.',
+    linked: 'Lié',
+    linkSelection: 'Lier {count, plural, one {# sélection} other {# sélections}}',
+    reimbursableToggle: 'Remboursable',
+    reimbursableToggleHint: 'À saisir dans la vue Remboursements',
+    status: {
+      closed: 'Clôturé',
+      awaitingPayment: 'En attente de paiement',
+      noPayment1: 'Pas de paiement — 1 mois de retard',
+      noPayment2: 'Pas de paiement — +1 mois de retard',
+      paidOnTime: 'Payé dans les délais',
+      paidLateUnder1: 'Payé en retard (< 1 mois)',
+      paidLateOver1: 'Payé en retard (> 1 mois)',
+      closedPrefix: 'Clôturé — {label}',
+    },
+    overrideModal: {
+      title: 'Modifier le montant remboursable',
+      rate: 'Taux : {rate}%',
+      amount: 'Montant ({symbol})',
+      comment: 'Commentaire (optionnel)',
+      commentPlaceholder: 'Raison de la modification…',
+      reset: 'Rétablir le calcul',
+    },
+    rates: {
+      count: '{count, plural, one {# taux configuré} other {# taux configurés}}',
+      new: 'Nouveau taux',
+      percent: 'Taux (%)',
+      percentPlaceholder: 'ex: 75',
+      effectiveFrom: 'Applicable dès le',
+      current: 'Taux actuel',
+      historical: 'Taux historique',
+      since: 'dès le {date}',
+    },
+  },
+
+  taxStatus: {
+    kicker: 'Impôts',
+    title: 'Statut annuel',
+    intro: 'Répartir les remboursements et pensions alimentaires entre Audrey et Lucie pour la déclaration.',
+    unallocated: 'Non réparti',
+    empty: 'Aucun remboursement ou pension alimentaire trouvé pour {year}.',
+    reimbursementsSection: 'Remboursements',
+    pensionsSection: 'Pensions alimentaires',
+    expensesSection: 'Dépenses remboursables',
+    colDate: 'Date',
+    colAmount: 'Montant',
+    colDescription: 'Description',
+    colAllocation: 'Allocation',
+    colFor: 'Pour',
+    reimbShort: 'Remb.',
+    pensionShort: 'Pension',
+  },
+
+  languagesAdmin: {
+    kicker: 'Administration',
+    title: 'Langues',
+    intro: "L'anglais est la langue source, toujours disponible. Ajoutez d'autres langues ici et traduisez l'interface ; tout champ vide utilise l'anglais.",
+    listHeading: 'Langues',
+    englishRow: 'Anglais — par défaut',
+    addHeading: 'Ajouter une langue',
+    codeField: 'Langue',
+    labelField: 'Nom affiché',
+    addButton: 'Ajouter',
+    deleteConfirm: 'Supprimer {label} ? Ses traductions seront effacées.',
+    deleteLabel: 'Supprimer',
+    noLanguages: 'Aucune langue pour le moment.',
+    editorHeading: 'Traductions',
+    editorPrompt: 'Sélectionnez une langue pour modifier ses traductions.',
+    searchPlaceholder: 'Rechercher des clés…',
+    sourceColumn: 'Anglais',
+    translationColumn: 'Traduction',
+    translatedCount: '{done} sur {total} traduites',
+    noMatches: 'Aucune clé ne correspond à votre recherche.',
+  },
+
+  dashboard: {
+    range: {
+      ytd: 'ATD',
+      '1m': '1M',
+      '6m': '6M',
+      '1y': '1A',
+      '2y': '2A',
+      '5y': '5A',
+    },
+    rangeLong: {
+      ytd: "Depuis le début de l'année",
+      '1m': 'Dernier mois',
+      '6m': 'Six derniers mois',
+      '1y': 'Douze derniers mois',
+      '2y': 'Deux dernières années',
+      '5y': 'Cinq dernières années',
+    },
+  },
+
+  enums: {
+    movementKind: {
+      expense: 'Dépense',
+      income: 'Revenu',
+      saving: 'Épargne',
+      interest: 'Intérêts',
+    },
+    movementKindPlural: {
+      all: 'Tout',
+      expense: 'Dépenses',
+      income: 'Revenus',
+      saving: 'Épargne',
+      interest: 'Intérêts',
+    },
+    paymentMethod: {
+      card: 'CB',
+      transfer: 'Virement',
+      cash: 'Cash',
+      check: 'Chèque',
+      debit: 'Prélèvement',
+      paypal: 'PayPal',
+    },
+    frequency: {
+      monthly: 'Mensuel',
+      yearly: 'Annuel',
+    },
+    budgetLineType: {
+      adhoc: 'Ponctuel',
+      recurring: 'Récurrent',
+    },
+    simulationOrigin: {
+      manual: 'Manuel',
+      recurring: 'Récurrent',
+      average: 'Moyenne',
+      rollup: 'Regroupement',
+    },
+    simulationPriority: {
+      must: 'Essentiel',
+      should: 'Souhaité',
+      nice: 'Confort',
+    },
+    amountSource: {
+      manual: 'MANUEL',
+      calc: 'CALCUL',
+    },
+    recurringInstanceStatus: {
+      expected: 'Attendu',
+      linked: 'Lié',
+      not_applicable: 'Non applicable',
+    },
+    reimbursementExpenseStatus: {
+      manually_settled: 'Réglé manuellement',
+      reimbursed: 'Remboursé',
+      partially_reimbursed: 'Partiellement remboursé',
+      no_rate: 'Pas de taux',
+      not_reimbursed: 'Non remboursé',
+    },
+    reimbursementIncomeStatus: {
+      fully_allocated: 'Entièrement affecté',
+      partially_allocated: 'Partiellement affecté',
+      claim_linked: 'Demande liée',
+      unmapped: 'Non rapproché',
+    },
+    taxAllocation: {
+      audrey: 'Audrey',
+      lucie: 'Lucie',
+      split: '50/50',
+    },
+  },
+}
+
+export default fr

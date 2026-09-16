@@ -1,6 +1,10 @@
 import type { Metadata } from "next"
 import { Inter, Instrument_Serif, JetBrains_Mono } from "next/font/google"
+import { NextIntlClientProvider } from "next-intl"
+import { getLocale } from "next-intl/server"
 import { DialogsHost } from "@/lib/dialogs"
+import { FormatConfigSetter } from "@/components/fern/format-config-setter"
+import { getUserSettings } from "@/lib/queries/user-settings"
 import "./globals.css"
 
 const inter = Inter({
@@ -26,13 +30,14 @@ export const metadata: Metadata = {
   description: "Your quiet place to look after your money.",
 }
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode
 }>) {
+  const [locale, settings] = await Promise.all([getLocale(), getUserSettings()])
   return (
-    <html lang="en" className={`${inter.variable} ${instrumentSerif.variable} ${jetbrainsMono.variable} h-full antialiased`}>
+    <html lang={locale} className={`${inter.variable} ${instrumentSerif.variable} ${jetbrainsMono.variable} h-full antialiased`}>
       <head>
         <script
           dangerouslySetInnerHTML={{
@@ -41,8 +46,11 @@ export default function RootLayout({
         />
       </head>
       <body className="min-h-full">
-        {children}
-        <DialogsHost />
+        <NextIntlClientProvider>
+          <FormatConfigSetter locale={locale} currency={settings?.currency ?? 'EUR'} />
+          {children}
+          <DialogsHost />
+        </NextIntlClientProvider>
       </body>
     </html>
   )

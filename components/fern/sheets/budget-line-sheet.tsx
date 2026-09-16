@@ -9,19 +9,10 @@ import { SearchableSelect } from '../searchable-select'
 import { SheetShell } from '../sheet-shell'
 import { AmountField } from '../amount-field'
 import { useSheetForm } from '@/hooks/use-sheet-form'
+import { useFrequencyOptions, useBudgetLineTypeOptions } from '../use-enum-options'
 import type { Category } from '@/lib/derive'
 import type { Merchant, BudgetLine } from '@/lib/db-types'
 import { parseDecimal } from '@/lib/utils'
-
-const FREQUENCIES = [
-  { value: 'monthly', label: 'Monthly' },
-  { value: 'yearly', label: 'Yearly' },
-]
-
-const KINDS = [
-  { value: 'adhoc', label: 'Ad-hoc' },
-  { value: 'recurring', label: 'Recurring' },
-]
 
 const lineSchema = z
   .object({
@@ -75,6 +66,9 @@ export function BudgetLineSheet({ open, onClose, category, merchants, item, onSa
     showErr,
     formState: { errors, isValid },
   } = useSheetForm(lineSchema, () => getDefaultValues(item), { open, resetDeps: [item] })
+
+  const FREQUENCIES = useFrequencyOptions()
+  const KINDS = useBudgetLineTypeOptions()
 
   const merchantOptions = useMemo(
     () => [...merchants].sort((a, b) => a.name.localeCompare(b.name)).map((m) => ({ value: m.id, label: m.name })),

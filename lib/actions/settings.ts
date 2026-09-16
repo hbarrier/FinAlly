@@ -3,10 +3,11 @@
 import { z } from 'zod'
 import { revalidateApp } from './_shared'
 import { db } from '../db'
-import { userSettings } from '../schema'
+import { userSettings, languages } from '../schema'
 import { eq } from 'drizzle-orm'
 import type { Modules } from '../db-types'
-import { parse, zName, zCurrency, zSignedAmount } from '../schemas'
+import { parse, zName, zCurrency, zSignedAmount, zLocale } from '../schemas'
+import { DEFAULT_LOCALE } from '@/i18n/catalog'
 
 const zModules = z.object({
   recurring: z.boolean(),
@@ -61,17 +62,25 @@ export async function completeOnboarding(input: {
 export async function updateSettings(input: {
   name: string
   currency: string
+  locale: string
   modules: Modules
 }) {
   const data = parse(
-    z.object({ name: zName, currency: zCurrency, modules: zModules }),
+    z.object({ name: zName, currency: zCurrency, locale: zLocale, modules: zModules }),
     input,
   )
+
+  if (data.locale !== DEFAULT_LOCALE) {
+    const known = await db.query.languages.findFirst({ where: eq(languages.code, data.locale) })
+    if (!known) throw new Error('errors.invalidInput')
+  }
+
   await db
     .update(userSettings)
     .set({
       name: data.name,
       currency: data.currency,
+      locale: data.locale,
       ...moduleFlags(data.modules),
     })
     .where(eq(userSettings.id, 1))

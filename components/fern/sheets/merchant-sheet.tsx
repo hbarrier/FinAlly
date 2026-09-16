@@ -2,6 +2,7 @@
 
 import { useMemo } from 'react'
 import { Controller } from 'react-hook-form'
+import { useTranslations } from 'next-intl'
 import { z } from 'zod'
 import { Field, FieldError } from '@/components/ui/field'
 import { SearchableSelect } from '../searchable-select'
@@ -45,6 +46,8 @@ export function MerchantSheet({ open, onClose, categories, item, onSave }: Merch
     formState: { errors, isValid },
   } = useSheetForm(merchantSchema, () => getDefaultValues(item), { open, resetDeps: [item] })
 
+  const tKindPlural = useTranslations('enums.movementKindPlural')
+
   const onSubmit = (data: MerchantFormValues) => {
     onSave({
       name: data.name.trim(),
@@ -55,7 +58,14 @@ export function MerchantSheet({ open, onClose, categories, item, onSave }: Merch
     onClose()
   }
 
-  const categoryOptions = useMemo(() => buildCategorySelectOptions(categories), [categories])
+  const categoryOptions = useMemo(
+    () =>
+      buildCategorySelectOptions(categories).map((o) => ({
+        ...o,
+        group: o.group === 'Expenses' ? tKindPlural('expense') : tKindPlural('income'),
+      })),
+    [categories, tKindPlural],
+  )
 
   return (
     <SheetShell

@@ -2,6 +2,7 @@
 
 import type { UseFormRegisterReturn } from 'react-hook-form'
 import { Field, FieldError } from '@/components/ui/field'
+import { currencySymbol } from '@/lib/format-config'
 
 interface AmountFieldProps {
   register: UseFormRegisterReturn
@@ -20,7 +21,7 @@ export function AmountField({ register, invalid, error, autoFocus, label }: Amou
     <Field data-invalid={invalid}>
       {label && <label className="fern-field-label">{label}</label>}
       <div style={{ position: 'relative' }}>
-        <span style={{ position: 'absolute', left: 0, top: '50%', transform: 'translateY(-50%)', fontSize: 28, color: 'var(--ink-soft)', fontFamily: 'var(--serif)' }}>€</span>
+        <span style={{ position: 'absolute', left: 0, top: '50%', transform: 'translateY(-50%)', fontSize: 28, color: 'var(--ink-soft)', fontFamily: 'var(--serif)' }}>{currencySymbol()}</span>
         <input
           className="fern-input big"
           style={{ paddingLeft: 28 }}

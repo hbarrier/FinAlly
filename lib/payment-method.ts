@@ -24,20 +24,8 @@ export function paymentMethodIcon(method: PaymentMethod): string {
   }
 }
 
-export function paymentMethodLabel(method: PaymentMethod): string {
-  switch (method) {
-    case 'card':
-      return 'CB'
-    case 'transfer':
-      return 'Virement'
-    case 'cash':
-      return 'Cash'
-    case 'check':
-      return 'Chèque'
-    case 'debit':
-      return 'Prélèvement'
-    case 'paypal':
-      return 'PayPal'
-  }
-}
+/**
+ * Payment-method display labels are translated: in a component call
+ * `useTranslations('enums.paymentMethod')` and then `t(method)`.
+ */
 

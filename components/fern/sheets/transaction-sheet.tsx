@@ -12,7 +12,8 @@ import { AmountField } from '../amount-field'
 import { useSheetForm } from '@/hooks/use-sheet-form'
 import type { Category, Transaction } from '@/lib/derive'
 import type { Merchant, SavingAccount } from '@/lib/db-types'
-import { PAYMENT_METHODS, paymentMethodLabel, type PaymentMethod, defaultPaymentMethodForKind } from '@/lib/payment-method'
+import { useTranslations } from 'next-intl'
+import { PAYMENT_METHODS, type PaymentMethod, defaultPaymentMethodForKind } from '@/lib/payment-method'
 import { parseDecimal } from '@/lib/utils'
 
 const CREDIT = '__credit__'
@@ -131,6 +132,9 @@ export function TransactionSheet({
     resetDeps: [item, prefill],
   })
 
+  const tMethod = useTranslations('enums.paymentMethod')
+  const tKind = useTranslations('enums.movementKind')
+  const tReimb = useTranslations('reimbursements')
   const watchedKind = watch('kind')
   const watchedMethod = watch('method')
   const watchedToAccount = watch('toAccount')
@@ -226,7 +230,7 @@ export function TransactionSheet({
               disabled={savingLocked && item?.kind === 'saving'}
               onClick={() => { field.onChange('expense'); switchKind('expense') }}
             >
-              <Icon name="arrowDown" size={14} /> Expense
+              <Icon name="arrowDown" size={14} /> {tKind('expense')}
             </button>
             <button
               type="button"
@@ -234,7 +238,7 @@ export function TransactionSheet({
               disabled={savingLocked && item?.kind === 'saving'}
               onClick={() => { field.onChange('income'); switchKind('income') }}
             >
-              <Icon name="arrowUp" size={14} /> Income
+              <Icon name="arrowUp" size={14} /> {tKind('income')}
             </button>
             <button
               type="button"
@@ -242,7 +246,7 @@ export function TransactionSheet({
               disabled={savingLocked && item?.kind !== 'saving'}
               onClick={() => field.onChange('saving')}
             >
-              <Icon name="bank" size={14} /> Saving
+              <Icon name="bank" size={14} /> {tKind('saving')}
             </button>
           </div>
         )}
@@ -251,7 +255,7 @@ export function TransactionSheet({
 
       {isInterest && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, color: 'var(--ink-soft)' }}>
-          <Icon name="sparkle" size={14} /> Interest
+          <Icon name="sparkle" size={14} /> {tKind('interest')}
         </div>
       )}
 
@@ -338,7 +342,7 @@ export function TransactionSheet({
                   >
                     {PAYMENT_METHODS.map((m) => (
                       <option key={m} value={m}>
-                        {paymentMethodLabel(m)}
+                        {tMethod(m)}
                       </option>
                     ))}
                   </select>
@@ -454,8 +458,8 @@ export function TransactionSheet({
                     style={{ width: 16, height: 16, accentColor: 'var(--teal)', cursor: 'pointer' }}
                   />
                   <div>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: field.value ? 'var(--teal-ink)' : 'var(--ink)' }}>Remboursable</div>
-                    <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>À saisir dans la vue Remboursements</div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: field.value ? 'var(--teal-ink)' : 'var(--ink)' }}>{tReimb('reimbursableToggle')}</div>
+                    <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{tReimb('reimbursableToggleHint')}</div>
                   </div>
                 </label>
               )}

@@ -15,6 +15,7 @@ import { defaultPaymentMethodForKind, type PaymentMethod } from '../payment-meth
 import {
   ensureInstancesForRecurring,
   upsertLinkedInstance,
+  pruneExpiredInstances,
   currentMonth,
 } from '../recurring-instances'
 import { syncRecurringEffectiveAmountTx } from '../recurring-amounts'
@@ -204,6 +205,12 @@ export async function updateRecurring(
       if (updated) {
         await ensureInstancesForRecurring(tx, updated, data.startDate.slice(0, 7), currentMonth())
       }
+    }
+
+    // Remove already-generated 'expected' instances that fall after a newly set/earlier endDate
+    if (data.endDate !== undefined) {
+      const updated = await tx.query.recurring.findFirst({ where: eq(recurring.id, id) })
+      if (updated) await pruneExpiredInstances(tx, updated)
     }
   })
   revalidateApp()

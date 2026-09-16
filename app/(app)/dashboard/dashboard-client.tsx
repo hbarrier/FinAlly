@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, useTransition } from 'react'
 import Link from 'next/link'
+import { useTranslations } from 'next-intl'
 import { Icon } from '@/components/fern/icon'
 import { CatSwatch } from '@/components/fern/cat-swatch'
 import { Chip } from '@/components/fern/chip'
@@ -28,6 +29,7 @@ import {
   type Recurring,
   type RecurringInstance,
 } from '@/lib/derive'
+import { currencySymbol } from '@/lib/format-config'
 import {
   addTransaction,
   updateTransaction,
@@ -43,23 +45,7 @@ import type { Merchant } from '@/lib/db-types'
 
 type RangeKey = 'ytd' | '1m' | '6m' | '1y' | '2y' | '5y'
 
-const RANGES: { key: RangeKey; label: string }[] = [
-  { key: 'ytd', label: 'YTD' },
-  { key: '1m', label: '1M' },
-  { key: '6m', label: '6M' },
-  { key: '1y', label: '1Y' },
-  { key: '2y', label: '2Y' },
-  { key: '5y', label: '5Y' },
-]
-
-const RANGE_LABELS: Record<RangeKey, string> = {
-  ytd: 'Year to date',
-  '1m': 'Last month',
-  '6m': 'Last 6 months',
-  '1y': 'Last year',
-  '2y': 'Last 2 years',
-  '5y': 'Last 5 years',
-}
+const RANGE_KEYS: RangeKey[] = ['ytd', '1m', '6m', '1y', '2y', '5y']
 
 interface DashboardClientProps {
   allTransactions: Transaction[]
@@ -94,6 +80,7 @@ export function DashboardClient({
   recurringEnabled,
   divorceEnabled,
 }: DashboardClientProps) {
+  const tDash = useTranslations('dashboard')
   const [showScrollTop, setShowScrollTop] = useState(false)
   const [sheetOpen, setSheetOpen] = useState(false)
   const [editingTxn, setEditingTxn] = useState<Transaction | null>(null)
@@ -238,7 +225,7 @@ export function DashboardClient({
     ? recurringCats.find((g) => g.id === selectedRecurringCatId) ?? null
     : null
 
-  const monthName = today.toLocaleString('en-US', { month: 'long' })
+  const monthName = formatDate(today.toISOString(), { month: 'long' })
   const hasData = allTransactions.length > 0 || recurring.length > 0
   const chartStart = chartSeries[0]?.balance
   const chartEnd = chartSeries[chartSeries.length - 1]?.balance
@@ -293,7 +280,7 @@ export function DashboardClient({
   return (
     <div>
       <PageHeader
-        kicker={formatDate(today.toISOString(), 'en-US', { weekday: 'long', day: 'numeric', month: 'long' })}
+        kicker={formatDate(today.toISOString(), { weekday: 'long', day: 'numeric', month: 'long' })}
         title={<>Hello, <em>welcome to your</em> FinAlly <em>application</em>.</>}
         actions={
           <FernButton onClick={() => { setEditingTxn(null); setSheetOpen(true) }}>
@@ -315,7 +302,7 @@ export function DashboardClient({
               Opening{openingBalanceIsExplicit ? '' : ' (derived)'}:
             </span>
             <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ color: 'var(--ink-faint)' }}>€</span>
+              <span style={{ color: 'var(--ink-faint)' }}>{currencySymbol()}</span>
               <input
                 key={openingBalance}
                 className="fern-input"
@@ -376,31 +363,31 @@ export function DashboardClient({
           <div style={{ marginBottom: 10, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
             <div>
               <div style={{ fontSize: 11, fontFamily: 'var(--mono-fern)', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--ink-faint)', marginBottom: 4 }}>
-                {RANGE_LABELS[rangeKey]}
+                {tDash(`rangeLong.${rangeKey}`)}
               </div>
               <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: 'var(--ink)' }}>Balance evolution</h3>
             </div>
             <div style={{ display: 'flex', background: 'var(--bg-sunken)', borderRadius: 8, padding: 2, gap: 1, flexShrink: 0 }}>
-              {RANGES.map((r) => (
+              {RANGE_KEYS.map((k) => (
                 <button
-                  key={r.key}
+                  key={k}
                   type="button"
-                  onClick={() => setRangeKey(r.key)}
+                  onClick={() => setRangeKey(k)}
                   style={{
                     padding: '3px 7px',
                     borderRadius: 6,
                     fontSize: 11,
-                    fontWeight: rangeKey === r.key ? 600 : 500,
-                    background: rangeKey === r.key ? 'var(--bg-elevated)' : 'none',
-                    color: rangeKey === r.key ? 'var(--ink)' : 'var(--ink-faint)',
-                    boxShadow: rangeKey === r.key ? 'var(--fern-shadow-sm)' : 'none',
+                    fontWeight: rangeKey === k ? 600 : 500,
+                    background: rangeKey === k ? 'var(--bg-elevated)' : 'none',
+                    color: rangeKey === k ? 'var(--ink)' : 'var(--ink-faint)',
+                    boxShadow: rangeKey === k ? 'var(--fern-shadow-sm)' : 'none',
                     border: 'none',
                     cursor: 'pointer',
                     fontFamily: 'var(--mono-fern)',
                     transition: 'all 0.1s',
                   }}
                 >
-                  {r.label}
+                  {tDash(`range.${k}`)}
                 </button>
               ))}
             </div>
