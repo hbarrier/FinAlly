@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { makeTestDb, type TestDb } from '../helpers/db'
-import { categories, merchants, transactions } from '@/lib/schema'
+import { categories, merchants, recurring, transactions } from '@/lib/schema'
 
 const h = vi.hoisted(() => ({ db: null as TestDb | null }))
 vi.mock('@/lib/db', () => ({ get db() { return h.db } }))
@@ -54,21 +54,20 @@ describe('getMerchantUsage', () => {
   })
 })
 
-describe('getCurrentMonthActuals', () => {
-  it('splits this-month non-planned actuals by kind and category', async () => {
+describe('getRecentTransactionsForBudget', () => {
+  it('returns raw recurringId per transaction, for tier-1 budget waterfall matching', async () => {
     const db = h.db!
-    await db.insert(categories).values([
-      { id: 'food', name: 'Food', kind: 'expense' },
-      { id: 'pay', name: 'Pay', kind: 'income' },
+    await db.insert(categories).values([{ id: 'food', name: 'Food', kind: 'expense' }])
+    await db.insert(recurring).values([
+      { id: 'rec1', name: 'Groceries', amount: 40, kind: 'expense', categoryId: 'food', cadence: 'monthly', startDate: '2026-01-01' },
     ])
     await db.insert(transactions).values([
-      { id: '1', date: '2026-03-02', amount: 40, kind: 'expense', categoryId: 'food' },
-      { id: '2', date: '2026-03-20', amount: 500, kind: 'expense', categoryId: 'food' }, // planned
-      { id: '3', date: '2026-03-01', amount: 3000, kind: 'income', categoryId: 'pay' },
+      { id: '1', date: '2026-03-02', amount: 40, kind: 'expense', categoryId: 'food', recurringId: 'rec1' },
+      { id: '2', date: '2026-03-05', amount: 12, kind: 'expense', categoryId: 'food' },
     ])
-    const { getCurrentMonthActuals } = await import('@/lib/queries/month-actuals')
-    const a = await getCurrentMonthActuals()
-    expect(a.expense.food).toBeCloseTo(40, 2)
-    expect(a.income.pay).toBeCloseTo(3000, 2)
+    const { getRecentTransactionsForBudget } = await import('@/lib/queries/month-actuals')
+    const rows = await getRecentTransactionsForBudget()
+    expect(rows.find((r) => r.id === '1')?.recurringId).toBe('rec1')
+    expect(rows.find((r) => r.id === '2')?.recurringId).toBeNull()
   })
 })

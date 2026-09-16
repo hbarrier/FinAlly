@@ -36,7 +36,11 @@ const lineSchema = z.object({
 
 type LineFormValues = z.infer<typeof lineSchema>
 
-function getDefaultValues(item?: SimulationLine | null, initialKind?: 'expense' | 'income'): LineFormValues {
+function getDefaultValues(
+  item?: SimulationLine | null,
+  initialKind?: 'expense' | 'income',
+  initialFrequency?: 'monthly' | 'yearly',
+): LineFormValues {
   return {
     kind: item?.kind ?? initialKind ?? 'expense',
     source: 'scratch',
@@ -45,7 +49,7 @@ function getDefaultValues(item?: SimulationLine | null, initialKind?: 'expense' 
     name: item?.name ?? '',
     categoryId: item?.categoryId ?? '',
     merchantId: item?.merchantId ?? null,
-    frequency: item?.frequency ?? 'monthly',
+    frequency: item?.frequency ?? initialFrequency ?? 'monthly',
   }
 }
 
@@ -58,6 +62,7 @@ interface SimulationLineSheetProps {
   recurringEnabled?: boolean
   item?: SimulationLine | null
   initialKind?: 'expense' | 'income'
+  initialFrequency?: 'monthly' | 'yearly'
   transactions?: Transaction[]
   simulationInputs?: SimulationInputs | null
   onApplyAverage?: (lineId: string, data: { months: number; excludedTxnIds: string[] }) => void
@@ -82,6 +87,7 @@ export function SimulationLineSheet({
   recurringEnabled = false,
   item,
   initialKind,
+  initialFrequency,
   transactions = [],
   simulationInputs,
   onApplyAverage,
@@ -98,9 +104,9 @@ export function SimulationLineSheet({
     trigger,
     showErr,
     formState: { errors, isValid, isSubmitted },
-  } = useSheetForm(lineSchema, () => getDefaultValues(item, initialKind), {
+  } = useSheetForm(lineSchema, () => getDefaultValues(item, initialKind, initialFrequency), {
     open,
-    resetDeps: [item, initialKind],
+    resetDeps: [item, initialKind, initialFrequency],
   })
 
   const FREQUENCIES = useFrequencyOptions()

@@ -10,9 +10,14 @@ import { SheetShell } from '../sheet-shell'
 import { AmountField } from '../amount-field'
 import { useSheetForm } from '@/hooks/use-sheet-form'
 import { useFrequencyOptions, useBudgetLineTypeOptions } from '../use-enum-options'
-import type { Category } from '@/lib/derive'
+import type { Category, Recurring } from '@/lib/derive'
 import type { Merchant, BudgetLine } from '@/lib/db-types'
 import { parseDecimal } from '@/lib/utils'
+
+const SOURCES = [
+  { value: 'scratch', label: 'From scratch' },
+  { value: 'recurring', label: 'From recurring' },
+]
 
 const lineSchema = z
   .object({
@@ -24,6 +29,8 @@ const lineSchema = z
     merchantId: z.string().nullable(),
     frequency: z.enum(['monthly', 'yearly']),
     recurring: z.enum(['adhoc', 'recurring']),
+    source: z.enum(['scratch', 'recurring']),
+    sourceRecurringId: z.string().nullable(),
   })
   .refine((d) => !!d.merchantId || d.name.trim().length > 0, {
     message: 'Name is required without a merchant',
@@ -32,13 +39,15 @@ const lineSchema = z
 
 type LineFormValues = z.infer<typeof lineSchema>
 
-function getDefaultValues(item?: BudgetLine | null): LineFormValues {
+function getDefaultValues(item?: BudgetLine | null, initialFrequency?: 'monthly' | 'yearly'): LineFormValues {
   return {
     amount: item?.amount ? String(item.amount) : '',
     name: item?.name ?? '',
     merchantId: item?.merchantId ?? null,
-    frequency: item?.frequency ?? 'monthly',
+    frequency: item?.frequency ?? initialFrequency ?? 'monthly',
     recurring: item?.recurring ? 'recurring' : 'adhoc',
+    source: item?.sourceRecurringId ? 'recurring' : 'scratch',
+    sourceRecurringId: item?.sourceRecurringId ?? null,
   }
 }
 
@@ -47,33 +56,74 @@ interface BudgetLineSheetProps {
   onClose: () => void
   category: Category | null
   merchants: Merchant[]
+  recurringItems: Recurring[]
+  recurringEnabled?: boolean
   item?: BudgetLine | null
+  initialFrequency?: 'monthly' | 'yearly'
   onSave: (data: {
     name: string | null
     merchantId: string | null
     amount: number
     frequency: 'monthly' | 'yearly'
     recurring: boolean
+    sourceRecurringId: string | null
   }) => void
 }
 
-export function BudgetLineSheet({ open, onClose, category, merchants, item, onSave }: BudgetLineSheetProps) {
+export function BudgetLineSheet({
+  open,
+  onClose,
+  category,
+  merchants,
+  recurringItems,
+  recurringEnabled = false,
+  item,
+  initialFrequency,
+  onSave,
+}: BudgetLineSheetProps) {
   const {
     register,
     control,
     handleSubmit,
+    watch,
+    setValue,
     trigger,
     showErr,
     formState: { errors, isValid },
-  } = useSheetForm(lineSchema, () => getDefaultValues(item), { open, resetDeps: [item] })
+  } = useSheetForm(lineSchema, () => getDefaultValues(item, initialFrequency), { open, resetDeps: [item, initialFrequency] })
 
   const FREQUENCIES = useFrequencyOptions()
   const KINDS = useBudgetLineTypeOptions()
+
+  const watchedSource = watch('source')
 
   const merchantOptions = useMemo(
     () => [...merchants].sort((a, b) => a.name.localeCompare(b.name)).map((m) => ({ value: m.id, label: m.name })),
     [merchants],
   )
+
+  const recurringSelectOptions = useMemo(
+    () => recurringItems
+      .filter((r) => r.kind === category?.kind && r.categoryId === category?.id)
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((r) => ({ value: r.id, label: r.name })),
+    [recurringItems, category],
+  )
+
+  // Only reseed the other fields from the picked template when creating a brand-new line —
+  // relinking an existing line shouldn't clobber its already-tuned amount/name/merchant.
+  const handlePickRecurring = (recurringId: string | null) => {
+    setValue('sourceRecurringId', recurringId)
+    if (!recurringId || item) return
+    const r = recurringItems.find((x) => x.id === recurringId)
+    if (!r) return
+    setValue('name', r.name)
+    setValue('merchantId', r.merchantId ?? null)
+    setValue('amount', String(r.amount))
+    setValue('frequency', r.cadence === 'yearly' ? 'yearly' : 'monthly')
+    setValue('recurring', 'recurring')
+    trigger()
+  }
 
   const onSubmit = (data: LineFormValues) => {
     onSave({
@@ -82,6 +132,7 @@ export function BudgetLineSheet({ open, onClose, category, merchants, item, onSa
       amount: parseDecimal(data.amount),
       frequency: data.frequency,
       recurring: data.recurring === 'recurring',
+      sourceRecurringId: data.source === 'recurring' ? data.sourceRecurringId : null,
     })
     onClose()
   }
@@ -99,6 +150,38 @@ export function BudgetLineSheet({ open, onClose, category, merchants, item, onSa
           <div className="fern-input" style={{ color: 'var(--ink-soft)', background: 'var(--bg-sunken)' }}>
             {category.name}
           </div>
+        </Field>
+      )}
+
+      {recurringEnabled && recurringSelectOptions.length > 0 && (
+        <div>
+          <label className="fern-field-label wide">Source</label>
+          <Controller
+            control={control}
+            name="source"
+            render={({ field }) => (
+              <SegmentedControl
+                value={field.value}
+                onChange={(v) => {
+                  field.onChange(v)
+                  setValue('sourceRecurringId', null)
+                }}
+                options={SOURCES}
+              />
+            )}
+          />
+        </div>
+      )}
+
+      {recurringEnabled && watchedSource === 'recurring' && (
+        <Field>
+          <label className="fern-field-label">Pick a recurring item</label>
+          <SearchableSelect
+            value={watch('sourceRecurringId')}
+            onChange={handlePickRecurring}
+            options={recurringSelectOptions}
+            placeholder="Choose…"
+          />
         </Field>
       )}
 

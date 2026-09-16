@@ -14,7 +14,7 @@ import {
   roundToTen,
   budgetLineMonthly,
   budgetCategoryMonthly,
-  monthActualByCategory,
+  budgetWaterfall,
   simulationTotals,
   simulationLineDisplayAmount,
   groupTransactionsByMonth,
@@ -281,25 +281,143 @@ describe('budgetLineMonthly / budgetCategoryMonthly', () => {
 
   it('sums a category across its lines', () => {
     const lines = [
-      { id: '1', name: null, kind: 'expense' as const, categoryId: 'x', merchantId: null, amount: 30, frequency: 'monthly' as const, recurring: 0 },
-      { id: '2', name: null, kind: 'expense' as const, categoryId: 'x', merchantId: null, amount: 120, frequency: 'yearly' as const, recurring: 0 },
-      { id: '3', name: null, kind: 'expense' as const, categoryId: 'y', merchantId: null, amount: 99, frequency: 'monthly' as const, recurring: 0 },
+      { id: '1', name: null, kind: 'expense' as const, categoryId: 'x', merchantId: null, amount: 30, frequency: 'monthly' as const, recurring: 0, sourceRecurringId: null },
+      { id: '2', name: null, kind: 'expense' as const, categoryId: 'x', merchantId: null, amount: 120, frequency: 'yearly' as const, recurring: 0, sourceRecurringId: null },
+      { id: '3', name: null, kind: 'expense' as const, categoryId: 'y', merchantId: null, amount: 99, frequency: 'monthly' as const, recurring: 0, sourceRecurringId: null },
     ]
     expect(budgetCategoryMonthly(lines, 'x', true)).toBe(40)
   })
 })
 
-describe('monthActualByCategory', () => {
-  it('sums non-planned actuals per category for one kind', () => {
-    const ref = new Date('2026-01-20T12:00:00Z')
-    const rows = [
-      txn({ amount: 10, categoryId: 'a', date: '2026-01-05' }),
-      txn({ amount: 15, categoryId: 'a', date: '2026-01-10' }),
-      txn({ amount: 99, categoryId: 'a', date: '2026-01-28' }), // planned - excluded
-      txn({ amount: 7, categoryId: 'b', date: '2026-01-02' }),
-      txn({ amount: 5, categoryId: 'a', date: '2026-02-01' }), // other month
+describe('budgetWaterfall', () => {
+  const cat = (o: Partial<Category>): Category =>
+    ({
+      id: 'c', name: 'Cat', icon: 'tag', color: 'teal', kind: 'expense',
+      isPensionAlimentaire: 0, isSavings: 0, isActive: 1, createdAt: '2026-01-01T00:00:00Z',
+      ...o,
+    }) as Category
+
+  const line = (o: Partial<{
+    id: string; name: string | null; kind: 'expense' | 'income'; categoryId: string
+    merchantId: string | null; amount: number; frequency: 'monthly' | 'yearly'
+    recurring: number; sourceRecurringId: string | null
+  }>) => ({
+    id: 'l', name: null, kind: 'expense' as const, categoryId: 'c', merchantId: null,
+    amount: 0, frequency: 'monthly' as const, recurring: 0, sourceRecurringId: null,
+    ...o,
+  })
+
+  const atxn = (o: Partial<{
+    id: string; date: string; amount: number; kind: 'expense' | 'income'
+    categoryId: string; merchantId: string | null; recurringId: string | null
+  }>) => ({
+    id: 't', date: '2026-01-01', amount: 0, kind: 'expense' as const, categoryId: 'c',
+    merchantId: null, recurringId: null,
+    ...o,
+  })
+
+  it('never leaks a recurring-linked line\'s transactions into the category generic-line remainder (Transport case)', () => {
+    const categories = [cat({ id: 'transport' })]
+    const lines = [
+      line({ id: 'assurance', categoryId: 'transport', frequency: 'monthly', recurring: 1, sourceRecurringId: 'rec-assurance', amount: 50 }),
+      line({ id: 'other-transport', categoryId: 'transport', frequency: 'yearly', amount: 1500 }),
     ]
-    expect(monthActualByCategory(rows, '2026-01', 'expense', ref)).toEqual({ a: 25, b: 7 })
+    const txns = [
+      atxn({ id: 't1', date: '2026-09-05', amount: 50.66, categoryId: 'transport', recurringId: 'rec-assurance' }),
+      atxn({ id: 't2', date: '2026-03-12', amount: 50.66, categoryId: 'transport', recurringId: 'rec-assurance' }),
+      atxn({ id: 't3', date: '2026-06-01', amount: 80, categoryId: 'transport', merchantId: 'parking' }),
+    ]
+    const { monthly, yearly } = budgetWaterfall(lines, txns, categories, '2025-10', '2026-09')
+
+    const monthlyAssurance = monthly.categories.find((c) => c.category.id === 'transport')?.lines.find((l) => l.line.id === 'assurance')
+    expect(monthlyAssurance?.tier).toBe('recurring')
+    expect(monthlyAssurance?.actual).toBe(50.66) // only the current-month (t1) instance
+
+    const yearlyTransport = yearly.categories.find((c) => c.category.id === 'transport')
+    expect(yearlyTransport?.actual).toBe(80) // ad-hoc only — neither Assurance Auto txn leaks in
+    expect(yearlyTransport?.lines.find((l) => l.line.id === 'other-transport')?.actual).toBe(80)
+  })
+
+  it('marks a generic-tier line ambiguous when 0 or 2+ generic lines share a category/frequency', () => {
+    const categories = [cat({ id: 'misc' })]
+    const lines = [
+      line({ id: 'g1', categoryId: 'misc', frequency: 'yearly', amount: 100 }),
+      line({ id: 'g2', categoryId: 'misc', frequency: 'yearly', amount: 50 }),
+    ]
+    const txns = [atxn({ id: 't1', date: '2026-05-01', amount: 30, categoryId: 'misc' })]
+    const { yearly } = budgetWaterfall(lines, txns, categories, '2025-10', '2026-09')
+    const misc = yearly.categories.find((c) => c.category.id === 'misc')
+    expect(misc?.lines.every((l) => l.actual === null)).toBe(true)
+    expect(misc?.actual).toBe(30) // category total still reflects the true remainder
+    expect(misc?.needsOtherLine).toBe(false) // ambiguous (2+ generic lines) is not the "no line at all" gap
+  })
+
+  it('flags needsOtherLine when a category has real spend but zero generic lines for the frequency (Equipement Logement case)', () => {
+    const categories = [cat({ id: 'equip' })]
+    const lines = [line({ id: 'yearly-generic', categoryId: 'equip', frequency: 'yearly', amount: 1000 })]
+    const currentMonth = '2026-09'
+    const txns = [
+      atxn({ id: 't1', date: `${currentMonth}-05`, amount: 270.2, categoryId: 'equip', merchantId: 'store' }),
+      atxn({ id: 't2', date: `${currentMonth}-06`, amount: 124.9, categoryId: 'equip', merchantId: 'store' }),
+    ]
+    const { monthly, yearly } = budgetWaterfall(lines, txns, categories, '2025-10', currentMonth)
+
+    const monthlyEquip = monthly.categories.find((c) => c.category.id === 'equip')
+    expect(monthlyEquip?.lines).toEqual([]) // no monthly line exists at all — this is the display bug
+    expect(monthlyEquip?.actual).toBe(395.1)
+    expect(monthlyEquip?.needsOtherLine).toBe(true)
+
+    const yearlyEquip = yearly.categories.find((c) => c.category.id === 'equip')
+    expect(yearlyEquip?.needsOtherLine).toBe(false) // its one yearly generic line already covers it
+  })
+
+  it('counts a merchant\'s current-month spend once (Monthly), excluded from Yearly\'s pool', () => {
+    const categories = [cat({ id: 'shopping' })]
+    const lines = [
+      line({ id: 'monthly-merchant', categoryId: 'shopping', frequency: 'monthly', merchantId: 'amazon', amount: 50 }),
+      line({ id: 'yearly-generic', categoryId: 'shopping', frequency: 'yearly', amount: 200 }),
+    ]
+    const currentMonth = '2026-09'
+    const txns = [atxn({ id: 't1', date: `${currentMonth}-10`, amount: 42, categoryId: 'shopping', merchantId: 'amazon' })]
+    const { monthly, yearly } = budgetWaterfall(lines, txns, categories, '2025-10', currentMonth)
+
+    const monthlyShopping = monthly.categories.find((c) => c.category.id === 'shopping')
+    expect(monthlyShopping?.lines.find((l) => l.line.id === 'monthly-merchant')?.actual).toBe(42)
+
+    const yearlyShopping = yearly.categories.find((c) => c.category.id === 'shopping')
+    expect(yearlyShopping?.actual ?? 0).toBe(0) // the same txn must not also appear here
+    expect(yearlyShopping?.needsOtherLine).toBe(false) // its one generic line already covers the (empty) remainder
+  })
+
+  it('excludes past months\' merchant/ad-hoc spend from Yearly when a monthly line can claim it (Loisirs case)', () => {
+    const categories = [cat({ id: 'loisirs' })]
+    const lines = [
+      line({ id: 'netflix', categoryId: 'loisirs', frequency: 'monthly', sourceRecurringId: 'rec-netflix', amount: 15 }),
+      line({ id: 'apple-music', categoryId: 'loisirs', frequency: 'monthly', merchantId: 'apple', amount: 17 }),
+      line({ id: 'other-loisirs', categoryId: 'loisirs', frequency: 'monthly', amount: 300 }),
+      line({ id: 'amazon-prime', categoryId: 'loisirs', frequency: 'yearly', sourceRecurringId: 'rec-prime', amount: 70 }),
+    ]
+    const currentMonth = '2026-09'
+    const txns = [
+      atxn({ id: 'netflix-june', date: '2026-06-05', amount: 15, categoryId: 'loisirs', recurringId: 'rec-netflix' }),
+      atxn({ id: 'prime-august', date: '2026-08-01', amount: 70, categoryId: 'loisirs', recurringId: 'rec-prime' }),
+      atxn({ id: 'apple-june', date: '2026-06-10', amount: 17, categoryId: 'loisirs', merchantId: 'apple' }),
+      atxn({ id: 'cinema-july', date: '2026-07-14', amount: 25, categoryId: 'loisirs' }),
+    ]
+    const { yearly } = budgetWaterfall(lines, txns, categories, '2026-06', currentMonth)
+
+    const loisirs = yearly.categories.find((c) => c.category.id === 'loisirs')
+    expect(loisirs?.actual).toBe(70) // only Prime — Apple Music and the ad-hoc cinema spend stay out
+  })
+
+  it('still leaks past months\' ad-hoc spend to Yearly when the category has no monthly line at all', () => {
+    const categories = [cat({ id: 'transport' })]
+    const lines = [line({ id: 'yearly-generic', categoryId: 'transport', frequency: 'yearly', amount: 1500 })]
+    const txns = [atxn({ id: 't1', date: '2026-06-01', amount: 80, categoryId: 'transport', merchantId: 'parking' })]
+    const { yearly } = budgetWaterfall(lines, txns, categories, '2026-06', '2026-09')
+
+    const transport = yearly.categories.find((c) => c.category.id === 'transport')
+    expect(transport?.actual).toBe(80) // no monthly line exists to claim it, so it still falls to yearly
   })
 })
 

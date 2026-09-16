@@ -44,13 +44,19 @@ editing it afterward does not affect the source, and vice versa.
 
 ## Business rules
 
-### Monthly/yearly views
-`simulationTotals(lines, view)` in `lib/derive.ts` supports three views:
-- `'monthly'` — only monthly-frequency lines, amount as-is.
-- `'monthly-with-yearly'` — monthly lines as-is, plus yearly lines amortized (÷ 12).
-- `'yearly'` — monthly lines × 12, plus yearly lines as-is.
+### Monthly/yearly sections
+The detail page shows two always-visible, frequency-pure sections: **Monthly budget** (only
+`frequency: 'monthly'` lines) and **Yearly budget** (only `frequency: 'yearly'` lines) — each with
+its own totals, comparison chart, category bars, and line lists. There is no toggle and no blended
+view mixing the two frequencies; "Add revenue"/"Add expense" from a section defaults the new line's
+`frequency` to that section.
 
-The detail page exposes this as a Monthly/Yearly toggle, with an "Include yearly (amortized)" checkbox that switches between `'monthly'` and `'monthly-with-yearly'` while in Monthly mode.
+`simulationTotals(lines, view)` in `lib/derive.ts` still supports three views (`'monthly'`,
+`'monthly-with-yearly'` — monthly lines as-is plus yearly lines amortized ÷ 12, and `'yearly'` —
+monthly lines × 12 plus yearly lines as-is), but the detail page only ever calls it with a
+frequency-pre-filtered line array and the matching `'monthly'`/`'yearly'` view, so no amortization or
+extrapolation actually happens there. `'monthly-with-yearly'` remains in use by the simulations list
+page (`simulations-client.tsx`), which shows one blended "Monthly" row per simulation card.
 
 ### Copying from a recurring item
 When adding a line, picking "From recurring" prefills `name`/`categoryId`/`merchantId`/`amount`/`frequency` from the chosen recurring item (cadence maps 1:1 to frequency). All fields stay editable after picking, and edits never write back to the source recurring item.

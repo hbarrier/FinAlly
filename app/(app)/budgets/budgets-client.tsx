@@ -9,15 +9,21 @@ import { FernButton } from '@/components/fern/button'
 import { PageHeader } from '@/components/fern/page-header'
 import { EmptyState } from '@/components/fern/empty-state'
 import { Money } from '@/components/fern/money'
+import { SegmentedControl } from '@/components/fern/segmented-control'
+import { SearchableSelect } from '@/components/fern/searchable-select'
 import { BudgetSheet } from '@/components/fern/sheets/budget-sheet'
 import { BudgetLineSheet } from '@/components/fern/sheets/budget-line-sheet'
+import { CategoryMovementsModal } from '@/components/fern/category-movements-modal'
 import {
   fmt,
-  budgetCategoryMonthly,
-  budgetLineMonthly,
+  budgetWaterfall,
   type Category,
+  type Recurring,
+  type BudgetLineLite,
 } from '@/lib/derive'
-import type { MonthActuals } from '@/lib/queries/month-actuals'
+import { addMonths, currentMonth, monthsBetween } from '@/lib/dates'
+import { formatConfig } from '@/lib/format-config'
+import type { RecentBudgetTxn } from '@/lib/queries/month-actuals'
 import type { Merchant, BudgetLine, BudgetWithLines } from '@/lib/db-types'
 import { confirmDialog } from '@/lib/dialogs-store'
 import {
@@ -34,56 +40,106 @@ interface BudgetsClientProps {
   categories: Category[]
   merchants: Merchant[]
   budget: BudgetWithLines | null
-  actuals: MonthActuals
+  recentTransactions: RecentBudgetTxn[]
+  recurringItems: Recurring[]
+  recurringEnabled: boolean
 }
 
 const barState = (spent: number, limit: number): 'ok' | 'warn' | 'over' =>
   limit > 0 && spent > limit ? 'over' : limit > 0 && spent > limit * 0.8 ? 'warn' : 'ok'
 
-export function BudgetsClient({ categories, merchants, budget, actuals }: BudgetsClientProps) {
+const linesByCategory = (lines: BudgetLine[]) => {
+  const map = new Map<string, BudgetLine[]>()
+  for (const l of lines) {
+    const arr = map.get(l.categoryId) ?? []
+    arr.push(l)
+    map.set(l.categoryId, arr)
+  }
+  return map
+}
+
+export function BudgetsClient({ categories, merchants, budget, recentTransactions, recurringItems, recurringEnabled }: BudgetsClientProps) {
   const router = useRouter()
   const { run, pending } = useServerAction()
   const [editingBudget, setEditingBudget] = useState<'new' | 'edit' | null>(null)
   const [editingLine, setEditingLine] = useState<{ line: BudgetLine | null; category: Category } | null>(null)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [activeTab, setActiveTab] = useState<'monthly' | 'yearly'>('monthly')
+  const [movementsFor, setMovementsFor] = useState<{ category: Category; line: BudgetLineLite } | null>(null)
+  const thisMonth = currentMonth()
+  const [startMonth, setStartMonth] = useState(thisMonth)
 
   const lines = useMemo(() => budget?.lines ?? [], [budget])
   const merchantById = useMemo(() => new Map(merchants.map((m) => [m.id, m])), [merchants])
 
-  const linesByCat = useMemo(() => {
-    const map = new Map<string, BudgetLine[]>()
-    for (const l of lines) {
-      const arr = map.get(l.categoryId) ?? []
-      arr.push(l)
-      map.set(l.categoryId, arr)
-    }
-    return map
-  }, [lines])
+  const monthlyLines = useMemo(() => lines.filter((l) => l.frequency === 'monthly'), [lines])
+  const yearlyLines = useMemo(() => lines.filter((l) => l.frequency === 'yearly'), [lines])
+  const monthlyLinesByCat = useMemo(() => linesByCategory(monthlyLines), [monthlyLines])
+  const yearlyLinesByCat = useMemo(() => linesByCategory(yearlyLines), [yearlyLines])
 
-  const expenseActual = actuals.expense
-  const incomeActual = actuals.income
+  const waterfall = useMemo(
+    () => budgetWaterfall(lines, recentTransactions, categories, startMonth, thisMonth),
+    [lines, recentTransactions, categories, startMonth, thisMonth],
+  )
+  const monthlyCatById = useMemo(
+    () => new Map(waterfall.monthly.categories.map((c) => [c.category.id, c])),
+    [waterfall],
+  )
+  const yearlyCatById = useMemo(
+    () => new Map(waterfall.yearly.categories.map((c) => [c.category.id, c])),
+    [waterfall],
+  )
+  const activeComparison = activeTab === 'monthly' ? waterfall.monthly : waterfall.yearly
+  const catById = activeTab === 'monthly' ? monthlyCatById : yearlyCatById
 
-  const plannedFor = useCallback(
-    (catId: string) => budgetCategoryMonthly(lines, catId, true),
-    [lines],
+  const monthOptions = useMemo(() => {
+    const months = monthsBetween(addMonths(thisMonth, -11), thisMonth)
+    return months
+      .map((m) => {
+        const [y, mm] = m.split('-').map(Number)
+        const d = new Date(y, mm - 1, 1)
+        const label = d.toLocaleDateString(formatConfig().locale, { month: 'short', year: 'numeric' })
+        return { value: m, label: m === thisMonth ? `${label} (ongoing)` : label }
+      })
+      .reverse()
+  }, [thisMonth])
+
+  const visibleMonthly = useCallback((c: Category) => c.isActive === 1 || monthlyLinesByCat.has(c.id), [monthlyLinesByCat])
+  const visibleYearly = useCallback((c: Category) => c.isActive === 1 || yearlyLinesByCat.has(c.id), [yearlyLinesByCat])
+
+  const monthlyBudgetedFor = useCallback((catId: string) => monthlyCatById.get(catId)?.budgeted ?? 0, [monthlyCatById])
+  const yearlyBudgetedFor = useCallback((catId: string) => yearlyCatById.get(catId)?.budgeted ?? 0, [yearlyCatById])
+
+  const expenseCatsMonthly = useMemo(
+    () => categories.filter((c) => c.kind === 'expense' && c.isSavings !== 1 && visibleMonthly(c)).sort((a, b) => monthlyBudgetedFor(b.id) - monthlyBudgetedFor(a.id)),
+    [categories, monthlyBudgetedFor, visibleMonthly],
+  )
+  const incomeCatsMonthly = useMemo(
+    () => categories.filter((c) => c.kind === 'income' && visibleMonthly(c)).sort((a, b) => monthlyBudgetedFor(b.id) - monthlyBudgetedFor(a.id)),
+    [categories, monthlyBudgetedFor, visibleMonthly],
   )
 
-  const visible = useCallback(
-    (c: Category) => c.isActive === 1 || linesByCat.has(c.id),
-    [linesByCat],
+  const expenseCatsYearly = useMemo(
+    () => categories.filter((c) => c.kind === 'expense' && c.isSavings !== 1 && visibleYearly(c)).sort((a, b) => yearlyBudgetedFor(b.id) - yearlyBudgetedFor(a.id)),
+    [categories, yearlyBudgetedFor, visibleYearly],
   )
-  const expenseCats = useMemo(
-    () => categories.filter((c) => c.kind === 'expense' && c.isSavings !== 1 && visible(c)).sort((a, b) => plannedFor(b.id) - plannedFor(a.id)),
-    [categories, plannedFor, visible],
+  const incomeCatsYearly = useMemo(
+    () => categories.filter((c) => c.kind === 'income' && visibleYearly(c)).sort((a, b) => yearlyBudgetedFor(b.id) - yearlyBudgetedFor(a.id)),
+    [categories, yearlyBudgetedFor, visibleYearly],
   )
-  const incomeCats = useMemo(
-    () => categories.filter((c) => c.kind === 'income' && visible(c)).sort((a, b) => plannedFor(b.id) - plannedFor(a.id)),
-    [categories, plannedFor, visible],
-  )
+
+  const expenseCats = activeTab === 'monthly' ? expenseCatsMonthly : expenseCatsYearly
+  const incomeCats = activeTab === 'monthly' ? incomeCatsMonthly : incomeCatsYearly
   const allCatIds = useMemo(() => [...expenseCats, ...incomeCats].map((c) => c.id), [expenseCats, incomeCats])
 
-  const totalLimit = expenseCats.reduce((s, c) => s + plannedFor(c.id), 0)
-  const totalSpent = expenseCats.reduce((s, c) => s + (expenseActual[c.id] ?? 0), 0)
+  const totalLimit = activeComparison.expense.budgeted
+  const totalSpent = activeComparison.expense.actual
+
+  const movements = useMemo(() => {
+    if (!movementsFor) return []
+    const catLines = catById.get(movementsFor.category.id)?.lines ?? []
+    return catLines.find((cl) => cl.line.id === movementsFor.line.id)?.movements ?? []
+  }, [movementsFor, catById])
 
   const handleSaveBudget = (data: { name: string; description: string | null }) => {
     run(async () => {
@@ -120,9 +176,11 @@ export function BudgetsClient({ categories, merchants, budget, actuals }: Budget
       return next
     })
 
-  const renderCategory = (c: Category, actual: number) => {
-    const catLines = linesByCat.get(c.id) ?? []
-    const limit = plannedFor(c.id)
+  const renderCategory = (c: Category) => {
+    const catResult = catById.get(c.id)
+    const actual = catResult?.actual ?? 0
+    const limit = catResult?.budgeted ?? 0
+    const catLines = catResult?.lines ?? []
     const isOpen = expanded.has(c.id)
     const state = barState(actual, limit)
     const barPct = limit > 0 ? Math.min(100, (actual / limit) * 100) : actual > 0 ? 100 : 0
@@ -137,7 +195,7 @@ export function BudgetsClient({ categories, merchants, budget, actuals }: Budget
           <span style={{ flex: 1, fontSize: 14, fontWeight: 500, color: 'var(--ink)' }}>{c.name}</span>
           {state === 'over' && <Chip tone="expense">Over</Chip>}
           <span style={{ fontSize: 13, color: 'var(--ink-soft)', fontFamily: 'var(--mono-fern)' }}>
-            {fmt(actual)} / {fmt(limit)}
+            {fmt(limit)} / {fmt(actual)}
           </span>
         </div>
         <div className="fern-budget-bar">
@@ -148,7 +206,7 @@ export function BudgetsClient({ categories, merchants, budget, actuals }: Budget
             {catLines.length === 0 && (
               <div style={{ fontSize: 12, color: 'var(--ink-faint)' }}>No lines yet</div>
             )}
-            {catLines.map((l) => {
+            {catLines.map(({ line: l, actual: lineActual }) => {
               const label = l.merchantId ? merchantById.get(l.merchantId)?.name ?? l.name ?? 'Line' : l.name ?? 'Line'
               return (
                 <div
@@ -157,19 +215,28 @@ export function BudgetsClient({ categories, merchants, budget, actuals }: Budget
                 >
                   <button
                     type="button"
-                    onClick={() => setEditingLine({ line: l, category: c })}
+                    onClick={() => setEditingLine({ line: l as BudgetLine, category: c })}
                     style={{ flex: 1, textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink)', padding: 0 }}
                   >
                     {label}
                   </button>
-                  <Chip>{l.frequency === 'yearly' ? 'Yearly' : 'Monthly'}</Chip>
                   <Chip tone={l.recurring ? 'recurring' : undefined}>{l.recurring ? 'Recurring' : 'Ad-hoc'}</Chip>
                   <span style={{ fontFamily: 'var(--mono-fern)', color: 'var(--ink-soft)', minWidth: 64, textAlign: 'right' }}>
                     {fmt(Number(l.amount ?? 0))}
                   </span>
-                  <span style={{ fontFamily: 'var(--mono-fern)', fontSize: 11, color: 'var(--ink-faint)', minWidth: 52, textAlign: 'right' }}>
-                    {fmt(budgetLineMonthly(l, true))}/mo
-                  </span>
+                  {typeof lineActual === 'number' && (
+                    <button
+                      type="button"
+                      onClick={() => setMovementsFor({ category: c, line: l })}
+                      style={{
+                        fontFamily: 'var(--mono-fern)', fontSize: 11, minWidth: 72, textAlign: 'right',
+                        color: lineActual > Number(l.amount ?? 0) ? 'var(--rose-ink)' : 'var(--ink-faint)',
+                        background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+                      }}
+                    >
+                      {fmt(lineActual)} spent
+                    </button>
+                  )}
                   <button
                     type="button"
                     disabled={pending}
@@ -198,7 +265,7 @@ export function BudgetsClient({ categories, merchants, budget, actuals }: Budget
   return (
     <div>
       <PageHeader
-        kicker="This month vs budget"
+        kicker={activeTab === 'monthly' ? 'This month vs budget' : `Since ${monthOptions.find((o) => o.value === startMonth)?.label ?? startMonth} vs budget`}
         title={<em>Budget</em>}
         actions={
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -236,6 +303,22 @@ export function BudgetsClient({ categories, merchants, budget, actuals }: Budget
         />
       ) : (
         <>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+            <SegmentedControl
+              value={activeTab}
+              onChange={(v) => setActiveTab(v as 'monthly' | 'yearly')}
+              options={[
+                { value: 'monthly', label: 'Monthly' },
+                { value: 'yearly', label: 'Yearly' },
+              ]}
+            />
+            {activeTab === 'yearly' && (
+              <div style={{ minWidth: 180 }}>
+                <SearchableSelect value={startMonth} onChange={(v) => v && setStartMonth(v)} options={monthOptions} placeholder="Starting month" />
+              </div>
+            )}
+          </div>
+
           <div className="fern-card" style={{ marginBottom: 24 }}>
             <div style={{ fontSize: 12, fontFamily: 'var(--mono-fern)', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--ink-faint)', marginBottom: 8 }}>
               Budgeted overall
@@ -268,7 +351,7 @@ export function BudgetsClient({ categories, merchants, budget, actuals }: Budget
               <EmptyState illu="∅" title="No expense categories" description="Add expense categories first." style={{ padding: '40px 20px' }} />
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                {expenseCats.map((c) => renderCategory(c, expenseActual[c.id] ?? 0))}
+                {expenseCats.map((c) => renderCategory(c))}
               </div>
             )}
           </div>
@@ -277,7 +360,7 @@ export function BudgetsClient({ categories, merchants, budget, actuals }: Budget
             <div className="fern-card">
               <h3 style={{ margin: '0 0 16px', fontSize: 16, fontWeight: 600, color: 'var(--ink)' }}>Revenues</h3>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                {incomeCats.map((c) => renderCategory(c, incomeActual[c.id] ?? 0))}
+                {incomeCats.map((c) => renderCategory(c))}
               </div>
             </div>
           )}
@@ -296,7 +379,10 @@ export function BudgetsClient({ categories, merchants, budget, actuals }: Budget
         onClose={() => setEditingLine(null)}
         category={editingLine?.category ?? null}
         merchants={merchants}
+        recurringItems={recurringItems}
+        recurringEnabled={recurringEnabled}
         item={editingLine?.line ?? null}
+        initialFrequency={activeTab}
         onSave={(data) => {
           if (!budget || !editingLine) return
           const { category, line } = editingLine
@@ -308,6 +394,7 @@ export function BudgetsClient({ categories, merchants, budget, actuals }: Budget
                 amount: data.amount,
                 frequency: data.frequency,
                 recurring: data.recurring,
+                sourceRecurringId: data.sourceRecurringId,
               })
             } else {
               await addBudgetLine(budget.id, {
@@ -318,10 +405,25 @@ export function BudgetsClient({ categories, merchants, budget, actuals }: Budget
                 amount: data.amount,
                 frequency: data.frequency,
                 recurring: data.recurring,
+                sourceRecurringId: data.sourceRecurringId,
               })
             }
           })
         }}
+      />
+
+      <CategoryMovementsModal
+        open={movementsFor !== null}
+        onClose={() => setMovementsFor(null)}
+        title={
+          movementsFor
+            ? movementsFor.line.merchantId
+              ? merchantById.get(movementsFor.line.merchantId)?.name ?? movementsFor.line.name ?? 'Line'
+              : movementsFor.line.name ?? 'Line'
+            : ''
+        }
+        movements={movements}
+        merchants={merchants}
       />
     </div>
   )

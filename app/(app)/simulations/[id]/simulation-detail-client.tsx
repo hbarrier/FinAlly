@@ -10,7 +10,6 @@ import { SimulationComparisonChart } from '@/components/fern/simulation-comparis
 import { PageHeader } from '@/components/fern/page-header'
 import { FernButton } from '@/components/fern/button'
 import { SegmentedControl } from '@/components/fern/segmented-control'
-import { EmptyState } from '@/components/fern/empty-state'
 import { SimulationSheet } from '@/components/fern/sheets/simulation-sheet'
 import { SimulationLineSheet } from '@/components/fern/sheets/simulation-line-sheet'
 import {
@@ -25,7 +24,6 @@ import {
   currentRecurringMonthlyNet,
   simulationVsActualsMonthly,
   describeSimulationInputs,
-  type SimulationView,
   type SimulationInputs,
   type Category,
   type Recurring,
@@ -44,11 +42,6 @@ import {
   updateSimulationLine,
 } from '@/lib/actions/simulations'
 import { createBudgetFromSimulation } from '@/lib/actions/budgets'
-
-const VIEWS = [
-  { value: 'monthly', label: 'Monthly' },
-  { value: 'yearly', label: 'Yearly' },
-]
 
 /** Per-line provenance chips. `manual` lines carry no chip. Order = legend order. */
 const ORIGINS = [
@@ -137,49 +130,18 @@ export function SimulationDetailClient({
   const [showInfo, setShowInfo] = useState(false)
   const [editingLine, setEditingLine] = useState<string | null>(null)
   const [addingKind, setAddingKind] = useState<'expense' | 'income' | null>(null)
-  const [viewMode, setViewMode] = useState<'monthly' | 'yearly'>('monthly')
-  const [includeYearlySplit, setIncludeYearlySplit] = useState(false)
-  const [lineView, setLineView] = useState<'amount' | 'category'>('category')
+  const [addingFrequency, setAddingFrequency] = useState<'monthly' | 'yearly' | null>(null)
   const [pushing, setPushing] = useState(false)
-
-  const view: SimulationView =
-    viewMode === 'yearly' ? 'yearly' : includeYearlySplit ? 'monthly-with-yearly' : 'monthly'
-
-  const totals = useMemo(() => simulationTotals(simulation.lines, view), [simulation.lines, view])
-  const expenseByPriority = useMemo(
-    () => simulationExpenseByPriority(simulation.lines, view),
-    [simulation.lines, view],
-  )
-  const revenueBars = useMemo(
-    () => simulationLinesByCategory(simulation.lines, categories, 'income', view),
-    [simulation.lines, categories, view],
-  )
-  const expenseBars = useMemo(
-    () => simulationLinesByCategory(simulation.lines, categories, 'expense', view),
-    [simulation.lines, categories, view],
-  )
-
-  const netMin = totals.income - totals.expense
-  const netMax = totals.income - (expenseByPriority.must + expenseByPriority.should)
+  const [activeTab, setActiveTab] = useState<'monthly' | 'yearly'>('monthly')
 
   const currentRecurringNet = useMemo(() => currentRecurringMonthlyNet(recurringOptions), [recurringOptions])
-  const simulationNetMonthly = useMemo(
-    () => {
-      const t = simulationTotals(simulation.lines, 'monthly-with-yearly')
-      return t.income - t.expense
-    },
-    [simulation.lines],
-  )
-  const delta = viewMode === 'yearly' ? (simulationNetMonthly - currentRecurringNet) * 12 : simulationNetMonthly - currentRecurringNet
-
-  const comparison = useMemo(
-    () => simulationVsActualsMonthly(simulation.lines, transactions, recurringOptions, viewMode),
-    [simulation.lines, transactions, recurringOptions, viewMode],
-  )
 
   const categoryById = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories])
   const merchantById = useMemo(() => new Map(merchants.map((m) => [m.id, m])), [merchants])
   const recurringById = useMemo(() => new Map(recurringOptions.map((r) => [r.id, r])), [recurringOptions])
+
+  const monthlyLines = useMemo(() => simulation.lines.filter((l) => l.frequency === 'monthly'), [simulation.lines])
+  const yearlyLines = useMemo(() => simulation.lines.filter((l) => l.frequency === 'yearly'), [simulation.lines])
 
   const editingLineItem = editingLine ? simulation.lines.find((l) => l.id === editingLine) ?? null : null
 
@@ -206,16 +168,6 @@ export function SimulationDetailClient({
     for (const l of simulation.lines) c[l.origin] = (c[l.origin] ?? 0) + 1
     return c
   }, [simulation.lines])
-
-  /** Legend entries mirroring the per-line chips actually shown. */
-  const chipLegend = useMemo(() => {
-    const calc = simulation.lines.filter((l) => (l.origin === 'average' || l.origin === 'rollup'))
-    return [
-      { key: 'recurring', label: 'recurring', bg: 'var(--teal-bg)', on: !!originCounts.recurring },
-      { key: 'calc', label: 'calc (from history)', bg: 'var(--sage-bg)', on: calc.some((l) => l.amountManual !== 1) },
-      { key: 'manual', label: 'manual (hand-set)', bg: 'var(--butter-bg)', on: calc.some((l) => l.amountManual === 1) },
-    ].filter((e) => e.on)
-  }, [simulation.lines, originCounts])
 
   const handleSaveSimulation = (data: { name: string; description: string | null }) => {
     startTransition(async () => {
@@ -273,6 +225,7 @@ export function SimulationDetailClient({
     })
     setEditingLine(null)
     setAddingKind(null)
+    setAddingFrequency(null)
   }
 
   const handleSetPriority = (id: string, priority: Priority) => {
@@ -321,9 +274,6 @@ export function SimulationDetailClient({
     })
   }
 
-  const revenues = simulation.lines.filter((l) => l.kind === 'income')
-  const expenses = simulation.lines.filter((l) => l.kind === 'expense')
-
   return (
     <div>
       <Link href="/simulations" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--ink-faint)', textDecoration: 'none', marginBottom: 8 }}>
@@ -349,6 +299,11 @@ export function SimulationDetailClient({
         }
         actions={
           <div style={{ display: 'flex', gap: 8 }}>
+            {budgetsEnabled && (
+              <FernButton tone="outline" onClick={() => setPushing(true)}>
+                <Icon name="pie" size={14} /> Push to budget
+              </FernButton>
+            )}
             <FernButton tone="outline" onClick={() => setEditingSimulation(true)}>
               <Icon name="edit" size={14} /> Edit
             </FernButton>
@@ -399,23 +354,208 @@ export function SimulationDetailClient({
         </Modal>
       )}
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
-        <SegmentedControl value={viewMode} onChange={(v) => setViewMode(v as 'monthly' | 'yearly')} options={VIEWS} />
-        {viewMode === 'monthly' && (
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--ink-faint)', cursor: 'pointer' }}>
-            <input type="checkbox" checked={includeYearlySplit} onChange={(e) => setIncludeYearlySplit(e.target.checked)} />
-            Include yearly (amortized)
-          </label>
-        )}
-      </div>
+      {simulation.lines.length === 0 ? (
+        <div className="fern-card" style={{ textAlign: 'center', padding: '32px 16px', color: 'var(--ink-faint)' }}>
+          <div style={{ fontSize: 32, marginBottom: 8 }}>◇</div>
+          <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--ink)', marginBottom: 4 }}>No lines yet</div>
+          <div style={{ fontSize: 13 }}>Add revenues and expenses from scratch, or copy them from a recurring item.</div>
+        </div>
+      ) : (
+        <>
+          <div style={{ marginBottom: 16 }}>
+            <SegmentedControl
+              value={activeTab}
+              onChange={(v) => setActiveTab(v as 'monthly' | 'yearly')}
+              options={[
+                { value: 'monthly', label: 'Monthly' },
+                { value: 'yearly', label: 'Yearly' },
+              ]}
+            />
+          </div>
+
+          {activeTab === 'monthly' ? (
+            <SimulationFrequencySection
+              title="Monthly budget"
+              frequency="monthly"
+              lines={monthlyLines}
+              categories={categories}
+              categoryById={categoryById}
+              merchantById={merchantById}
+              recurringById={recurringById}
+              recurringOptions={recurringOptions}
+              transactions={transactions}
+              recurringEnabled={recurringEnabled}
+              currentRecurringNet={currentRecurringNet}
+              onAddLine={(kind) => { setAddingKind(kind); setAddingFrequency('monthly') }}
+              onEditLine={setEditingLine}
+              onDeleteLine={handleDeleteLine}
+              onSetPriority={handleSetPriority}
+            />
+          ) : (
+            <SimulationFrequencySection
+              title="Yearly budget"
+              frequency="yearly"
+              lines={yearlyLines}
+              categories={categories}
+              categoryById={categoryById}
+              merchantById={merchantById}
+              recurringById={recurringById}
+              recurringOptions={recurringOptions}
+              transactions={transactions}
+              recurringEnabled={recurringEnabled}
+              currentRecurringNet={currentRecurringNet}
+              onAddLine={(kind) => { setAddingKind(kind); setAddingFrequency('yearly') }}
+              onEditLine={setEditingLine}
+              onDeleteLine={handleDeleteLine}
+              onSetPriority={handleSetPriority}
+            />
+          )}
+        </>
+      )}
+
+      <SimulationSheet
+        open={editingSimulation}
+        onClose={() => setEditingSimulation(false)}
+        item={simulation}
+        recurringEnabled={recurringEnabled}
+        onSave={handleSaveSimulation}
+      />
+
+      <SimulationLineSheet
+        open={!!editingLine || !!addingKind}
+        onClose={() => { setEditingLine(null); setAddingKind(null); setAddingFrequency(null) }}
+        categories={categories}
+        merchants={merchants}
+        recurringOptions={recurringOptions}
+        recurringEnabled={recurringEnabled}
+        item={editingLineItem}
+        initialKind={addingKind ?? undefined}
+        initialFrequency={addingFrequency ?? undefined}
+        transactions={transactions}
+        simulationInputs={simulationInputs}
+        onApplyAverage={handleApplyAverage}
+        pending={isPending}
+        onSave={handleSaveLine}
+      />
+
+      {budgetsEnabled && (
+        <Modal
+          open={pushing}
+          onClose={() => setPushing(false)}
+          title="Push to budget"
+          footer={
+            <>
+              <button type="button" className="fern-btn sheet-secondary" onClick={() => setPushing(false)}>
+                Cancel
+              </button>
+              <button type="button" className="fern-btn sheet-primary primary" onClick={handlePushToBudget} disabled={isPending}>
+                Replace budget
+              </button>
+            </>
+          }
+        >
+          <p style={{ fontSize: 13, color: 'var(--ink-soft)', marginTop: 0 }}>
+            This <strong>replaces any existing budget</strong>. Every line in this simulation
+            (with a category) is copied into the budget as-is: recurring lines stay recurring,
+            the rest become ad-hoc, and monthly vs yearly is kept. Lines without a category are
+            skipped.
+          </p>
+        </Modal>
+      )}
+    </div>
+  )
+}
+
+/** One frequency-pure section of the simulation: totals, comparison chart, category bars, line lists. */
+function SimulationFrequencySection({
+  title,
+  frequency,
+  lines,
+  categories,
+  categoryById,
+  merchantById,
+  recurringById,
+  recurringOptions,
+  transactions,
+  recurringEnabled,
+  currentRecurringNet,
+  onAddLine,
+  onEditLine,
+  onDeleteLine,
+  onSetPriority,
+}: {
+  title: string
+  frequency: 'monthly' | 'yearly'
+  lines: SimulationLine[]
+  categories: Category[]
+  categoryById: Map<string, Category>
+  merchantById: Map<string, Merchant>
+  recurringById: Map<string, Recurring>
+  recurringOptions: Recurring[]
+  transactions: Transaction[]
+  recurringEnabled: boolean
+  currentRecurringNet: number
+  onAddLine: (kind: 'expense' | 'income') => void
+  onEditLine: (id: string) => void
+  onDeleteLine: (id: string) => void
+  onSetPriority: (id: string, priority: Priority) => void
+}) {
+  const [lineView, setLineView] = useState<'amount' | 'category'>('category')
+  const freqLabel = frequency === 'yearly' ? 'Yearly' : 'Monthly'
+
+  const totals = useMemo(() => simulationTotals(lines, frequency), [lines, frequency])
+  const expenseByPriority = useMemo(() => simulationExpenseByPriority(lines, frequency), [lines, frequency])
+  const revenueBars = useMemo(
+    () => simulationLinesByCategory(lines, categories, 'income', frequency),
+    [lines, categories, frequency],
+  )
+  const expenseBars = useMemo(
+    () => simulationLinesByCategory(lines, categories, 'expense', frequency),
+    [lines, categories, frequency],
+  )
+
+  const netMin = totals.income - totals.expense
+  const netMax = totals.income - (expenseByPriority.must + expenseByPriority.should)
+
+  const sectionNet = totals.income - totals.expense
+  const baseline = frequency === 'yearly' ? currentRecurringNet * 12 : currentRecurringNet
+  const delta = sectionNet - baseline
+
+  const comparison = useMemo(
+    () => simulationVsActualsMonthly(lines, transactions, recurringOptions, frequency),
+    [lines, transactions, recurringOptions, frequency],
+  )
+
+  const originCounts = useMemo(() => {
+    const c: Record<string, number> = {}
+    for (const l of lines) c[l.origin] = (c[l.origin] ?? 0) + 1
+    return c
+  }, [lines])
+
+  /** Legend entries mirroring the per-line chips actually shown. */
+  const chipLegend = useMemo(() => {
+    const calc = lines.filter((l) => (l.origin === 'average' || l.origin === 'rollup'))
+    return [
+      { key: 'recurring', label: 'recurring', bg: 'var(--teal-bg)', on: !!originCounts.recurring },
+      { key: 'calc', label: 'calc (from history)', bg: 'var(--sage-bg)', on: calc.some((l) => l.amountManual !== 1) },
+      { key: 'manual', label: 'manual (hand-set)', bg: 'var(--butter-bg)', on: calc.some((l) => l.amountManual === 1) },
+    ].filter((e) => e.on)
+  }, [lines, originCounts])
+
+  const revenues = lines.filter((l) => l.kind === 'income')
+  const expenses = lines.filter((l) => l.kind === 'expense')
+
+  return (
+    <div>
+      <h2 style={{ margin: '0 0 12px', fontSize: 18, fontWeight: 700, color: 'var(--ink)' }}>{title}</h2>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16, marginBottom: 24 }}>
         <div className="fern-card">
-          <div className="fern-page-kicker">{viewMode === 'yearly' ? 'Yearly' : 'Monthly'} · In</div>
+          <div className="fern-page-kicker">{freqLabel} · In</div>
           <div className="fern-display" style={{ fontSize: 32, color: 'var(--sage-ink)', marginTop: 4 }}>+{fmt(totals.income)}</div>
         </div>
         <div className="fern-card">
-          <div className="fern-page-kicker">{viewMode === 'yearly' ? 'Yearly' : 'Monthly'} · Out</div>
+          <div className="fern-page-kicker">{freqLabel} · Out</div>
           <div className="fern-display" style={{ fontSize: 32, color: 'var(--rose-ink)', marginTop: 4 }}>−{fmt(totals.expense)}</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginTop: 8, fontSize: 11, color: 'var(--ink-faint)' }}>
             {(['must', 'should', 'nice'] as const).map((k) => (
@@ -452,14 +592,14 @@ export function SimulationDetailClient({
 
       <div className="fern-card" style={{ marginBottom: 24 }}>
         <div className="fern-page-kicker" style={{ marginBottom: 8 }}>Simulation vs. last 12 months</div>
-        <SimulationComparisonChart data={comparison} view={viewMode} />
+        <SimulationComparisonChart data={comparison} view={frequency} />
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
         <div className="fern-card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
             <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: 'var(--ink)' }}>Revenues</h3>
-            <FernButton tone="outline" onClick={() => setAddingKind('income')} style={{ padding: '6px 10px', fontSize: 12 }}>
+            <FernButton tone="outline" onClick={() => onAddLine('income')} style={{ padding: '6px 10px', fontSize: 12 }}>
               <Icon name="plus" size={12} /> Add revenue
             </FernButton>
           </div>
@@ -472,16 +612,9 @@ export function SimulationDetailClient({
         <div className="fern-card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
             <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: 'var(--ink)' }}>Expenses</h3>
-            <div style={{ display: 'flex', gap: 6 }}>
-              {budgetsEnabled && (
-                <FernButton tone="outline" onClick={() => setPushing(true)} style={{ padding: '6px 10px', fontSize: 12 }}>
-                  <Icon name="pie" size={12} /> Push to budget
-                </FernButton>
-              )}
-              <FernButton tone="outline" onClick={() => setAddingKind('expense')} style={{ padding: '6px 10px', fontSize: 12 }}>
-                <Icon name="plus" size={12} /> Add expense
-              </FernButton>
-            </div>
+            <FernButton tone="outline" onClick={() => onAddLine('expense')} style={{ padding: '6px 10px', fontSize: 12 }}>
+              <Icon name="plus" size={12} /> Add expense
+            </FernButton>
           </div>
           {expenseBars.length === 0 ? (
             <div style={{ color: 'var(--ink-faint)', padding: '12px 0', fontSize: 13 }}>None yet</div>
@@ -491,87 +624,28 @@ export function SimulationDetailClient({
         </div>
       </div>
 
-      {simulation.lines.length === 0 ? (
-        <EmptyState
-          illu="◇"
-          title="No lines yet"
-          description="Add revenues and expenses from scratch, or copy them from a recurring item."
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          {chipLegend.map((o) => (
+            <span key={o.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--ink-faint)' }}>
+              <span style={{ width: 8, height: 8, borderRadius: 2, background: o.bg }} />
+              {o.label}
+            </span>
+          ))}
+        </div>
+        <SegmentedControl
+          value={lineView}
+          onChange={(v) => setLineView(v as 'amount' | 'category')}
+          options={[
+            { value: 'amount', label: 'By amount' },
+            { value: 'category', label: 'By category' },
+          ]}
         />
-      ) : (
-        <>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              {chipLegend.map((o) => (
-                <span key={o.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--ink-faint)' }}>
-                  <span style={{ width: 8, height: 8, borderRadius: 2, background: o.bg }} />
-                  {o.label}
-                </span>
-              ))}
-            </div>
-            <SegmentedControl
-              value={lineView}
-              onChange={(v) => setLineView(v as 'amount' | 'category')}
-              options={[
-                { value: 'amount', label: 'By amount' },
-                { value: 'category', label: 'By category' },
-              ]}
-            />
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-            <LineList title="Revenue lines" lines={revenues} view={lineView} viewMode={viewMode} categories={categories} categoryById={categoryById} merchantById={merchantById} recurringById={recurringById} onEdit={setEditingLine} onDelete={handleDeleteLine} onSetPriority={handleSetPriority} />
-            <LineList title="Expense lines" lines={expenses} view={lineView} viewMode={viewMode} categories={categories} categoryById={categoryById} merchantById={merchantById} recurringById={recurringById} onEdit={setEditingLine} onDelete={handleDeleteLine} onSetPriority={handleSetPriority} />
-          </div>
-        </>
-      )}
-
-      <SimulationSheet
-        open={editingSimulation}
-        onClose={() => setEditingSimulation(false)}
-        item={simulation}
-        recurringEnabled={recurringEnabled}
-        onSave={handleSaveSimulation}
-      />
-
-      <SimulationLineSheet
-        open={!!editingLine || !!addingKind}
-        onClose={() => { setEditingLine(null); setAddingKind(null) }}
-        categories={categories}
-        merchants={merchants}
-        recurringOptions={recurringOptions}
-        recurringEnabled={recurringEnabled}
-        item={editingLineItem}
-        initialKind={addingKind ?? undefined}
-        transactions={transactions}
-        simulationInputs={simulationInputs}
-        onApplyAverage={handleApplyAverage}
-        pending={isPending}
-        onSave={handleSaveLine}
-      />
-
-      {budgetsEnabled && (
-        <Modal
-          open={pushing}
-          onClose={() => setPushing(false)}
-          title="Push to budget"
-          footer={
-            <>
-              <button type="button" className="fern-btn sheet-secondary" onClick={() => setPushing(false)}>
-                Cancel
-              </button>
-              <button type="button" className="fern-btn sheet-primary primary" onClick={handlePushToBudget} disabled={isPending}>
-                Replace budget
-              </button>
-            </>
-          }
-        >
-          <p style={{ fontSize: 13, color: 'var(--ink-soft)', marginTop: 0 }}>
-            This <strong>replaces any existing budget</strong>. Every line in this simulation
-            (with a category) is copied into the budget as-is: recurring lines stay recurring,
-            the rest become ad-hoc, and monthly vs yearly is kept. Lines without a category are
-            skipped.
-          </p>
-        </Modal>
-      )}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+        <LineList title="Revenue lines" lines={revenues} view={lineView} viewMode={frequency} categories={categories} categoryById={categoryById} merchantById={merchantById} recurringById={recurringById} onEdit={onEditLine} onDelete={onDeleteLine} onSetPriority={onSetPriority} />
+        <LineList title="Expense lines" lines={expenses} view={lineView} viewMode={frequency} categories={categories} categoryById={categoryById} merchantById={merchantById} recurringById={recurringById} onEdit={onEditLine} onDelete={onDeleteLine} onSetPriority={onSetPriority} />
+      </div>
     </div>
   )
 }

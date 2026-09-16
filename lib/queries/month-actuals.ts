@@ -1,36 +1,56 @@
 import { cache } from 'react'
-import { and, isNull, lte, not, sql } from 'drizzle-orm'
+import { and, gte, inArray, isNull, lte, not } from 'drizzle-orm'
 import { db } from '@/lib/db'
 import { transactions } from '@/lib/schema'
-import { currentMonth, todayISO } from '@/lib/dates'
+import { addMonths, currentMonth, firstDayOfMonth, todayISO } from '@/lib/dates'
 
-export type MonthActuals = {
-  expense: Record<string, number>
-  income: Record<string, number>
+export type RecentBudgetTxn = {
+  id: string
+  date: string
+  amount: number
+  kind: 'expense' | 'income'
+  categoryId: string
+  merchantId: string | null
+  recurringId: string | null
 }
 
 /**
- * Current-month non-planned actuals per category, split by kind — aggregated in
- * SQL. Mirrors `monthActualByCategory` from lib/derive.ts.
+ * Non-planned expense/income transactions from the trailing 12 calendar months (including the
+ * current one) — raw rows, feeding the budget waterfall (`budgetWaterfall` in lib/derive.ts) for
+ * both the Monthly and Yearly tabs.
  */
-export const getCurrentMonthActuals = cache(async (): Promise<MonthActuals> => {
+export const getRecentTransactionsForBudget = cache(async (ref: Date = new Date()): Promise<RecentBudgetTxn[]> => {
+  const since = firstDayOfMonth(addMonths(currentMonth(ref), -11))
   const rows = await db
     .select({
+      id: transactions.id,
+      date: transactions.date,
+      amount: transactions.amount,
       kind: transactions.kind,
       categoryId: transactions.categoryId,
-      total: sql<number>`sum(${transactions.amount})`,
+      merchantId: transactions.merchantId,
+      recurringId: transactions.recurringId,
     })
     .from(transactions)
     .where(and(
       not(isNull(transactions.categoryId)),
-      sql`substr(${transactions.date}, 1, 7) = ${currentMonth()}`,
-      lte(transactions.date, todayISO()),
+      inArray(transactions.kind, ['expense', 'income']),
+      gte(transactions.date, since),
+      lte(transactions.date, todayISO(ref)),
     ))
-    .groupBy(transactions.kind, transactions.categoryId)
 
-  const out: MonthActuals = { expense: {}, income: {} }
+  const out: RecentBudgetTxn[] = []
   for (const r of rows) {
-    if (r.categoryId && r.kind !== 'saving' && r.kind !== 'interest') out[r.kind][r.categoryId] = Number(r.total ?? 0)
+    if (!r.categoryId || (r.kind !== 'expense' && r.kind !== 'income')) continue
+    out.push({
+      id: r.id,
+      date: r.date,
+      amount: Number(r.amount ?? 0),
+      kind: r.kind,
+      categoryId: r.categoryId,
+      merchantId: r.merchantId,
+      recurringId: r.recurringId,
+    })
   }
   return out
 })

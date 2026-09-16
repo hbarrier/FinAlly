@@ -308,7 +308,7 @@ export function roundToTen(n: number): number {
 
 // ---- budgets ----
 
-type BudgetLineLite = {
+export type BudgetLineLite = {
   id: string
   name: string | null
   kind: 'expense' | 'income'
@@ -317,6 +317,7 @@ type BudgetLineLite = {
   amount: number
   frequency: 'monthly' | 'yearly'
   recurring: number
+  sourceRecurringId: string | null
 }
 
 type BudgetTxnLite = {
@@ -351,23 +352,6 @@ export function budgetCategoryMonthly(
     (s, l) => (l.categoryId === categoryId ? s + budgetLineMonthly(l, includeYearly) : s),
     0,
   )
-}
-
-/** Non-planned actual amounts for `month`, summed per category, for one kind. */
-export function monthActualByCategory(
-  txns: BudgetTxnLite[],
-  month: string,
-  kind: 'expense' | 'income',
-  ref: Date = new Date(),
-): Record<string, number> {
-  const out: Record<string, number> = {}
-  for (const t of txns) {
-    if (t.kind !== kind || !t.categoryId) continue
-    if (t.date.slice(0, 7) !== month) continue
-    if (isPlannedDate(t.date, ref)) continue
-    out[t.categoryId] = (out[t.categoryId] ?? 0) + Number(t.amount ?? 0)
-  }
-  return out
 }
 
 function budgetStatus(actual: number, budgeted: number): 'ok' | 'warn' | 'over' {
@@ -480,6 +464,253 @@ export function monthBudgetComparison(
     expense: { budgeted: sumLines('expense'), actual: sumTxns('expense') },
     categories: cats,
   }
+}
+
+export type BudgetActualTxn = {
+  id: string
+  date: string
+  amount: number
+  kind: 'expense' | 'income'
+  categoryId: string
+  merchantId: string | null
+  recurringId: string | null
+}
+
+export type BudgetLineTier = 'recurring' | 'merchant' | 'category'
+
+export interface BudgetLineActual {
+  line: BudgetLineLite
+  tier: BudgetLineTier
+  budgeted: number
+  /** null only for an ambiguous category-tier line (zero or multiple generic lines in its category/frequency) */
+  actual: number | null
+  /** The transactions behind `actual` — empty when `actual` is null (ambiguous). */
+  movements: BudgetActualTxn[]
+}
+
+export interface BudgetWaterfallCategory {
+  category: Category
+  budgeted: number
+  actual: number
+  status: 'ok' | 'warn' | 'over'
+  lines: BudgetLineActual[]
+  /** True when this category/frequency has real unclaimed spend but zero generic lines to attach it to. */
+  needsOtherLine: boolean
+  /** The exact transactions summed into `actual` — powers the movements modal. */
+  movements: BudgetActualTxn[]
+}
+
+export interface BudgetWaterfallComparison {
+  income: { budgeted: number; actual: number }
+  expense: { budgeted: number; actual: number }
+  categories: BudgetWaterfallCategory[]
+}
+
+/** Tier 1: every transaction whose `recurringId` matches a line's `sourceRecurringId`, global and
+ * window-independent — this money belongs to that specific recurring template, in full, regardless
+ * of which tab is asking. Returns each claimed line's transactions plus the set of claimed txn ids
+ * so callers can remove them from the merchant/category pool for every frequency at once. */
+function claimByRecurringIdentity(
+  lines: BudgetLineLite[],
+  txns: BudgetActualTxn[],
+): { byLineId: Map<string, BudgetActualTxn[]>; claimedIds: Set<string> } {
+  const lineBySourceRecurringId = new Map(
+    lines.filter((l) => l.sourceRecurringId).map((l) => [l.sourceRecurringId as string, l]),
+  )
+  const byLineId = new Map<string, BudgetActualTxn[]>()
+  const claimedIds = new Set<string>()
+  for (const t of txns) {
+    if (!t.recurringId) continue
+    const line = lineBySourceRecurringId.get(t.recurringId)
+    if (!line) continue
+    const arr = byLineId.get(line.id) ?? []
+    arr.push(t)
+    byLineId.set(line.id, arr)
+    claimedIds.add(t.id)
+  }
+  return { byLineId, claimedIds }
+}
+
+/** One frequency's tier-2/3 waterfall over an already tier-1-stripped, already cross-frequency-
+ * stripped pool, windowed to `[windowStart, windowEnd]`. Tier 1 lines are windowed for display here
+ * too, from their own (window-independent) claims. Returns the comparison plus which txn ids tier
+ * 2/3 claimed here, so a higher-priority frequency (Monthly) can strip them from a lower-priority
+ * one's (Yearly) pool. */
+function budgetWaterfallForFrequency(
+  lines: BudgetLineLite[],
+  pool: BudgetActualTxn[],
+  categories: Category[],
+  tier1ByLineId: Map<string, BudgetActualTxn[]>,
+  windowStart: string,
+  windowEnd: string,
+): { comparison: BudgetWaterfallComparison; claimedTxnIds: Set<string> } {
+  const claimedTxnIds = new Set<string>()
+  const inWindow = (t: BudgetActualTxn) => {
+    const m = t.date.slice(0, 7)
+    return m >= windowStart && m <= windowEnd
+  }
+
+  const cats: BudgetWaterfallCategory[] = categories
+    .map((category) => {
+      const catLines = lines.filter((l) => l.categoryId === category.id)
+      const catPool = pool.filter((t) => t.categoryId === category.id && t.kind === category.kind)
+
+      const lineResults: BudgetLineActual[] = []
+      const movements: BudgetActualTxn[] = []
+
+      // Tier 1 — recurring identity, windowed for display.
+      let tier1Total = 0
+      for (const line of catLines.filter((l) => l.sourceRecurringId)) {
+        const claimed = (tier1ByLineId.get(line.id) ?? []).filter(inWindow)
+        const actual = claimed.reduce((s, t) => s + Number(t.amount ?? 0), 0)
+        tier1Total += actual
+        movements.push(...claimed)
+        lineResults.push({ line, tier: 'recurring', budgeted: Number(line.amount ?? 0), actual, movements: claimed })
+      }
+
+      // Tier 2 — merchant, exact match, consumes from the pool.
+      let remaining = [...catPool]
+      for (const line of catLines.filter((l) => !l.sourceRecurringId && l.merchantId)) {
+        const matches = remaining.filter((t) => t.merchantId === line.merchantId)
+        matches.forEach((t) => claimedTxnIds.add(t.id))
+        remaining = remaining.filter((t) => t.merchantId !== line.merchantId)
+        movements.push(...matches)
+        lineResults.push({
+          line,
+          tier: 'merchant',
+          budgeted: Number(line.amount ?? 0),
+          actual: matches.reduce((s, t) => s + Number(t.amount ?? 0), 0),
+          movements: matches,
+        })
+      }
+
+      // Tier 3 — category/generic, whatever's left; ambiguous when 0 or 2+ such lines.
+      const genericLines = catLines.filter((l) => !l.sourceRecurringId && !l.merchantId)
+      const needsOtherLine = genericLines.length === 0 && remaining.length > 0
+      remaining.forEach((t) => claimedTxnIds.add(t.id))
+      movements.push(...remaining)
+      const remainder = remaining.reduce((s, t) => s + Number(t.amount ?? 0), 0)
+      for (const line of genericLines) {
+        lineResults.push({
+          line,
+          tier: 'category',
+          budgeted: Number(line.amount ?? 0),
+          actual: genericLines.length === 1 ? remainder : null,
+          movements: genericLines.length === 1 ? remaining : [],
+        })
+      }
+
+      const budgeted = catLines.reduce((s, l) => s + Number(l.amount ?? 0), 0)
+      const actual = tier1Total + catPool.reduce((s, t) => s + Number(t.amount ?? 0), 0)
+      return {
+        category,
+        budgeted,
+        actual,
+        status: budgetStatus(actual, budgeted),
+        lines: lineResults,
+        needsOtherLine,
+        movements: movements.sort((a, b) => b.date.localeCompare(a.date)),
+      }
+    })
+    .filter((c) => c.budgeted > 0 || c.actual > 0)
+    .sort((a, b) => b.budgeted - a.budgeted)
+
+  const sumLines = (kind: 'expense' | 'income') =>
+    lines.reduce((s, l) => (l.kind === kind ? s + Number(l.amount ?? 0) : s), 0)
+  const tier1ActualByKind = (kind: 'expense' | 'income') =>
+    lines
+      .filter((l) => l.kind === kind && l.sourceRecurringId)
+      .reduce((s, l) => s + (tier1ByLineId.get(l.id) ?? []).filter(inWindow).reduce((a, t) => a + Number(t.amount ?? 0), 0), 0)
+  const poolActualByKind = (kind: 'expense' | 'income') =>
+    pool.reduce((s, t) => (t.kind === kind ? s + Number(t.amount ?? 0) : s), 0)
+
+  return {
+    comparison: {
+      income: { budgeted: sumLines('income'), actual: tier1ActualByKind('income') + poolActualByKind('income') },
+      expense: { budgeted: sumLines('expense'), actual: tier1ActualByKind('expense') + poolActualByKind('expense') },
+      categories: cats,
+    },
+    claimedTxnIds,
+  }
+}
+
+/** For months before the current one, claims the transactions that a monthly-frequency line would
+ * have claimed had they happened this month — a merchant match (tier 2), or a category's sole/
+ * ambiguous generic line (tier 3), but only when that category actually has such a line. Used only
+ * to strip these ids from Yearly's pool: a category with no monthly line at all is left untouched,
+ * so its past-month spend still falls to Yearly exactly as before. No comparison is built here —
+ * these months are never displayed on the Monthly tab (current-month only), so only the id set
+ * matters. */
+function claimPastMonthsForMonthlyLines(
+  monthlyLines: BudgetLineLite[],
+  pastMonthsPool: BudgetActualTxn[],
+  categories: Category[],
+): Set<string> {
+  const claimedTxnIds = new Set<string>()
+  for (const category of categories) {
+    const catLines = monthlyLines.filter((l) => l.categoryId === category.id)
+    let remaining = pastMonthsPool.filter((t) => t.categoryId === category.id && t.kind === category.kind)
+
+    for (const line of catLines.filter((l) => !l.sourceRecurringId && l.merchantId)) {
+      const matches = remaining.filter((t) => t.merchantId === line.merchantId)
+      matches.forEach((t) => claimedTxnIds.add(t.id))
+      remaining = remaining.filter((t) => t.merchantId !== line.merchantId)
+    }
+
+    const genericLines = catLines.filter((l) => !l.sourceRecurringId && !l.merchantId)
+    if (genericLines.length > 0) {
+      remaining.forEach((t) => claimedTxnIds.add(t.id))
+    }
+  }
+  return claimedTxnIds
+}
+
+/**
+ * Unified budget-vs-actual engine for both Budgets-page tabs, applying a specificity waterfall —
+ * recurring template, then merchant, then category — so a transaction is never double-counted:
+ *  1. Tier 1 (recurring) is a global, window-independent claim: any transaction whose `recurringId`
+ *     matches a line's `sourceRecurringId` belongs to that line alone, in any month, on top of
+ *     tiers 2/3 — removed from the merchant/category pool for both tabs before anything else runs.
+ *  2. The Monthly tab (current month only) runs first against what's left.
+ *  3. The Yearly tab (`[startMonth, currentMonth]`) runs against what's left after ALSO removing
+ *     whatever Monthly's tier 2/3 just claimed for the current month — the only month the two
+ *     windows can overlap on, since Monthly's window is always a subset of Yearly's — AND whatever
+ *     a monthly line would have claimed in earlier months of that same window (`claimPastMonthsForMonthlyLines`),
+ *     so a merchant or ad-hoc line's spend counts as monthly for every month it happened in, not just
+ *     the current one. This is what keeps a merchant or category's non-recurring spend counted as
+ *     either monthly or yearly, never both.
+ */
+export function budgetWaterfall(
+  lines: BudgetLineLite[],
+  txns: BudgetActualTxn[],
+  categories: Category[],
+  startMonth: string,
+  currentMonth: string,
+): { monthly: BudgetWaterfallComparison; yearly: BudgetWaterfallComparison } {
+  const monthlyLines = lines.filter((l) => l.frequency === 'monthly')
+  const yearlyLines = lines.filter((l) => l.frequency === 'yearly')
+
+  const { byLineId: tier1ByLineId, claimedIds: tier1ClaimedIds } = claimByRecurringIdentity(lines, txns)
+  const poolAfterTier1 = txns.filter((t) => !tier1ClaimedIds.has(t.id))
+
+  const monthlyPool = poolAfterTier1.filter((t) => t.date.slice(0, 7) === currentMonth)
+  const { comparison: monthly, claimedTxnIds: monthlyClaimed } =
+    budgetWaterfallForFrequency(monthlyLines, monthlyPool, categories, tier1ByLineId, currentMonth, currentMonth)
+
+  const pastMonthsPool = poolAfterTier1.filter((t) => {
+    const m = t.date.slice(0, 7)
+    return m >= startMonth && m < currentMonth
+  })
+  const pastMonthsClaimed = claimPastMonthsForMonthlyLines(monthlyLines, pastMonthsPool, categories)
+
+  const yearlyPool = poolAfterTier1.filter((t) => {
+    const m = t.date.slice(0, 7)
+    return m >= startMonth && m <= currentMonth && !monthlyClaimed.has(t.id) && !pastMonthsClaimed.has(t.id)
+  })
+  const { comparison: yearly } =
+    budgetWaterfallForFrequency(yearlyLines, yearlyPool, categories, tier1ByLineId, startMonth, currentMonth)
+
+  return { monthly, yearly }
 }
 
 /** How much a line's amount counts under a given simulation view. */

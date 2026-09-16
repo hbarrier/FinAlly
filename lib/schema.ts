@@ -287,6 +287,9 @@ export const budgetLines = sqliteTable(
     amount: real('amount').notNull(),
     frequency: text('frequency', { enum: ['monthly', 'yearly'] }).notNull(),
     recurring: int('recurring').notNull().default(0),
+    sourceRecurringId: text('source_recurring_id').references(() => recurring.id, {
+      onDelete: 'set null',
+    }),
   },
   (t) => [
     index('budget_lines_budget_id_idx').on(t.budgetId),

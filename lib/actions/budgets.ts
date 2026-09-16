@@ -16,6 +16,7 @@ type BudgetLineInput = {
   amount: number
   frequency: 'monthly' | 'yearly'
   recurring: boolean
+  sourceRecurringId: string | null
 }
 
 const budgetMetaSchema = z.object({
@@ -31,6 +32,7 @@ const budgetLineSchema = z.object({
   amount: zAmount,
   frequency: zFrequency,
   recurring: z.boolean(),
+  sourceRecurringId: zNullableId,
 })
 
 /** Creates the single budget, replacing any existing one (lines cascade). */
@@ -82,6 +84,7 @@ export async function addBudgetLine(budgetId: string, input: BudgetLineInput) {
     amount: data.amount,
     frequency: data.frequency,
     recurring: data.recurring ? 1 : 0,
+    sourceRecurringId: data.sourceRecurringId,
   })
   revalidateApp()
 }
@@ -139,6 +142,7 @@ export async function createBudgetFromSimulation(input: {
       amount: Number(l.amount ?? 0),
       frequency: l.frequency,
       recurring: l.origin === 'recurring' ? 1 : 0,
+      sourceRecurringId: l.sourceRecurringId,
     }))
 
   await db.transaction(async (tx) => {
