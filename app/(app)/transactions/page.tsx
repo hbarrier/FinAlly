@@ -22,7 +22,7 @@ import { getMovementGroupLinks, getGroupList } from '@/lib/queries/groups'
 import { listSavingAccounts } from '@/lib/queries/saving-accounts'
 import { TransactionsClient } from './transactions-client'
 import { REIMBURSEMENT_CATEGORY_NAME } from '@/lib/utils'
-import { getModules } from '@/lib/queries/user-settings'
+import { getModules, getBudgetColorSettings } from '@/lib/queries/user-settings'
 
 export default async function TransactionsPage({
   searchParams,
@@ -34,14 +34,12 @@ export default async function TransactionsPage({
   }>
 }) {
   const { year, months, merchant } = await searchParams
-  const modules = await getModules()
+  const [modules, budgetColors] = await Promise.all([getModules(), getBudgetColorSettings()])
 
   const currentYear = new Date().getFullYear()
   const selectedYear = year ? parseInt(year, 10) : currentYear
   const yearStart = `${selectedYear}-01-01`
   const yearEnd = `${selectedYear}-12-31`
-
-  const initialMonths = Math.max(1, Math.min(12, months ? parseInt(months, 10) || 2 : 2))
 
   // How far into the future planned (future-dated) transactions reach, capped 12 months out.
   const [{ maxDate }] = await db
@@ -73,6 +71,11 @@ export default async function TransactionsPage({
       : currentMonthStr < endMonth
         ? currentMonthStr
         : endMonth
+  // Default to loading every month since the start of the year, so the month
+  // list and balance reflect the full year-to-date on first load.
+  const defaultMonths = parseInt(anchorMonth.slice(5, 7), 10)
+  const initialMonths = Math.max(1, Math.min(12, months ? parseInt(months, 10) || defaultMonths : defaultMonths))
+
   const startMonthDate = new Date(anchorMonth + '-15T12:00:00Z')
   startMonthDate.setUTCMonth(startMonthDate.getUTCMonth() - (initialMonths - 1))
   if (startMonthDate.getUTCFullYear() < selectedYear) startMonthDate.setUTCFullYear(selectedYear, 0, 15)
@@ -232,6 +235,7 @@ export default async function TransactionsPage({
       divorceEnabled={modules.divorce}
       budgetEnabled={modules.budgets}
       budget={budget ?? null}
+      budgetColorConfig={budgetColors.expense}
       initialMerchantId={merchant ?? 'all'}
       selectedYear={selectedYear}
       years={years}

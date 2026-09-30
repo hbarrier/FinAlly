@@ -222,6 +222,16 @@
   padding: 20px;
 }
 
+.fern-card.selectable {
+  cursor: pointer;
+  border: 1.5px solid transparent;
+  transition: border-color 0.15s;
+}
+
+.fern-card.selectable.selected {
+  border-color: var(--teal-ink);
+}
+
 .fern-page-header {
   display: flex;
   align-items: flex-end;
@@ -375,11 +385,9 @@
   height: 100%;
   border-radius: 99px;
   transition: width 0.5s ease;
+  /* Color is set inline per-instance via COLOR_VARS, driven by the user's
+     budget color settings (expense/income thresholds + colors differ). */
 }
-
-.fern-budget-fill.ok { background: var(--sage); }
-.fern-budget-fill.warn { background: var(--butter); }
-.fern-budget-fill.over { background: var(--rose); }
 
 /* ---------- Goal card ---------- */
 .fern-goals-grid {

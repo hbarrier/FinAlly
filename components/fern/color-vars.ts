@@ -34,14 +34,7 @@ export const COLOR_VARS: Record<
   },
 }
 
-export const CATEGORY_COLORS = [
-  'terracotta',
-  'sage',
-  'rose',
-  'teal',
-  'lilac',
-  'butter',
-] as const
+export { CATEGORY_COLORS } from '@/lib/settings-options'
 
 export const CATEGORY_ICONS = [
   'cat-cart',

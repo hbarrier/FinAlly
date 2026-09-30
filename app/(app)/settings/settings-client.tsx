@@ -4,10 +4,11 @@ import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { PageHeader } from '@/components/fern/page-header'
 import { ModulePicker } from '@/components/fern/module-picker'
+import { BudgetColorFields } from '@/components/fern/budget-color-fields'
 import { CURRENCIES } from '@/lib/settings-options'
 import { updateSettings } from '@/lib/actions/settings'
 import { alertDialog } from '@/lib/dialogs-store'
-import type { Modules } from '@/lib/db-types'
+import type { Modules, BudgetColorSettings } from '@/lib/db-types'
 
 interface SettingsClientProps {
   name: string
@@ -15,6 +16,7 @@ interface SettingsClientProps {
   locale: string
   languages: { code: string; label: string }[]
   modules: Modules
+  budgetColors: BudgetColorSettings
 }
 
 export function SettingsClient({
@@ -23,6 +25,7 @@ export function SettingsClient({
   locale: initialLocale,
   languages,
   modules: initialModules,
+  budgetColors: initialBudgetColors,
 }: SettingsClientProps) {
   const router = useRouter()
   const [pending, startTransition] = useTransition()
@@ -30,17 +33,19 @@ export function SettingsClient({
   const [currency, setCurrency] = useState(initialCurrency)
   const [locale, setLocale] = useState(initialLocale)
   const [modules, setModules] = useState<Modules>(initialModules)
+  const [budgetColors, setBudgetColors] = useState<BudgetColorSettings>(initialBudgetColors)
 
   const dirty =
     name !== initialName ||
     currency !== initialCurrency ||
     locale !== initialLocale ||
-    (Object.keys(modules) as (keyof Modules)[]).some((k) => modules[k] !== initialModules[k])
+    (Object.keys(modules) as (keyof Modules)[]).some((k) => modules[k] !== initialModules[k]) ||
+    JSON.stringify(budgetColors) !== JSON.stringify(initialBudgetColors)
 
   const save = () => {
     startTransition(async () => {
       try {
-        await updateSettings({ name, currency, locale, modules })
+        await updateSettings({ name, currency, locale, modules, budgetColors })
         router.refresh()
       } catch (e) {
         void alertDialog(e instanceof Error ? e.message : 'An error occurred')
@@ -88,6 +93,25 @@ export function SettingsClient({
           <ModulePicker value={modules} onChange={setModules} />
           <div style={{ marginTop: 8, fontSize: 11, color: 'var(--ink-faint)' }}>
             Turning a module off only hides its screens — your data stays and returns if you turn it back on.
+          </div>
+        </div>
+
+        <div className="fern-card" style={{ flex: '1 1 320px', minWidth: 0 }}>
+          <label className="fern-field-label wide">Budget colors</label>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 24, marginTop: 8 }}>
+            <BudgetColorFields
+              label="Expenses"
+              value={budgetColors.expense}
+              onChange={(expense) => setBudgetColors((prev) => ({ ...prev, expense }))}
+            />
+            <BudgetColorFields
+              label="Revenue"
+              value={budgetColors.income}
+              onChange={(income) => setBudgetColors((prev) => ({ ...prev, income }))}
+            />
+          </div>
+          <div style={{ marginTop: 12, fontSize: 11, color: 'var(--ink-faint)' }}>
+            Controls the progress-bar colors on the Budgets page, for both totals and individual categories.
           </div>
         </div>
       </div>

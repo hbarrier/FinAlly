@@ -30,7 +30,7 @@ import { RecurringLinkSheet } from '@/components/fern/sheets/recurring-link-shee
 import { BulkRecurringLinkSheet } from '@/components/fern/sheets/bulk-recurring-link-sheet'
 import { GroupAllocationSheet, type AllocateInput } from '@/components/fern/sheets/group-allocation-sheet'
 import { MonthBudgetComparisonModal } from '@/components/fern/month-budget-comparison-modal'
-import type { Merchant, RecurringInstance, BudgetWithLines, SavingAccount } from '@/lib/db-types'
+import type { Merchant, RecurringInstance, BudgetWithLines, SavingAccount, BudgetColorConfig } from '@/lib/db-types'
 import type { GroupDetail, MovementGroupLink } from '@/lib/queries/groups'
 import { runAction, REIMBURSEMENT_CATEGORY_NAME } from '@/lib/utils'
 import { confirmDialog } from '@/lib/dialogs-store'
@@ -91,6 +91,7 @@ interface TransactionsClientProps {
   divorceEnabled: boolean
   budgetEnabled: boolean
   budget: BudgetWithLines | null
+  budgetColorConfig: BudgetColorConfig
   initialMerchantId?: string
   selectedYear: number
   years: string[]
@@ -114,6 +115,7 @@ export function TransactionsClient({
   divorceEnabled,
   budgetEnabled,
   budget,
+  budgetColorConfig,
   initialMerchantId = 'all',
   selectedYear,
   years,
@@ -434,6 +436,11 @@ export function TransactionsClient({
     [filtered, visibleMonthSet],
   )
 
+  const shownMonths = useMemo(
+    () => allMonths.slice(0, futureMonthCount + visibleMonths),
+    [allMonths, futureMonthCount, visibleMonths],
+  )
+
   const cbExpensesByMonth = useMemo(() => {
     const out: Record<string, { cleared: number; total: number }> = {}
     for (const m of visibleEntries) {
@@ -454,6 +461,30 @@ export function TransactionsClient({
   const visibleRealIds = useMemo(
     () => visibleEntries.filter((m) => !isInstance(m)).map((m) => m.id),
     [visibleEntries],
+  )
+
+  // Month balance: revenues minus expenses actually logged, and a variant that also
+  // assumes every not-yet-acknowledged recurring instance ('expected', not N/A) happens.
+  const balanceByMonth = useMemo(() => {
+    const out: Record<string, { noRecurring: number; withRecurring: number }> = {}
+    const add = (month: string, kind: string, amount: number, withRecurringOnly: boolean) => {
+      if (kind !== 'income' && kind !== 'expense') return
+      out[month] = out[month] ?? { noRecurring: 0, withRecurring: 0 }
+      const signed = kind === 'income' ? amount : -amount
+      if (!withRecurringOnly) out[month].noRecurring += signed
+      out[month].withRecurring += signed
+    }
+    for (const t of txns) add(t.date.slice(0, 7), t.kind, Number(t.amount || 0), false)
+    for (const m of instanceEntries) {
+      if (m.isNa) continue
+      add(m.date.slice(0, 7), m.kind, Number(m.amount || 0), true)
+    }
+    return out
+  }, [txns, instanceEntries])
+
+  const totalBalance = useMemo(
+    () => shownMonths.reduce((sum, m) => sum + (balanceByMonth[m]?.noRecurring ?? 0), 0),
+    [shownMonths, balanceByMonth],
   )
 
   const selectedTransactions = useMemo(
@@ -799,17 +830,40 @@ export function TransactionsClient({
         </div>
       )}
 
-      <TransactionFilters
-        q={q} onQChange={setQ}
-        kindFilter={kindFilter} onKindFilterChange={setKindFilter}
-        clearedFilter={clearedFilter} onClearedFilterChange={setClearedFilter}
-        showNa={showNa} onShowNaChange={setShowNa}
-        catFilter={catFilter} catFilterOpen={catFilterOpen} onCatFilterOpenChange={setCatFilterOpen} onCatFilterChange={setCatFilter} categories={categories}
-        merchantFilter={merchantFilter} merchantFilterOpen={merchantFilterOpen} onMerchantFilterOpenChange={setMerchantFilterOpen} onMerchantFilterChange={setMerchantFilter} merchants={merchants}
-        methodFilter={methodFilter} methodFilterOpen={methodFilterOpen} onMethodFilterOpenChange={setMethodFilterOpen} onMethodFilterChange={setMethodFilter}
-        reimbursementFilter={reimbursementFilter} reimbFilterOpen={reimbFilterOpen} onReimbFilterOpenChange={setReimbFilterOpen} onReimbursementFilterChange={setReimbursementFilter}
-        showReimbursementFilter={divorceEnabled} showNaToggle={recurringEnabled}
-      />
+      <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <TransactionFilters
+            q={q} onQChange={setQ}
+            kindFilter={kindFilter} onKindFilterChange={setKindFilter}
+            clearedFilter={clearedFilter} onClearedFilterChange={setClearedFilter}
+            showNa={showNa} onShowNaChange={setShowNa}
+            catFilter={catFilter} catFilterOpen={catFilterOpen} onCatFilterOpenChange={setCatFilterOpen} onCatFilterChange={setCatFilter} categories={categories}
+            merchantFilter={merchantFilter} merchantFilterOpen={merchantFilterOpen} onMerchantFilterOpenChange={setMerchantFilterOpen} onMerchantFilterChange={setMerchantFilter} merchants={merchants}
+            methodFilter={methodFilter} methodFilterOpen={methodFilterOpen} onMethodFilterOpenChange={setMethodFilterOpen} onMethodFilterChange={setMethodFilter}
+            reimbursementFilter={reimbursementFilter} reimbFilterOpen={reimbFilterOpen} onReimbFilterOpenChange={setReimbFilterOpen} onReimbursementFilterChange={setReimbursementFilter}
+            showReimbursementFilter={divorceEnabled} showNaToggle={recurringEnabled}
+          />
+        </div>
+        <div
+          className="fern-card"
+          style={{
+            flexShrink: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 4,
+            padding: '12px 20px',
+            minWidth: 180,
+            background: totalBalance >= 0 ? 'var(--sage-bg)' : 'var(--rose-bg)',
+          }}
+        >
+          <span style={{ fontSize: 11, fontFamily: 'var(--mono-fern)', textTransform: 'uppercase', letterSpacing: '0.1em', color: totalBalance >= 0 ? 'var(--sage-ink)' : 'var(--rose-ink)' }}>
+            {totalBalance >= 0 ? 'Total saved' : 'Overspent'}
+          </span>
+          <span style={{ fontSize: 22, fontWeight: 700, fontFamily: 'var(--mono-fern)', color: totalBalance >= 0 ? 'var(--sage-ink)' : 'var(--rose-ink)' }}>
+            {fmt(Math.abs(totalBalance))}
+          </span>
+        </div>
+      </div>
 
       {selectionMode && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
@@ -842,12 +896,28 @@ export function TransactionsClient({
             const dgs = monthGroupsMap[month] ?? []
             const monthLabel = formatDate(month + '-15T12:00:00', { month: 'long', year: 'numeric' })
             const cb = cbExpensesByMonth[month] ?? { cleared: 0, total: 0 }
+            const balance = balanceByMonth[month] ?? { noRecurring: 0, withRecurring: 0 }
             const isExpanded = expandedMonths.has(month)
             return (
               <div key={month} id={`month-${month}`}>
                 <div style={{ display: 'flex', alignItems: 'center', marginBottom: 10 }}>
-                  <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <h2 style={{ margin: 0, fontSize: 13, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--ink-faint)', fontFamily: 'var(--mono-fern)' }}>{monthLabel}</h2>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: 210, flexShrink: 0 }}>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setExpandedMonths((prev) => {
+                          const next = new Set(prev)
+                          if (next.has(month)) next.delete(month)
+                          else next.add(month)
+                          return next
+                        })
+                      }
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-faint)', padding: 2, display: 'flex' }}
+                      aria-label={isExpanded ? 'Collapse month' : 'Expand month'}
+                    >
+                      <Icon name={isExpanded ? 'chevronDown' : 'chevronRight'} size={14} />
+                    </button>
+                    <h2 style={{ margin: 0, fontSize: 13, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--ink-faint)', fontFamily: 'var(--mono-fern)', whiteSpace: 'nowrap' }}>{monthLabel}</h2>
                     {budgetEnabled && (
                       <button
                         type="button"
@@ -861,6 +931,31 @@ export function TransactionsClient({
                     )}
                   </div>
 
+                  <div style={{ flex: 1 }} />
+
+                  {/* Month balance: revenues minus expenses, logged and with recurring assumed.
+                      Fixed width + right-aligned amount (capped at 99 999,99 €) so "Balance:" and
+                      the amount line up across months, centered between the month label and CB KPI. */}
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, width: 170, flexShrink: 0 }}>
+                    <span style={{ fontFamily: 'var(--mono-fern)', fontSize: 12, color: 'var(--ink-faint)', flexShrink: 0 }}>
+                      Balance:
+                    </span>
+                    <span style={{ width: 90, textAlign: 'right', fontFamily: 'var(--mono-fern)', fontSize: 12, color: balance.noRecurring < 0 ? 'var(--rose-ink)' : 'var(--sage-ink)' }}>
+                      {fmt(balance.noRecurring)}
+                    </span>
+                    {balance.withRecurring !== balance.noRecurring && (
+                      <span style={{ fontFamily: 'var(--mono-fern)', fontSize: 12, color: 'var(--ink-faint)', whiteSpace: 'nowrap' }}>
+                        (with recurring:{' '}
+                        <span style={{ color: balance.withRecurring < 0 ? 'var(--rose-ink)' : 'var(--sage-ink)' }}>
+                          {fmt(balance.withRecurring)}
+                        </span>
+                        )
+                      </span>
+                    )}
+                  </div>
+
+                  <div style={{ flex: 1 }} />
+
                   {/* CB monthly KPI: cleared / total (amount sums, card + paypal expenses). */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
                     <Icon name={paymentMethodIcon('card')} size={10} style={{ color: 'var(--ink-faint)' }} />
@@ -871,22 +966,6 @@ export function TransactionsClient({
                       </span>
                     </span>
                   </div>
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setExpandedMonths((prev) => {
-                        const next = new Set(prev)
-                        if (next.has(month)) next.delete(month)
-                        else next.add(month)
-                        return next
-                      })
-                    }
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-faint)', padding: '2px 4px 2px 8px', display: 'flex', flexShrink: 0 }}
-                    aria-label={isExpanded ? 'Collapse month' : 'Expand month'}
-                  >
-                    <Icon name={isExpanded ? 'chevronDown' : 'chevronRight'} size={14} />
-                  </button>
 
                   {/* Reserve space for the right-side action buttons in transaction rows. */}
                   {!selectionMode && <div style={{ width: 40, flexShrink: 0 }} />}
@@ -1129,6 +1208,7 @@ export function TransactionsClient({
           categories={categories}
           merchants={merchants}
           transactions={txns}
+          budgetColorConfig={budgetColorConfig}
         />
       )}
 

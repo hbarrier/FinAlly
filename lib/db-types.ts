@@ -49,6 +49,17 @@ export type ModuleKey =
   | 'simulations'
   | 'objectives'
 export type Modules = Record<ModuleKey, boolean>
+
+/** Color-coding config for one budget kind (expense or income): the "near" ratio
+ *  threshold (0-1) plus a category-color token (see CATEGORY_COLORS) per state. */
+export interface BudgetColorConfig {
+  threshold: number
+  colors: { under: string; near: string; atOrOver: string }
+}
+export interface BudgetColorSettings {
+  expense: BudgetColorConfig
+  income: BudgetColorConfig
+}
 export type MonthlyOpeningBalance = InferSelectModel<typeof monthlyOpeningBalances>
 export type ReimbursementRate = InferSelectModel<typeof reimbursementRates>
 export type ReimbursementAllocation = InferSelectModel<typeof reimbursementAllocations>

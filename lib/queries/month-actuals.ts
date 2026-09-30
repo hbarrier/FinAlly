@@ -12,6 +12,7 @@ export type RecentBudgetTxn = {
   categoryId: string
   merchantId: string | null
   recurringId: string | null
+  cleared: number
 }
 
 /**
@@ -30,6 +31,7 @@ export const getRecentTransactionsForBudget = cache(async (ref: Date = new Date(
       categoryId: transactions.categoryId,
       merchantId: transactions.merchantId,
       recurringId: transactions.recurringId,
+      cleared: transactions.cleared,
     })
     .from(transactions)
     .where(and(
@@ -50,6 +52,7 @@ export const getRecentTransactionsForBudget = cache(async (ref: Date = new Date(
       categoryId: r.categoryId,
       merchantId: r.merchantId,
       recurringId: r.recurringId,
+      cleared: r.cleared,
     })
   }
   return out

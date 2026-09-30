@@ -9,22 +9,26 @@ import { FernButton } from '@/components/fern/button'
 import { PageHeader } from '@/components/fern/page-header'
 import { EmptyState } from '@/components/fern/empty-state'
 import { Money } from '@/components/fern/money'
-import { SegmentedControl } from '@/components/fern/segmented-control'
 import { SearchableSelect } from '@/components/fern/searchable-select'
 import { BudgetSheet } from '@/components/fern/sheets/budget-sheet'
 import { BudgetLineSheet } from '@/components/fern/sheets/budget-line-sheet'
 import { CategoryMovementsModal } from '@/components/fern/category-movements-modal'
+import { COLOR_VARS } from '@/components/fern/color-vars'
 import {
   fmt,
   budgetWaterfall,
+  ratioState,
+  plannedUncleared,
   type Category,
   type Recurring,
+  type RecurringInstance,
+  type RatioState,
   type BudgetLineLite,
 } from '@/lib/derive'
 import { addMonths, currentMonth, monthsBetween } from '@/lib/dates'
 import { formatConfig } from '@/lib/format-config'
 import type { RecentBudgetTxn } from '@/lib/queries/month-actuals'
-import type { Merchant, BudgetLine, BudgetWithLines } from '@/lib/db-types'
+import type { Merchant, BudgetLine, BudgetWithLines, BudgetColorSettings } from '@/lib/db-types'
 import { confirmDialog } from '@/lib/dialogs-store'
 import {
   createBudget,
@@ -42,11 +46,10 @@ interface BudgetsClientProps {
   budget: BudgetWithLines | null
   recentTransactions: RecentBudgetTxn[]
   recurringItems: Recurring[]
+  recurringInstances: RecurringInstance[]
   recurringEnabled: boolean
+  budgetColors: BudgetColorSettings
 }
-
-const barState = (spent: number, limit: number): 'ok' | 'warn' | 'over' =>
-  limit > 0 && spent > limit ? 'over' : limit > 0 && spent > limit * 0.8 ? 'warn' : 'ok'
 
 const linesByCategory = (lines: BudgetLine[]) => {
   const map = new Map<string, BudgetLine[]>()
@@ -58,13 +61,23 @@ const linesByCategory = (lines: BudgetLine[]) => {
   return map
 }
 
-export function BudgetsClient({ categories, merchants, budget, recentTransactions, recurringItems, recurringEnabled }: BudgetsClientProps) {
+export function BudgetsClient({
+  categories,
+  merchants,
+  budget,
+  recentTransactions,
+  recurringItems,
+  recurringInstances,
+  recurringEnabled,
+  budgetColors,
+}: BudgetsClientProps) {
   const router = useRouter()
   const { run, pending } = useServerAction()
   const [editingBudget, setEditingBudget] = useState<'new' | 'edit' | null>(null)
   const [editingLine, setEditingLine] = useState<{ line: BudgetLine | null; category: Category } | null>(null)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [activeTab, setActiveTab] = useState<'monthly' | 'yearly'>('monthly')
+  const [showAllIncome, setShowAllIncome] = useState(false)
   const [movementsFor, setMovementsFor] = useState<{ category: Category; line: BudgetLineLite } | null>(null)
   const thisMonth = currentMonth()
   const [startMonth, setStartMonth] = useState(thisMonth)
@@ -78,8 +91,33 @@ export function BudgetsClient({ categories, merchants, budget, recentTransaction
   const yearlyLinesByCat = useMemo(() => linesByCategory(yearlyLines), [yearlyLines])
 
   const waterfall = useMemo(
-    () => budgetWaterfall(lines, recentTransactions, categories, startMonth, thisMonth),
-    [lines, recentTransactions, categories, startMonth, thisMonth],
+    () =>
+      budgetWaterfall(lines, recentTransactions, categories, startMonth, thisMonth, {
+        expense: budgetColors.expense.threshold,
+        income: budgetColors.income.threshold,
+      }),
+    [lines, recentTransactions, categories, startMonth, thisMonth, budgetColors],
+  )
+  const plannedIncome = useMemo(
+    () => plannedUncleared(lines, recurringItems, recurringInstances, recentTransactions, startMonth, thisMonth, 'income'),
+    [lines, recurringItems, recurringInstances, recentTransactions, startMonth, thisMonth],
+  )
+  const plannedExpense = useMemo(
+    () => plannedUncleared(lines, recurringItems, recurringInstances, recentTransactions, startMonth, thisMonth, 'expense'),
+    [lines, recurringItems, recurringInstances, recentTransactions, startMonth, thisMonth],
+  )
+  const plannedFor = useCallback(
+    (c: Category) => {
+      const source = c.kind === 'income' ? plannedIncome : plannedExpense
+      const byCategory = activeTab === 'monthly' ? source.monthlyByCategory : source.yearlyByCategory
+      return byCategory.get(c.id) ?? 0
+    },
+    [plannedIncome, plannedExpense, activeTab],
+  )
+  const colorFor = useCallback(
+    (kind: 'expense' | 'income', state: RatioState, variant: 'solid' | 'bg' | 'ink' = 'solid') =>
+      COLOR_VARS[budgetColors[kind].colors[state]][variant],
+    [budgetColors],
   )
   const monthlyCatById = useMemo(
     () => new Map(waterfall.monthly.categories.map((c) => [c.category.id, c])),
@@ -89,7 +127,6 @@ export function BudgetsClient({ categories, merchants, budget, recentTransaction
     () => new Map(waterfall.yearly.categories.map((c) => [c.category.id, c])),
     [waterfall],
   )
-  const activeComparison = activeTab === 'monthly' ? waterfall.monthly : waterfall.yearly
   const catById = activeTab === 'monthly' ? monthlyCatById : yearlyCatById
 
   const monthOptions = useMemo(() => {
@@ -114,26 +151,33 @@ export function BudgetsClient({ categories, merchants, budget, recentTransaction
     () => categories.filter((c) => c.kind === 'expense' && c.isSavings !== 1 && visibleMonthly(c)).sort((a, b) => monthlyBudgetedFor(b.id) - monthlyBudgetedFor(a.id)),
     [categories, monthlyBudgetedFor, visibleMonthly],
   )
-  const incomeCatsMonthly = useMemo(
+  const incomeCatsMonthlyAll = useMemo(
     () => categories.filter((c) => c.kind === 'income' && visibleMonthly(c)).sort((a, b) => monthlyBudgetedFor(b.id) - monthlyBudgetedFor(a.id)),
     [categories, monthlyBudgetedFor, visibleMonthly],
+  )
+  const incomeCatsMonthly = useMemo(
+    () => (showAllIncome ? incomeCatsMonthlyAll : incomeCatsMonthlyAll.filter((c) => monthlyCatById.has(c.id))),
+    [incomeCatsMonthlyAll, showAllIncome, monthlyCatById],
   )
 
   const expenseCatsYearly = useMemo(
     () => categories.filter((c) => c.kind === 'expense' && c.isSavings !== 1 && visibleYearly(c)).sort((a, b) => yearlyBudgetedFor(b.id) - yearlyBudgetedFor(a.id)),
     [categories, yearlyBudgetedFor, visibleYearly],
   )
-  const incomeCatsYearly = useMemo(
+  const incomeCatsYearlyAll = useMemo(
     () => categories.filter((c) => c.kind === 'income' && visibleYearly(c)).sort((a, b) => yearlyBudgetedFor(b.id) - yearlyBudgetedFor(a.id)),
     [categories, yearlyBudgetedFor, visibleYearly],
+  )
+  const incomeCatsYearly = useMemo(
+    () => (showAllIncome ? incomeCatsYearlyAll : incomeCatsYearlyAll.filter((c) => yearlyCatById.has(c.id))),
+    [incomeCatsYearlyAll, showAllIncome, yearlyCatById],
   )
 
   const expenseCats = activeTab === 'monthly' ? expenseCatsMonthly : expenseCatsYearly
   const incomeCats = activeTab === 'monthly' ? incomeCatsMonthly : incomeCatsYearly
+  const incomeCatsAll = activeTab === 'monthly' ? incomeCatsMonthlyAll : incomeCatsYearlyAll
+  const hiddenIncomeCount = incomeCatsAll.length - incomeCats.length
   const allCatIds = useMemo(() => [...expenseCats, ...incomeCats].map((c) => c.id), [expenseCats, incomeCats])
-
-  const totalLimit = activeComparison.expense.budgeted
-  const totalSpent = activeComparison.expense.actual
 
   const movements = useMemo(() => {
     if (!movementsFor) return []
@@ -182,8 +226,13 @@ export function BudgetsClient({ categories, merchants, budget, recentTransaction
     const limit = catResult?.budgeted ?? 0
     const catLines = catResult?.lines ?? []
     const isOpen = expanded.has(c.id)
-    const state = barState(actual, limit)
+    const state = ratioState(actual, limit, budgetColors[c.kind].threshold)
+    const isBad = c.kind === 'income' ? limit > 0 && state === 'under' : state === 'atOrOver'
     const barPct = limit > 0 ? Math.min(100, (actual / limit) * 100) : actual > 0 ? 100 : 0
+    const catPlanned = plannedFor(c)
+    const combined = actual + catPlanned
+    const combinedPct = limit > 0 ? Math.min(100, (combined / limit) * 100) : combined > 0 ? 100 : 0
+    const combinedState = ratioState(combined, limit, budgetColors[c.kind].threshold)
     return (
       <div key={c.id}>
         <div
@@ -193,13 +242,19 @@ export function BudgetsClient({ categories, merchants, budget, recentTransaction
           <Icon name={isOpen ? 'chevronDown' : 'chevronRight'} size={14} />
           <CatSwatch color={c.color} icon={c.icon} size={28} />
           <span style={{ flex: 1, fontSize: 14, fontWeight: 500, color: 'var(--ink)' }}>{c.name}</span>
-          {state === 'over' && <Chip tone="expense">Over</Chip>}
+          {isBad && <Chip tone="expense">{c.kind === 'income' ? 'Behind target' : 'Over'}</Chip>}
           <span style={{ fontSize: 13, color: 'var(--ink-soft)', fontFamily: 'var(--mono-fern)' }}>
             {fmt(limit)} / {fmt(actual)}
           </span>
         </div>
-        <div className="fern-budget-bar">
-          <div className={`fern-budget-fill ${state}`} style={{ width: `${barPct}%` }} />
+        <div className="fern-budget-bar" style={{ display: 'flex' }}>
+          <div className="fern-budget-fill" style={{ width: `${barPct}%`, background: colorFor(c.kind, state) }} />
+          {catPlanned > 0 && (
+            <div
+              className="fern-budget-fill"
+              style={{ width: `${Math.max(0, combinedPct - barPct)}%`, background: colorFor(c.kind, combinedState, 'bg') }}
+            />
+          )}
         </div>
         {isOpen && (
           <div style={{ marginTop: 10, marginLeft: 24, display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -262,6 +317,78 @@ export function BudgetsClient({ categories, merchants, budget, recentTransaction
     )
   }
 
+  const renderTotalCard = ({
+    kind,
+    label,
+    tab,
+    total,
+    planned = 0,
+    showPicker = false,
+  }: {
+    kind: 'expense' | 'income'
+    label: string
+    tab: 'monthly' | 'yearly'
+    total: { budgeted: number; actual: number }
+    planned?: number
+    showPicker?: boolean
+  }) => {
+    const threshold = budgetColors[kind].threshold
+    const state = ratioState(total.actual, total.budgeted, threshold)
+    const actualPct = total.budgeted > 0 ? Math.min(100, (total.actual / total.budgeted) * 100) : total.actual > 0 ? 100 : 0
+    const combined = total.actual + planned
+    const combinedPct = total.budgeted > 0 ? Math.min(100, (combined / total.budgeted) * 100) : combined > 0 ? 100 : 0
+    const combinedState = ratioState(combined, total.budgeted, threshold)
+    return (
+      <div
+        key={`${kind}-${tab}`}
+        className={`fern-card selectable${activeTab === tab ? ' selected' : ''}`}
+        style={{ flex: '1 1 260px' }}
+        onClick={() => setActiveTab(tab)}
+      >
+        <div style={{ fontSize: 12, fontFamily: 'var(--mono-fern)', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--ink-faint)', marginBottom: 8 }}>
+          {label}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 14 }}>
+          <Money amount={total.actual} />
+          <div style={{ color: 'var(--ink-faint)', fontFamily: 'var(--mono-fern)', fontSize: 13 }}>
+            of {fmt(total.budgeted)}
+          </div>
+        </div>
+        {planned > 0 && (
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, marginTop: 2 }}>
+            <div style={{ fontFamily: 'var(--mono-fern)', fontSize: 13, color: colorFor(kind, combinedState, 'ink') }}>
+              {fmt(combined)} with recurring
+            </div>
+            <div style={{ color: 'var(--ink-faint)', fontFamily: 'var(--mono-fern)', fontSize: 13 }}>
+              of {fmt(total.budgeted)}
+            </div>
+          </div>
+        )}
+        <div className="fern-budget-bar" style={{ marginTop: 14, display: 'flex' }}>
+          <div className="fern-budget-fill" style={{ width: `${actualPct}%`, background: colorFor(kind, state) }} />
+          {planned > 0 && (
+            <div
+              className="fern-budget-fill"
+              style={{ width: `${Math.max(0, combinedPct - actualPct)}%`, background: colorFor(kind, combinedState, 'bg') }}
+            />
+          )}
+        </div>
+        <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+          <div style={{ fontSize: 13, fontFamily: 'var(--mono-fern)', color: colorFor(kind, state, 'ink') }}>
+            {total.actual > total.budgeted
+              ? `${fmt(total.actual - total.budgeted)} over budget`
+              : `${fmt(total.budgeted - total.actual)} under budget`}
+          </div>
+          {showPicker && (
+            <div style={{ minWidth: 160 }} onClick={(e) => e.stopPropagation()}>
+              <SearchableSelect value={startMonth} onChange={(v) => v && setStartMonth(v)} options={monthOptions} placeholder="Starting month" />
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div>
       <PageHeader
@@ -303,43 +430,36 @@ export function BudgetsClient({ categories, merchants, budget, recentTransaction
         />
       ) : (
         <>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
-            <SegmentedControl
-              value={activeTab}
-              onChange={(v) => setActiveTab(v as 'monthly' | 'yearly')}
-              options={[
-                { value: 'monthly', label: 'Monthly' },
-                { value: 'yearly', label: 'Yearly' },
-              ]}
-            />
-            {activeTab === 'yearly' && (
-              <div style={{ minWidth: 180 }}>
-                <SearchableSelect value={startMonth} onChange={(v) => v && setStartMonth(v)} options={monthOptions} placeholder="Starting month" />
-              </div>
-            )}
-          </div>
-
-          <div className="fern-card" style={{ marginBottom: 24 }}>
-            <div style={{ fontSize: 12, fontFamily: 'var(--mono-fern)', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--ink-faint)', marginBottom: 8 }}>
-              Budgeted overall
-            </div>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 14 }}>
-              <Money amount={totalSpent} />
-              <div style={{ color: 'var(--ink-faint)', fontFamily: 'var(--mono-fern)', fontSize: 13 }}>
-                of {fmt(totalLimit)}
-              </div>
-            </div>
-            <div className="fern-budget-bar" style={{ marginTop: 14 }}>
-              <div
-                className={`fern-budget-fill ${barState(totalSpent, totalLimit)}`}
-                style={{ width: `${Math.min(100, totalLimit > 0 ? (totalSpent / totalLimit) * 100 : totalSpent > 0 ? 100 : 0)}%` }}
-              />
-            </div>
-            <div style={{ marginTop: 8, fontSize: 13, fontFamily: 'var(--mono-fern)', color: totalSpent > totalLimit ? 'var(--rose)' : 'var(--sage-ink)' }}>
-              {totalSpent > totalLimit
-                ? `${fmt(totalSpent - totalLimit)} over budget`
-                : `${fmt(totalLimit - totalSpent)} under budget`}
-            </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
+            {renderTotalCard({
+              kind: 'expense',
+              label: 'Expenses · Monthly',
+              tab: 'monthly',
+              total: waterfall.monthly.expense,
+              planned: plannedExpense.monthly,
+            })}
+            {renderTotalCard({
+              kind: 'expense',
+              label: 'Expenses · Yearly',
+              tab: 'yearly',
+              total: waterfall.yearly.expense,
+              planned: plannedExpense.yearly,
+              showPicker: true,
+            })}
+            {renderTotalCard({
+              kind: 'income',
+              label: 'Revenue · Monthly',
+              tab: 'monthly',
+              total: waterfall.monthly.income,
+              planned: plannedIncome.monthly,
+            })}
+            {renderTotalCard({
+              kind: 'income',
+              label: 'Revenue · Yearly',
+              tab: 'yearly',
+              total: waterfall.yearly.income,
+              planned: plannedIncome.yearly,
+            })}
           </div>
 
           <div className="fern-card" style={{ marginBottom: 24 }}>
@@ -356,12 +476,23 @@ export function BudgetsClient({ categories, merchants, budget, recentTransaction
             )}
           </div>
 
-          {incomeCats.length > 0 && (
+          {incomeCatsAll.length > 0 && (
             <div className="fern-card">
-              <h3 style={{ margin: '0 0 16px', fontSize: 16, fontWeight: 600, color: 'var(--ink)' }}>Revenues</h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                {incomeCats.map((c) => renderCategory(c))}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: 'var(--ink)' }}>Revenues</h3>
+                {(showAllIncome || hiddenIncomeCount > 0) && (
+                  <FernButton tone="outline" onClick={() => setShowAllIncome((v) => !v)}>
+                    {showAllIncome ? 'Hide empty' : `Display all (${hiddenIncomeCount})`}
+                  </FernButton>
+                )}
               </div>
+              {incomeCats.length === 0 ? (
+                <EmptyState illu="∅" title="No revenue to show" description="All revenue categories are empty for this period." style={{ padding: '40px 20px' }} />
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  {incomeCats.map((c) => renderCategory(c))}
+                </div>
+              )}
             </div>
           )}
         </>

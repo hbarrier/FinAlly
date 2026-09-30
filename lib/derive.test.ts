@@ -15,6 +15,9 @@ import {
   budgetLineMonthly,
   budgetCategoryMonthly,
   budgetWaterfall,
+  ratioState,
+  plannedUnclearedIncome,
+  monthBudgetComparison,
   simulationTotals,
   simulationLineDisplayAmount,
   groupTransactionsByMonth,
@@ -309,10 +312,10 @@ describe('budgetWaterfall', () => {
 
   const atxn = (o: Partial<{
     id: string; date: string; amount: number; kind: 'expense' | 'income'
-    categoryId: string; merchantId: string | null; recurringId: string | null
+    categoryId: string; merchantId: string | null; recurringId: string | null; cleared: number
   }>) => ({
     id: 't', date: '2026-01-01', amount: 0, kind: 'expense' as const, categoryId: 'c',
-    merchantId: null, recurringId: null,
+    merchantId: null, recurringId: null, cleared: 1,
     ...o,
   })
 
@@ -352,7 +355,7 @@ describe('budgetWaterfall', () => {
     expect(misc?.needsOtherLine).toBe(false) // ambiguous (2+ generic lines) is not the "no line at all" gap
   })
 
-  it('flags needsOtherLine when a category has real spend but zero generic lines for the frequency (Equipement Logement case)', () => {
+  it('defers unmatched monthly spend to an unambiguous yearly generic line instead of flagging needsOtherLine (Equipement Logement case)', () => {
     const categories = [cat({ id: 'equip' })]
     const lines = [line({ id: 'yearly-generic', categoryId: 'equip', frequency: 'yearly', amount: 1000 })]
     const currentMonth = '2026-09'
@@ -362,13 +365,44 @@ describe('budgetWaterfall', () => {
     ]
     const { monthly, yearly } = budgetWaterfall(lines, txns, categories, '2025-10', currentMonth)
 
+    // No monthly line at all, no monthly spend either — everything deferred to the yearly ad-hoc
+    // line, so the category has nothing to show on the Monthly tab.
     const monthlyEquip = monthly.categories.find((c) => c.category.id === 'equip')
-    expect(monthlyEquip?.lines).toEqual([]) // no monthly line exists at all — this is the display bug
-    expect(monthlyEquip?.actual).toBe(395.1)
-    expect(monthlyEquip?.needsOtherLine).toBe(true)
+    expect(monthlyEquip).toBeUndefined()
 
     const yearlyEquip = yearly.categories.find((c) => c.category.id === 'equip')
-    expect(yearlyEquip?.needsOtherLine).toBe(false) // its one yearly generic line already covers it
+    expect(yearlyEquip?.actual).toBe(395.1)
+    expect(yearlyEquip?.lines.find((l) => l.line.id === 'yearly-generic')?.actual).toBe(395.1)
+    expect(yearlyEquip?.needsOtherLine).toBe(false)
+
+    // The deferred spend must also disappear from the Monthly tab's total, not just the category row —
+    // otherwise the summary card counts spend that's invisible in every rendered category.
+    expect(monthly.expense.actual).toBe(0)
+  })
+
+  it('redirects unmatched monthly spend to the yearly ad-hoc line even when a €0 monthly ad-hoc line already exists (Logement case)', () => {
+    const categories = [cat({ id: 'logement' })]
+    const lines = [
+      line({ id: 'pret', categoryId: 'logement', frequency: 'monthly', sourceRecurringId: 'rec-pret', amount: 1023.27 }),
+      line({ id: 'other-logement', categoryId: 'logement', frequency: 'monthly', amount: 0 }),
+      line({ id: 'charges-additionelles', categoryId: 'logement', frequency: 'yearly', amount: 600 }),
+    ]
+    const currentMonth = '2026-09'
+    const txns = [
+      atxn({ id: 'pret-txn', date: `${currentMonth}-05`, amount: 1023.27, categoryId: 'logement', recurringId: 'rec-pret' }),
+      atxn({ id: 'unbudgeted', date: `${currentMonth}-12`, amount: 150, categoryId: 'logement' }),
+    ]
+    const { monthly, yearly } = budgetWaterfall(lines, txns, categories, '2025-10', currentMonth)
+
+    const monthlyLogement = monthly.categories.find((c) => c.category.id === 'logement')
+    expect(monthlyLogement?.lines.find((l) => l.line.id === 'other-logement')?.actual).toBe(0) // catches nothing — yearly ad-hoc wins
+    expect(monthlyLogement?.actual).toBe(1023.27) // the 150 ad-hoc spend is not counted here
+
+    const yearlyLogement = yearly.categories.find((c) => c.category.id === 'logement')
+    expect(yearlyLogement?.lines.find((l) => l.line.id === 'charges-additionelles')?.actual).toBe(150)
+    expect(yearlyLogement?.actual).toBe(150)
+    expect(monthlyLogement?.needsOtherLine).toBe(false)
+    expect(yearlyLogement?.needsOtherLine).toBe(false)
   })
 
   it('counts a merchant\'s current-month spend once (Monthly), excluded from Yearly\'s pool', () => {
@@ -418,6 +452,175 @@ describe('budgetWaterfall', () => {
 
     const transport = yearly.categories.find((c) => c.category.id === 'transport')
     expect(transport?.actual).toBe(80) // no monthly line exists to claim it, so it still falls to yearly
+  })
+
+  it('applies a custom expense threshold to a category\'s status', () => {
+    const categories = [cat({ id: 'c' })]
+    const lines = [line({ id: 'l1', categoryId: 'c', amount: 100 })]
+    const txns = [atxn({ id: 't1', amount: 85, categoryId: 'c', date: '2026-09-05' })]
+    const currentMonth = '2026-09'
+    const { monthly: withDefault } = budgetWaterfall(lines, txns, categories, currentMonth, currentMonth)
+    expect(withDefault.categories.find((cc) => cc.category.id === 'c')?.status).toBe('near')
+
+    const { monthly: withCustom } = budgetWaterfall(lines, txns, categories, currentMonth, currentMonth, { expense: 0.9, income: 0.8 })
+    expect(withCustom.categories.find((cc) => cc.category.id === 'c')?.status).toBe('under')
+  })
+
+  it('uses thresholds.income independently of thresholds.expense for an income category', () => {
+    const categories = [cat({ id: 'inc', kind: 'income' })]
+    const lines = [line({ id: 'l1', categoryId: 'inc', kind: 'income', amount: 100 })]
+    const txns = [atxn({ id: 't1', amount: 85, categoryId: 'inc', kind: 'income', date: '2026-09-05' })]
+    const currentMonth = '2026-09'
+    const { monthly } = budgetWaterfall(lines, txns, categories, currentMonth, currentMonth, { expense: 0.5, income: 0.9 })
+    // income's own threshold (0.9) applies here, not expense's 0.5 — 85 is under 90, so 'under'.
+    expect(monthly.categories.find((cc) => cc.category.id === 'inc')?.status).toBe('under')
+  })
+})
+
+describe('ratioState', () => {
+  it('is under below the threshold', () => {
+    expect(ratioState(50, 100, 0.8)).toBe('under')
+  })
+
+  it('is near between the threshold and budgeted', () => {
+    expect(ratioState(85, 100, 0.8)).toBe('near')
+  })
+
+  it('is atOrOver strictly above budgeted', () => {
+    expect(ratioState(101, 100, 0.8)).toBe('atOrOver')
+  })
+
+  it('lands in near, not atOrOver, when actual exactly equals budgeted', () => {
+    expect(ratioState(100, 100, 0.8)).toBe('near')
+  })
+
+  it('respects a custom threshold', () => {
+    expect(ratioState(60, 100, 0.5)).toBe('near')
+    expect(ratioState(40, 100, 0.5)).toBe('under')
+  })
+
+  it('is always under when budgeted is zero', () => {
+    expect(ratioState(100, 0, 0.8)).toBe('under')
+  })
+})
+
+describe('plannedUnclearedIncome', () => {
+  const rline = (o: Partial<{
+    id: string; name: string | null; kind: 'expense' | 'income'; categoryId: string
+    merchantId: string | null; amount: number; frequency: 'monthly' | 'yearly'
+    recurring: number; sourceRecurringId: string | null
+  }>) => ({
+    id: 'l', name: null, kind: 'income' as const, categoryId: 'c', merchantId: null,
+    amount: 0, frequency: 'monthly' as const, recurring: 1, sourceRecurringId: 'r1',
+    ...o,
+  })
+
+  const rec = (o: Partial<Recurring>): Recurring =>
+    ({
+      id: 'r1', name: 'Salary', amount: 2000, kind: 'income', method: 'transfer',
+      categoryId: 'c', merchantId: null, sourceSavingAccountId: null, destSavingAccountId: null,
+      cadence: 'monthly', dayOfMonth: 1, startDate: '2026-01-01', endDate: null, monthRules: null,
+      ...o,
+    }) as Recurring
+
+  const inst = (o: Partial<RecurringInstance>): RecurringInstance =>
+    ({
+      id: 'i1', recurringId: 'r1', month: '2026-09', status: 'expected', transactionId: null,
+      ...o,
+    }) as RecurringInstance
+
+  const rtxn = (o: Partial<{
+    id: string; date: string; amount: number; kind: 'expense' | 'income'
+    categoryId: string; merchantId: string | null; recurringId: string | null; cleared: number
+  }>) => ({
+    id: 't1', date: '2026-09-05', amount: 2000, kind: 'income' as const, categoryId: 'c',
+    merchantId: null, recurringId: 'r1', cleared: 0,
+    ...o,
+  })
+
+  it('counts an expected instance at the recurring amount', () => {
+    const result = plannedUnclearedIncome([rline({})], [rec({})], [inst({})], [], '2026-09', '2026-09')
+    expect(result.monthly).toBe(2000)
+  })
+
+  it('counts a linked-but-uncleared instance at the transaction amount', () => {
+    const t1 = rtxn({ id: 't1', amount: 1950, cleared: 0 })
+    const instances = [inst({ status: 'linked', transactionId: 't1' })]
+    const result = plannedUnclearedIncome([rline({})], [rec({})], instances, [t1], '2026-09', '2026-09')
+    expect(result.monthly).toBe(1950)
+  })
+
+  it('excludes a linked-and-cleared instance (already counted in actual)', () => {
+    const t1 = rtxn({ id: 't1', amount: 2000, cleared: 1 })
+    const instances = [inst({ status: 'linked', transactionId: 't1' })]
+    const result = plannedUnclearedIncome([rline({})], [rec({})], instances, [t1], '2026-09', '2026-09')
+    expect(result.monthly).toBe(0)
+  })
+
+  it('never contributes for a line without sourceRecurringId', () => {
+    const result = plannedUnclearedIncome([rline({ sourceRecurringId: null })], [rec({})], [inst({})], [], '2026-09', '2026-09')
+    expect(result.monthly).toBe(0)
+  })
+
+  it('excludes a not_applicable instance', () => {
+    const result = plannedUnclearedIncome([rline({})], [rec({})], [inst({ status: 'not_applicable' })], [], '2026-09', '2026-09')
+    expect(result.monthly).toBe(0)
+  })
+
+  it('splits monthly vs yearly windows by each line\'s own frequency', () => {
+    const lines = [
+      rline({ id: 'ml', frequency: 'monthly', sourceRecurringId: 'r1' }),
+      rline({ id: 'yl', frequency: 'yearly', sourceRecurringId: 'r2' }),
+    ]
+    const recurring = [rec({ id: 'r1' }), rec({ id: 'r2', cadence: 'yearly', amount: 5000 })]
+    const instances = [
+      inst({ id: 'i1', recurringId: 'r1', month: '2026-09' }),
+      inst({ id: 'i2', recurringId: 'r2', month: '2026-03' }),
+    ]
+    const result = plannedUnclearedIncome(lines, recurring, instances, [], '2025-10', '2026-09')
+    expect(result.monthly).toBe(2000) // only r1's September instance, via the monthly line
+    expect(result.yearly).toBe(5000) // only r2's March instance, via the yearly line
+  })
+})
+
+describe('monthBudgetComparison', () => {
+  const cat = (o: Partial<Category>): Category =>
+    ({
+      id: 'c', name: 'Cat', icon: 'tag', color: 'teal', kind: 'expense',
+      isPensionAlimentaire: 0, isSavings: 0, isActive: 1, createdAt: '2026-01-01T00:00:00Z',
+      ...o,
+    }) as Category
+
+  const line = (o: Partial<{
+    id: string; name: string | null; kind: 'expense' | 'income'; categoryId: string
+    merchantId: string | null; amount: number; frequency: 'monthly' | 'yearly'
+    recurring: number; sourceRecurringId: string | null
+  }>) => ({
+    id: 'l', name: null, kind: 'expense' as const, categoryId: 'c', merchantId: null,
+    amount: 0, frequency: 'monthly' as const, recurring: 0, sourceRecurringId: null,
+    ...o,
+  })
+
+  const mtxn = (o: Partial<{
+    id: string; date: string; amount: number; kind: 'expense' | 'income' | 'saving' | 'interest'
+    categoryId: string | null; merchantId: string | null; recurringId: string | null
+  }>) => ({
+    id: 't', date: '2026-09-01', amount: 0, kind: 'expense' as const, categoryId: 'c',
+    merchantId: null, recurringId: null,
+    ...o,
+  })
+
+  it('applies a custom expenseThreshold to a category\'s status', () => {
+    const categories = [cat({ id: 'c' })]
+    const lines = [line({ id: 'l1', categoryId: 'c', amount: 100 })]
+    const txns = [mtxn({ id: 't1', amount: 85, categoryId: 'c' })]
+
+    const ref = new Date('2026-09-15T00:00:00Z')
+    const withDefault = monthBudgetComparison(lines, txns, '2026-09', categories, false, ref)
+    expect(withDefault.categories.find((c) => c.category.id === 'c')?.status).toBe('near')
+
+    const withCustom = monthBudgetComparison(lines, txns, '2026-09', categories, false, ref, 0.9)
+    expect(withCustom.categories.find((c) => c.category.id === 'c')?.status).toBe('under')
   })
 })
 

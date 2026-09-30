@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { PAYMENT_METHODS } from './payment-method'
-import { CURRENCIES } from './settings-options'
+import { CURRENCIES, CATEGORY_COLORS } from './settings-options'
 
 /**
  * Shared zod primitives for validating Server Action inputs. Actions are public
@@ -77,6 +77,21 @@ export const monthRulesSchema = z.record(
   z.string(),
   z.object({ notApplicable: z.boolean().optional(), amount: z.number().finite().optional() }),
 )
+
+/** Color-coding config for one budget kind, stored as part of the JSON in
+ *  `user_settings.budgetColors`. */
+export const budgetColorConfigSchema = z.object({
+  threshold: z.number().finite().min(0).max(1),
+  colors: z.object({
+    under: z.enum(CATEGORY_COLORS),
+    near: z.enum(CATEGORY_COLORS),
+    atOrOver: z.enum(CATEGORY_COLORS),
+  }),
+})
+export const budgetColorSettingsSchema = z.object({
+  expense: budgetColorConfigSchema,
+  income: budgetColorConfigSchema,
+})
 
 /**
  * Parse `input` against `schema`, throwing an `Error` whose message is the first

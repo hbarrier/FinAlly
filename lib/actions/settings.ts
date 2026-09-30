@@ -5,8 +5,8 @@ import { revalidateApp } from './_shared'
 import { db } from '../db'
 import { userSettings, languages } from '../schema'
 import { eq } from 'drizzle-orm'
-import type { Modules } from '../db-types'
-import { parse, zName, zCurrency, zSignedAmount, zLocale } from '../schemas'
+import type { Modules, BudgetColorSettings } from '../db-types'
+import { parse, zName, zCurrency, zSignedAmount, zLocale, budgetColorSettingsSchema } from '../schemas'
 import { DEFAULT_LOCALE } from '@/i18n/catalog'
 
 const zModules = z.object({
@@ -64,9 +64,16 @@ export async function updateSettings(input: {
   currency: string
   locale: string
   modules: Modules
+  budgetColors: BudgetColorSettings
 }) {
   const data = parse(
-    z.object({ name: zName, currency: zCurrency, locale: zLocale, modules: zModules }),
+    z.object({
+      name: zName,
+      currency: zCurrency,
+      locale: zLocale,
+      modules: zModules,
+      budgetColors: budgetColorSettingsSchema,
+    }),
     input,
   )
 
@@ -81,6 +88,7 @@ export async function updateSettings(input: {
       name: data.name,
       currency: data.currency,
       locale: data.locale,
+      budgetColors: JSON.stringify(data.budgetColors),
       ...moduleFlags(data.modules),
     })
     .where(eq(userSettings.id, 1))

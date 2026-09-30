@@ -336,6 +336,7 @@ export const userSettings = sqliteTable('user_settings', {
   moduleBudgets: int('module_budgets').notNull().default(0),
   moduleSimulations: int('module_simulations').notNull().default(0),
   moduleObjectives: int('module_objectives').notNull().default(0),
+  budgetColors: text('budget_colors'), // nullable JSON string; null = DEFAULT_BUDGET_COLORS
 })
 
 // --- languages (user-added UI languages; English is implicit and never a row) ---

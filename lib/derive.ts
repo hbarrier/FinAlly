@@ -354,17 +354,23 @@ export function budgetCategoryMonthly(
   )
 }
 
-function budgetStatus(actual: number, budgeted: number): 'ok' | 'warn' | 'over' {
-  if (budgeted > 0 && actual > budgeted) return 'over'
-  if (budgeted > 0 && actual > budgeted * 0.8) return 'warn'
-  return 'ok'
+/** Where `actual` sits against `budgeted`, given a "near" threshold (0-1, e.g. 0.8).
+ *  Kind-neutral: for expenses 'atOrOver' is bad and 'under' is good; for income it's
+ *  the reverse. Callers pick colors accordingly. `actual === budgeted` lands in
+ *  'near', not 'atOrOver' (strict `>`, not `>=`). */
+export type RatioState = 'under' | 'near' | 'atOrOver'
+
+export function ratioState(actual: number, budgeted: number, threshold: number): RatioState {
+  if (budgeted > 0 && actual > budgeted) return 'atOrOver'
+  if (budgeted > 0 && actual > budgeted * threshold) return 'near'
+  return 'under'
 }
 
 export interface MonthBudgetCategory {
   category: Category
   budgeted: number
   actual: number
-  status: 'ok' | 'warn' | 'over'
+  status: RatioState
   /** budget line paired with actual spend of the same merchant and recurring nature */
   matched: { line: BudgetLineLite; budgeted: number; actual: number }[]
   /** budget lines with no matching actual spend */
@@ -391,6 +397,7 @@ export function monthBudgetComparison(
   categories: Category[],
   includeYearly: boolean,
   ref: Date = new Date(),
+  expenseThreshold: number = 0.8,
 ): MonthBudgetComparison {
   const monthTxns = txns.filter(
     (t) => t.date.slice(0, 7) === month && !isPlannedDate(t.date, ref),
@@ -450,7 +457,7 @@ export function monthBudgetComparison(
         category,
         budgeted,
         actual,
-        status: budgetStatus(actual, budgeted),
+        status: ratioState(actual, budgeted, expenseThreshold),
         matched,
         unmatchedLines,
         unmatchedActual,
@@ -474,6 +481,7 @@ export type BudgetActualTxn = {
   categoryId: string
   merchantId: string | null
   recurringId: string | null
+  cleared: number
 }
 
 export type BudgetLineTier = 'recurring' | 'merchant' | 'category'
@@ -492,7 +500,7 @@ export interface BudgetWaterfallCategory {
   category: Category
   budgeted: number
   actual: number
-  status: 'ok' | 'warn' | 'over'
+  status: RatioState
   lines: BudgetLineActual[]
   /** True when this category/frequency has real unclaimed spend but zero generic lines to attach it to. */
   needsOtherLine: boolean
@@ -543,12 +551,17 @@ function budgetWaterfallForFrequency(
   tier1ByLineId: Map<string, BudgetActualTxn[]>,
   windowStart: string,
   windowEnd: string,
+  deferGenericCategories: Set<string>,
+  thresholds: { expense: number; income: number },
 ): { comparison: BudgetWaterfallComparison; claimedTxnIds: Set<string> } {
   const claimedTxnIds = new Set<string>()
   const inWindow = (t: BudgetActualTxn) => {
     const m = t.date.slice(0, 7)
     return m >= windowStart && m <= windowEnd
   }
+
+  let deferredExpense = 0
+  let deferredIncome = 0
 
   const cats: BudgetWaterfallCategory[] = categories
     .map((category) => {
@@ -586,27 +599,40 @@ function budgetWaterfallForFrequency(
 
       // Tier 3 — category/generic, whatever's left; ambiguous when 0 or 2+ such lines.
       const genericLines = catLines.filter((l) => !l.sourceRecurringId && !l.merchantId)
-      const needsOtherLine = genericLines.length === 0 && remaining.length > 0
-      remaining.forEach((t) => claimedTxnIds.add(t.id))
-      movements.push(...remaining)
-      const remainder = remaining.reduce((s, t) => s + Number(t.amount ?? 0), 0)
-      for (const line of genericLines) {
-        lineResults.push({
-          line,
-          tier: 'category',
-          budgeted: Number(line.amount ?? 0),
-          actual: genericLines.length === 1 ? remainder : null,
-          movements: genericLines.length === 1 ? remaining : [],
-        })
+      const deferToYearly = deferGenericCategories.has(category.id) && remaining.length > 0
+      const needsOtherLine = !deferToYearly && genericLines.length === 0 && remaining.length > 0
+      let deferredAmount = 0
+      if (deferToYearly) {
+        // A single unambiguous yearly generic line exists for this category — leave `remaining`
+        // unclaimed so it flows through to the yearly pool instead of this (monthly) frequency.
+        deferredAmount = remaining.reduce((s, t) => s + Number(t.amount ?? 0), 0)
+        if (category.kind === 'expense') deferredExpense += deferredAmount
+        else deferredIncome += deferredAmount
+        for (const line of genericLines) {
+          lineResults.push({ line, tier: 'category', budgeted: Number(line.amount ?? 0), actual: genericLines.length === 1 ? 0 : null, movements: [] })
+        }
+      } else {
+        remaining.forEach((t) => claimedTxnIds.add(t.id))
+        movements.push(...remaining)
+        const remainder = remaining.reduce((s, t) => s + Number(t.amount ?? 0), 0)
+        for (const line of genericLines) {
+          lineResults.push({
+            line,
+            tier: 'category',
+            budgeted: Number(line.amount ?? 0),
+            actual: genericLines.length === 1 ? remainder : null,
+            movements: genericLines.length === 1 ? remaining : [],
+          })
+        }
       }
 
       const budgeted = catLines.reduce((s, l) => s + Number(l.amount ?? 0), 0)
-      const actual = tier1Total + catPool.reduce((s, t) => s + Number(t.amount ?? 0), 0)
+      const actual = tier1Total + catPool.reduce((s, t) => s + Number(t.amount ?? 0), 0) - deferredAmount
       return {
         category,
         budgeted,
         actual,
-        status: budgetStatus(actual, budgeted),
+        status: ratioState(actual, budgeted, category.kind === 'income' ? thresholds.income : thresholds.expense),
         lines: lineResults,
         needsOtherLine,
         movements: movements.sort((a, b) => b.date.localeCompare(a.date)),
@@ -622,7 +648,8 @@ function budgetWaterfallForFrequency(
       .filter((l) => l.kind === kind && l.sourceRecurringId)
       .reduce((s, l) => s + (tier1ByLineId.get(l.id) ?? []).filter(inWindow).reduce((a, t) => a + Number(t.amount ?? 0), 0), 0)
   const poolActualByKind = (kind: 'expense' | 'income') =>
-    pool.reduce((s, t) => (t.kind === kind ? s + Number(t.amount ?? 0) : s), 0)
+    pool.reduce((s, t) => (t.kind === kind ? s + Number(t.amount ?? 0) : s), 0) -
+    (kind === 'expense' ? deferredExpense : deferredIncome)
 
   return {
     comparison: {
@@ -645,6 +672,7 @@ function claimPastMonthsForMonthlyLines(
   monthlyLines: BudgetLineLite[],
   pastMonthsPool: BudgetActualTxn[],
   categories: Category[],
+  deferGenericCategories: Set<string>,
 ): Set<string> {
   const claimedTxnIds = new Set<string>()
   for (const category of categories) {
@@ -658,7 +686,7 @@ function claimPastMonthsForMonthlyLines(
     }
 
     const genericLines = catLines.filter((l) => !l.sourceRecurringId && !l.merchantId)
-    if (genericLines.length > 0) {
+    if (genericLines.length > 0 && !deferGenericCategories.has(category.id)) {
       remaining.forEach((t) => claimedTxnIds.add(t.id))
     }
   }
@@ -671,8 +699,14 @@ function claimPastMonthsForMonthlyLines(
  *  1. Tier 1 (recurring) is a global, window-independent claim: any transaction whose `recurringId`
  *     matches a line's `sourceRecurringId` belongs to that line alone, in any month, on top of
  *     tiers 2/3 — removed from the merchant/category pool for both tabs before anything else runs.
- *  2. The Monthly tab (current month only) runs first against what's left.
- *  3. The Yearly tab (`[startMonth, currentMonth]`) runs against what's left after ALSO removing
+ *  2. Yearly-ad-hoc-first: for a category with exactly one generic (no merchant, no
+ *     `sourceRecurringId`) yearly line, Monthly's tier 3 never claims that category's leftover
+ *     spend — it's left in the pool so it falls through to the Yearly tab's own generic line
+ *     instead (`deferGenericCategories`). Only when no such unambiguous yearly ad-hoc line exists
+ *     does unmatched spend fall to a monthly generic line (or flag `needsOtherLine` so the page can
+ *     auto-create one at €0).
+ *  3. The Monthly tab (current month only) runs first against what's left.
+ *  4. The Yearly tab (`[startMonth, currentMonth]`) runs against what's left after ALSO removing
  *     whatever Monthly's tier 2/3 just claimed for the current month — the only month the two
  *     windows can overlap on, since Monthly's window is always a subset of Yearly's — AND whatever
  *     a monthly line would have claimed in earlier months of that same window (`claimPastMonthsForMonthlyLines`),
@@ -686,30 +720,118 @@ export function budgetWaterfall(
   categories: Category[],
   startMonth: string,
   currentMonth: string,
+  thresholds: { expense: number; income: number } = { expense: 0.8, income: 0.8 },
 ): { monthly: BudgetWaterfallComparison; yearly: BudgetWaterfallComparison } {
   const monthlyLines = lines.filter((l) => l.frequency === 'monthly')
   const yearlyLines = lines.filter((l) => l.frequency === 'yearly')
+
+  const yearlyGenericCounts = new Map<string, number>()
+  for (const l of yearlyLines) {
+    if (l.sourceRecurringId || l.merchantId) continue
+    yearlyGenericCounts.set(l.categoryId, (yearlyGenericCounts.get(l.categoryId) ?? 0) + 1)
+  }
+  const deferGenericCategories = new Set(
+    [...yearlyGenericCounts].filter(([, count]) => count === 1).map(([categoryId]) => categoryId),
+  )
 
   const { byLineId: tier1ByLineId, claimedIds: tier1ClaimedIds } = claimByRecurringIdentity(lines, txns)
   const poolAfterTier1 = txns.filter((t) => !tier1ClaimedIds.has(t.id))
 
   const monthlyPool = poolAfterTier1.filter((t) => t.date.slice(0, 7) === currentMonth)
-  const { comparison: monthly, claimedTxnIds: monthlyClaimed } =
-    budgetWaterfallForFrequency(monthlyLines, monthlyPool, categories, tier1ByLineId, currentMonth, currentMonth)
+  const { comparison: monthly, claimedTxnIds: monthlyClaimed } = budgetWaterfallForFrequency(
+    monthlyLines,
+    monthlyPool,
+    categories,
+    tier1ByLineId,
+    currentMonth,
+    currentMonth,
+    deferGenericCategories,
+    thresholds,
+  )
 
   const pastMonthsPool = poolAfterTier1.filter((t) => {
     const m = t.date.slice(0, 7)
     return m >= startMonth && m < currentMonth
   })
-  const pastMonthsClaimed = claimPastMonthsForMonthlyLines(monthlyLines, pastMonthsPool, categories)
+  const pastMonthsClaimed = claimPastMonthsForMonthlyLines(monthlyLines, pastMonthsPool, categories, deferGenericCategories)
 
   const yearlyPool = poolAfterTier1.filter((t) => {
     const m = t.date.slice(0, 7)
     return m >= startMonth && m <= currentMonth && !monthlyClaimed.has(t.id) && !pastMonthsClaimed.has(t.id)
   })
   const { comparison: yearly } =
-    budgetWaterfallForFrequency(yearlyLines, yearlyPool, categories, tier1ByLineId, startMonth, currentMonth)
+    budgetWaterfallForFrequency(yearlyLines, yearlyPool, categories, tier1ByLineId, startMonth, currentMonth, new Set(), thresholds)
 
+  return { monthly, yearly }
+}
+
+/** Sum of budget-linked recurring amounts (lines with `sourceRecurringId` set, of the given
+ *  `kind`) expected in-window but not yet cleared: either no transaction recorded yet for that
+ *  occurrence (instance status 'expected'), or one recorded but not cleared. A cleared,
+ *  linked instance is already counted in `budgetWaterfall`'s `actual` and is excluded here to
+ *  avoid double-counting. Reuses the already-materialized `recurringInstances` rows (see
+ *  lib/recurring-instances.ts) instead of recomputing cadence/month-rules math. Also breaks the
+ *  total down by category so a single category's bar can show its own not-yet-cleared amount. */
+export function plannedUncleared(
+  lines: BudgetLineLite[],
+  recurring: Recurring[],
+  instances: RecurringInstance[],
+  transactions: BudgetActualTxn[],
+  startMonth: string,
+  currentMonth: string,
+  kind: 'expense' | 'income',
+): { monthly: number; yearly: number; monthlyByCategory: Map<string, number>; yearlyByCategory: Map<string, number> } {
+  const recurringById = new Map(recurring.map((r) => [r.id, r]))
+  const txnById = new Map(transactions.map((t) => [t.id, t]))
+
+  const sumWindow = (freqLines: BudgetLineLite[], windowStart: string, windowEnd: string) => {
+    const lineByRecurringId = new Map(
+      freqLines.filter((l) => l.kind === kind && l.sourceRecurringId).map((l) => [l.sourceRecurringId as string, l]),
+    )
+    const byCategory = new Map<string, number>()
+    let total = 0
+    if (lineByRecurringId.size === 0) return { total, byCategory }
+    for (const i of instances) {
+      if (i.status === 'not_applicable' || i.month < windowStart || i.month > windowEnd) continue
+      const line = lineByRecurringId.get(i.recurringId)
+      if (!line) continue
+      const r = recurringById.get(i.recurringId)
+      if (!r || r.kind !== kind) continue
+      let amount = Number(r.amount)
+      if (i.status === 'linked' && i.transactionId) {
+        const t = txnById.get(i.transactionId)
+        if (t) {
+          if (t.cleared === 1) continue
+          amount = Number(t.amount)
+        }
+      }
+      total += amount
+      byCategory.set(line.categoryId, (byCategory.get(line.categoryId) ?? 0) + amount)
+    }
+    return { total, byCategory }
+  }
+
+  const monthly = sumWindow(lines.filter((l) => l.frequency === 'monthly'), currentMonth, currentMonth)
+  const yearly = sumWindow(lines.filter((l) => l.frequency === 'yearly'), startMonth, currentMonth)
+
+  return {
+    monthly: monthly.total,
+    yearly: yearly.total,
+    monthlyByCategory: monthly.byCategory,
+    yearlyByCategory: yearly.byCategory,
+  }
+}
+
+/** @deprecated use `plannedUncleared(..., 'income')` — kept for existing income-only callers. */
+export function plannedUnclearedIncome(
+  lines: BudgetLineLite[],
+  recurring: Recurring[],
+  instances: RecurringInstance[],
+  transactions: BudgetActualTxn[],
+  startMonth: string,
+  currentMonth: string,
+): { monthly: number; yearly: number } {
+  const { monthly, yearly } = plannedUncleared(lines, recurring, instances, transactions, startMonth, currentMonth, 'income')
   return { monthly, yearly }
 }
 

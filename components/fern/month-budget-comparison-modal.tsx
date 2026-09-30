@@ -4,8 +4,9 @@ import { useMemo, useState } from 'react'
 import { ChevronRight } from 'lucide-react'
 import { Modal } from './modal'
 import { CatSwatch } from './cat-swatch'
+import { COLOR_VARS } from './color-vars'
 import { fmt, formatDate, monthBudgetComparison, type Category } from '@/lib/derive'
-import type { Merchant, BudgetWithLines, Transaction } from '@/lib/db-types'
+import type { Merchant, BudgetWithLines, Transaction, BudgetColorConfig } from '@/lib/db-types'
 
 interface Props {
   open: boolean
@@ -15,17 +16,12 @@ interface Props {
   categories: Category[]
   merchants: Merchant[]
   transactions: Transaction[]
-}
-
-const STATUS_COLOR: Record<'ok' | 'warn' | 'over', string> = {
-  ok: 'var(--sage-ink)',
-  warn: 'var(--butter-ink)',
-  over: 'var(--rose-ink)',
+  budgetColorConfig: BudgetColorConfig
 }
 
 const GRID = 'minmax(0, 1fr) 96px 12px 96px'
 
-export function MonthBudgetComparisonModal({ open, onClose, month, budget, categories, merchants, transactions }: Props) {
+export function MonthBudgetComparisonModal({ open, onClose, month, budget, categories, merchants, transactions, budgetColorConfig }: Props) {
   const [includeYearly, setIncludeYearly] = useState(true)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const merchantById = useMemo(() => new Map(merchants.map((m) => [m.id, m])), [merchants])
@@ -34,9 +30,9 @@ export function MonthBudgetComparisonModal({ open, onClose, month, budget, categ
   const cmp = useMemo(
     () =>
       budget
-        ? monthBudgetComparison(budget.lines, transactions, month, categories, includeYearly)
+        ? monthBudgetComparison(budget.lines, transactions, month, categories, includeYearly, new Date(), budgetColorConfig.threshold)
         : null,
-    [budget, transactions, month, categories, includeYearly],
+    [budget, transactions, month, categories, includeYearly, budgetColorConfig],
   )
 
   const toggle = (id: string) =>
@@ -138,7 +134,7 @@ export function MonthBudgetComparisonModal({ open, onClose, month, budget, categ
                       {cat.category.name}
                     </span>
                   </button>
-                  <span style={{ fontFamily: 'var(--mono-fern)', fontSize: 12, textAlign: 'right', color: STATUS_COLOR[cat.status], borderTop: '1px solid var(--line-soft)', paddingTop: 7 }}>
+                  <span style={{ fontFamily: 'var(--mono-fern)', fontSize: 12, textAlign: 'right', color: COLOR_VARS[budgetColorConfig.colors[cat.status]].ink, borderTop: '1px solid var(--line-soft)', paddingTop: 7 }}>
                     {fmt(cat.actual)}
                   </span>
                   <span style={{ textAlign: 'center', color: 'var(--ink-faint)', borderTop: '1px solid var(--line-soft)', paddingTop: 7 }}>/</span>

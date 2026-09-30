@@ -141,6 +141,13 @@
       "when": 1790500000000,
       "tag": "0019_budget_line_source_recurring",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1790600000000,
+      "tag": "0020_budget_colors",
+      "breakpoints": true
     }
   ]
 }
