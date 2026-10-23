@@ -41,11 +41,7 @@ export type TaxIncomeRow = {
 export const getAvailableTaxYears = cache(async (): Promise<string[]> => {
   const cats = await db.select().from(categories)
   const qualifyingIds = cats
-    .filter(
-      (c) =>
-        c.kind === 'income' &&
-        (c.name === REIMBURSEMENT_CATEGORY_NAME || c.isPensionAlimentaire === 1),
-    )
+    .filter((c) => c.name === REIMBURSEMENT_CATEGORY_NAME || c.isPensionAlimentaire === 1)
     .map((c) => c.id)
 
   if (qualifyingIds.length === 0) return []
@@ -71,10 +67,10 @@ export const getTaxData = cache(async (year: number): Promise<TaxIncomeRow[]> =>
   // Step 1: qualifying category ids
   const cats = await db.select().from(categories)
   const reimbursementCategoryIds = new Set(
-    cats.filter((c) => c.kind === 'income' && c.name === REIMBURSEMENT_CATEGORY_NAME).map((c) => c.id),
+    cats.filter((c) => c.name === REIMBURSEMENT_CATEGORY_NAME).map((c) => c.id),
   )
   const pensionCategoryIds = new Set(
-    cats.filter((c) => c.kind === 'income' && c.isPensionAlimentaire === 1).map((c) => c.id),
+    cats.filter((c) => c.isPensionAlimentaire === 1).map((c) => c.id),
   )
   const qualifyingIds = [
     ...reimbursementCategoryIds,

@@ -15,6 +15,8 @@ import {
   budgetLineMonthly,
   budgetCategoryMonthly,
   budgetWaterfall,
+  balanceToDate,
+  plannedToMonthEnd,
   ratioState,
   plannedUnclearedIncome,
   monthBudgetComparison,
@@ -292,6 +294,38 @@ describe('budgetLineMonthly / budgetCategoryMonthly', () => {
   })
 })
 
+describe('balanceToDate', () => {
+  const txn = (date: string, kind: 'expense' | 'income', amount: number) =>
+    ({ id: date + kind, date, amount, kind, categoryId: 'c', merchantId: null, recurringId: null, cleared: 1 })
+
+  it('sums income minus expenses within the window only', () => {
+    const txns = [
+      txn('2026-03-31', 'income', 1000),
+      txn('2026-04-01', 'income', 2000),
+      txn('2026-05-10', 'expense', 500),
+      txn('2026-06-15', 'expense', 300),
+      txn('2026-07-01', 'expense', 999),
+    ]
+    expect(balanceToDate(txns, '2026-04', '2026-06')).toEqual({ income: 2000, expense: 800, balance: 1200 })
+  })
+})
+
+describe('plannedToMonthEnd', () => {
+  it('adds future transactions and only this month\'s still-expected recurring', () => {
+    const recurring = [
+      { id: 'rent', kind: 'expense', amount: 900 },
+      { id: 'salary', kind: 'income', amount: 3000 },
+    ] as Recurring[]
+    const instances = [
+      { recurringId: 'rent', month: '2026-10', status: 'expected' },
+      { recurringId: 'salary', month: '2026-10', status: 'linked' },
+      { recurringId: 'rent', month: '2026-09', status: 'expected' },
+    ] as RecurringInstance[]
+    const planned = [{ amount: 50, kind: 'expense' as const }, { amount: 200, kind: 'income' as const }]
+    expect(plannedToMonthEnd(planned, recurring, instances, '2026-10')).toEqual({ income: 200, expense: 950 })
+  })
+})
+
 describe('budgetWaterfall', () => {
   const cat = (o: Partial<Category>): Category =>
     ({
@@ -467,13 +501,33 @@ describe('budgetWaterfall', () => {
   })
 
   it('uses thresholds.income independently of thresholds.expense for an income category', () => {
-    const categories = [cat({ id: 'inc', kind: 'income' })]
+    const categories = [cat({ id: 'inc' })]
     const lines = [line({ id: 'l1', categoryId: 'inc', kind: 'income', amount: 100 })]
     const txns = [atxn({ id: 't1', amount: 85, categoryId: 'inc', kind: 'income', date: '2026-09-05' })]
     const currentMonth = '2026-09'
     const { monthly } = budgetWaterfall(lines, txns, categories, currentMonth, currentMonth, { expense: 0.5, income: 0.9 })
     // income's own threshold (0.9) applies here, not expense's 0.5 — 85 is under 90, so 'under'.
     expect(monthly.categories.find((cc) => cc.category.id === 'inc')?.status).toBe('under')
+  })
+
+  it('budgets one category separately for expenses and income', () => {
+    const categories = [cat({ id: 'home' })]
+    const lines = [
+      line({ id: 'le', categoryId: 'home', kind: 'expense', amount: 900 }),
+      line({ id: 'li', categoryId: 'home', kind: 'income', amount: 300 }),
+    ]
+    const txns = [
+      atxn({ id: 't1', amount: 850, categoryId: 'home', kind: 'expense', date: '2026-09-02' }),
+      atxn({ id: 't2', amount: 250, categoryId: 'home', kind: 'income', date: '2026-09-03' }),
+    ]
+    const { monthly } = budgetWaterfall(lines, txns, categories, '2026-09', '2026-09')
+    const rows = monthly.categories.map((c) => ({ kind: c.kind, budgeted: c.budgeted, actual: c.actual }))
+    expect(rows).toEqual([
+      { kind: 'expense', budgeted: 900, actual: 850 },
+      { kind: 'income', budgeted: 300, actual: 250 },
+    ])
+    expect(monthly.expense.actual).toBe(850)
+    expect(monthly.income.actual).toBe(250)
   })
 })
 
@@ -499,8 +553,12 @@ describe('ratioState', () => {
     expect(ratioState(40, 100, 0.5)).toBe('under')
   })
 
-  it('is always under when budgeted is zero', () => {
-    expect(ratioState(100, 0, 0.8)).toBe('under')
+  it('is atOrOver when there is spend but no budget', () => {
+    expect(ratioState(100, 0, 0.8)).toBe('atOrOver')
+  })
+
+  it('is under when there is neither spend nor budget', () => {
+    expect(ratioState(0, 0, 0.8)).toBe('under')
   })
 })
 

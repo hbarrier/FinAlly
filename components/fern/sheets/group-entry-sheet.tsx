@@ -109,7 +109,7 @@ export function GroupEntrySheet({
     overrideTotal <= amountNum + 0.005
 
   const memberName = new Map(members.map((m) => [m.id, m.name]))
-  const catOptions = categories.filter((c) => c.kind === direction && c.isActive === 1)
+  const catOptions = categories.filter((c) => c.isActive === 1)
 
   const submit = () => {
     onSave({

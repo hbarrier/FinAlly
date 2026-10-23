@@ -17,6 +17,8 @@ import { COLOR_VARS } from '@/components/fern/color-vars'
 import {
   fmt,
   budgetWaterfall,
+  balanceToDate,
+  plannedToMonthEnd,
   ratioState,
   plannedUncleared,
   type Category,
@@ -27,7 +29,8 @@ import {
 } from '@/lib/derive'
 import { addMonths, currentMonth, monthsBetween } from '@/lib/dates'
 import { formatConfig } from '@/lib/format-config'
-import type { RecentBudgetTxn } from '@/lib/queries/month-actuals'
+import { BUDGET_START_MONTH_COOKIE } from '@/lib/settings-options'
+import type { PlannedBudgetTxn, RecentBudgetTxn } from '@/lib/queries/month-actuals'
 import type { Merchant, BudgetLine, BudgetWithLines, BudgetColorSettings } from '@/lib/db-types'
 import { confirmDialog } from '@/lib/dialogs-store'
 import {
@@ -45,18 +48,24 @@ interface BudgetsClientProps {
   merchants: Merchant[]
   budget: BudgetWithLines | null
   recentTransactions: RecentBudgetTxn[]
+  plannedTransactions: PlannedBudgetTxn[]
   recurringItems: Recurring[]
   recurringInstances: RecurringInstance[]
   recurringEnabled: boolean
   budgetColors: BudgetColorSettings
+  initialStartMonth: string
 }
 
-const linesByCategory = (lines: BudgetLine[]) => {
+type BudgetKind = 'expense' | 'income'
+
+/** A category is budgeted separately for expenses and for income. */
+const slotKey = (kind: BudgetKind, categoryId: string) => `${kind}:${categoryId}`
+
+const linesBySlot = (lines: BudgetLine[]) => {
   const map = new Map<string, BudgetLine[]>()
   for (const l of lines) {
-    const arr = map.get(l.categoryId) ?? []
-    arr.push(l)
-    map.set(l.categoryId, arr)
+    const key = slotKey(l.kind, l.categoryId)
+    map.set(key, [...(map.get(key) ?? []), l])
   }
   return map
 }
@@ -66,29 +75,36 @@ export function BudgetsClient({
   merchants,
   budget,
   recentTransactions,
+  plannedTransactions,
   recurringItems,
   recurringInstances,
   recurringEnabled,
   budgetColors,
+  initialStartMonth,
 }: BudgetsClientProps) {
   const router = useRouter()
   const { run, pending } = useServerAction()
   const [editingBudget, setEditingBudget] = useState<'new' | 'edit' | null>(null)
-  const [editingLine, setEditingLine] = useState<{ line: BudgetLine | null; category: Category } | null>(null)
+  const [editingLine, setEditingLine] = useState<{ line: BudgetLine | null; category: Category; kind: BudgetKind } | null>(null)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [activeTab, setActiveTab] = useState<'monthly' | 'yearly'>('monthly')
-  const [showAllIncome, setShowAllIncome] = useState(false)
-  const [movementsFor, setMovementsFor] = useState<{ category: Category; line: BudgetLineLite } | null>(null)
+  const [showAll, setShowAll] = useState<Record<BudgetKind, boolean>>({ expense: false, income: false })
+  const [movementsFor, setMovementsFor] = useState<{ category: Category; kind: BudgetKind; line: BudgetLineLite } | null>(null)
   const thisMonth = currentMonth()
-  const [startMonth, setStartMonth] = useState(thisMonth)
+  const [startMonth, setStartMonth] = useState(initialStartMonth)
+
+  const changeStartMonth = (month: string) => {
+    setStartMonth(month)
+    document.cookie = `${BUDGET_START_MONTH_COOKIE}=${month}; path=/; max-age=31536000; samesite=lax`
+  }
 
   const lines = useMemo(() => budget?.lines ?? [], [budget])
   const merchantById = useMemo(() => new Map(merchants.map((m) => [m.id, m])), [merchants])
 
   const monthlyLines = useMemo(() => lines.filter((l) => l.frequency === 'monthly'), [lines])
   const yearlyLines = useMemo(() => lines.filter((l) => l.frequency === 'yearly'), [lines])
-  const monthlyLinesByCat = useMemo(() => linesByCategory(monthlyLines), [monthlyLines])
-  const yearlyLinesByCat = useMemo(() => linesByCategory(yearlyLines), [yearlyLines])
+  const monthlyLinesBySlot = useMemo(() => linesBySlot(monthlyLines), [monthlyLines])
+  const yearlyLinesBySlot = useMemo(() => linesBySlot(yearlyLines), [yearlyLines])
 
   const waterfall = useMemo(
     () =>
@@ -97,6 +113,14 @@ export function BudgetsClient({
         income: budgetColors.income.threshold,
       }),
     [lines, recentTransactions, categories, startMonth, thisMonth, budgetColors],
+  )
+  const balance = useMemo(
+    () => balanceToDate(recentTransactions, startMonth, thisMonth),
+    [recentTransactions, startMonth, thisMonth],
+  )
+  const plannedMonthEnd = useMemo(
+    () => plannedToMonthEnd(plannedTransactions, recurringItems, recurringInstances, thisMonth),
+    [plannedTransactions, recurringItems, recurringInstances, thisMonth],
   )
   const plannedIncome = useMemo(
     () => plannedUncleared(lines, recurringItems, recurringInstances, recentTransactions, startMonth, thisMonth, 'income'),
@@ -107,8 +131,8 @@ export function BudgetsClient({
     [lines, recurringItems, recurringInstances, recentTransactions, startMonth, thisMonth],
   )
   const plannedFor = useCallback(
-    (c: Category) => {
-      const source = c.kind === 'income' ? plannedIncome : plannedExpense
+    (c: Category, kind: BudgetKind) => {
+      const source = kind === 'income' ? plannedIncome : plannedExpense
       const byCategory = activeTab === 'monthly' ? source.monthlyByCategory : source.yearlyByCategory
       return byCategory.get(c.id) ?? 0
     },
@@ -120,14 +144,15 @@ export function BudgetsClient({
     [budgetColors],
   )
   const monthlyCatById = useMemo(
-    () => new Map(waterfall.monthly.categories.map((c) => [c.category.id, c])),
+    () => new Map(waterfall.monthly.categories.map((c) => [slotKey(c.kind, c.category.id), c])),
     [waterfall],
   )
   const yearlyCatById = useMemo(
-    () => new Map(waterfall.yearly.categories.map((c) => [c.category.id, c])),
+    () => new Map(waterfall.yearly.categories.map((c) => [slotKey(c.kind, c.category.id), c])),
     [waterfall],
   )
-  const catById = activeTab === 'monthly' ? monthlyCatById : yearlyCatById
+  const catBySlot = activeTab === 'monthly' ? monthlyCatById : yearlyCatById
+  const linesBySlotForTab = activeTab === 'monthly' ? monthlyLinesBySlot : yearlyLinesBySlot
 
   const monthOptions = useMemo(() => {
     const months = monthsBetween(addMonths(thisMonth, -11), thisMonth)
@@ -141,49 +166,34 @@ export function BudgetsClient({
       .reverse()
   }, [thisMonth])
 
-  const visibleMonthly = useCallback((c: Category) => c.isActive === 1 || monthlyLinesByCat.has(c.id), [monthlyLinesByCat])
-  const visibleYearly = useCallback((c: Category) => c.isActive === 1 || yearlyLinesByCat.has(c.id), [yearlyLinesByCat])
-
-  const monthlyBudgetedFor = useCallback((catId: string) => monthlyCatById.get(catId)?.budgeted ?? 0, [monthlyCatById])
-  const yearlyBudgetedFor = useCallback((catId: string) => yearlyCatById.get(catId)?.budgeted ?? 0, [yearlyCatById])
-
-  const expenseCatsMonthly = useMemo(
-    () => categories.filter((c) => c.kind === 'expense' && c.isSavings !== 1 && visibleMonthly(c)).sort((a, b) => monthlyBudgetedFor(b.id) - monthlyBudgetedFor(a.id)),
-    [categories, monthlyBudgetedFor, visibleMonthly],
+  /** Categories listed under `kind`: those with a budget or actuals for it, or every
+   *  active category once the section is expanded with "Display all". */
+  const sectionCats = useCallback(
+    (kind: BudgetKind) => {
+      const budgetedFor = (c: Category) => catBySlot.get(slotKey(kind, c.id))?.budgeted ?? 0
+      const all = categories
+        .filter((c) => c.isSavings !== 1 && (c.isActive === 1 || linesBySlotForTab.has(slotKey(kind, c.id))))
+        .sort((a, b) => budgetedFor(b) - budgetedFor(a))
+      const shown = showAll[kind] ? all : all.filter((c) => catBySlot.has(slotKey(kind, c.id)))
+      return { shown, hidden: all.length - shown.length }
+    },
+    [categories, catBySlot, linesBySlotForTab, showAll],
   )
-  const incomeCatsMonthlyAll = useMemo(
-    () => categories.filter((c) => c.kind === 'income' && visibleMonthly(c)).sort((a, b) => monthlyBudgetedFor(b.id) - monthlyBudgetedFor(a.id)),
-    [categories, monthlyBudgetedFor, visibleMonthly],
+  const expenseSection = useMemo(() => sectionCats('expense'), [sectionCats])
+  const incomeSection = useMemo(() => sectionCats('income'), [sectionCats])
+  const allSlotKeys = useMemo(
+    () => [
+      ...expenseSection.shown.map((c) => slotKey('expense', c.id)),
+      ...incomeSection.shown.map((c) => slotKey('income', c.id)),
+    ],
+    [expenseSection, incomeSection],
   )
-  const incomeCatsMonthly = useMemo(
-    () => (showAllIncome ? incomeCatsMonthlyAll : incomeCatsMonthlyAll.filter((c) => monthlyCatById.has(c.id))),
-    [incomeCatsMonthlyAll, showAllIncome, monthlyCatById],
-  )
-
-  const expenseCatsYearly = useMemo(
-    () => categories.filter((c) => c.kind === 'expense' && c.isSavings !== 1 && visibleYearly(c)).sort((a, b) => yearlyBudgetedFor(b.id) - yearlyBudgetedFor(a.id)),
-    [categories, yearlyBudgetedFor, visibleYearly],
-  )
-  const incomeCatsYearlyAll = useMemo(
-    () => categories.filter((c) => c.kind === 'income' && visibleYearly(c)).sort((a, b) => yearlyBudgetedFor(b.id) - yearlyBudgetedFor(a.id)),
-    [categories, yearlyBudgetedFor, visibleYearly],
-  )
-  const incomeCatsYearly = useMemo(
-    () => (showAllIncome ? incomeCatsYearlyAll : incomeCatsYearlyAll.filter((c) => yearlyCatById.has(c.id))),
-    [incomeCatsYearlyAll, showAllIncome, yearlyCatById],
-  )
-
-  const expenseCats = activeTab === 'monthly' ? expenseCatsMonthly : expenseCatsYearly
-  const incomeCats = activeTab === 'monthly' ? incomeCatsMonthly : incomeCatsYearly
-  const incomeCatsAll = activeTab === 'monthly' ? incomeCatsMonthlyAll : incomeCatsYearlyAll
-  const hiddenIncomeCount = incomeCatsAll.length - incomeCats.length
-  const allCatIds = useMemo(() => [...expenseCats, ...incomeCats].map((c) => c.id), [expenseCats, incomeCats])
 
   const movements = useMemo(() => {
     if (!movementsFor) return []
-    const catLines = catById.get(movementsFor.category.id)?.lines ?? []
+    const catLines = catBySlot.get(slotKey(movementsFor.kind, movementsFor.category.id))?.lines ?? []
     return catLines.find((cl) => cl.line.id === movementsFor.line.id)?.movements ?? []
-  }, [movementsFor, catById])
+  }, [movementsFor, catBySlot])
 
   const handleSaveBudget = (data: { name: string; description: string | null }) => {
     run(async () => {
@@ -212,47 +222,48 @@ export function BudgetsClient({
     run(() => deleteBudget(budget.id))
   }
 
-  const toggle = (catId: string) =>
+  const toggle = (key: string) =>
     setExpanded((prev) => {
       const next = new Set(prev)
-      if (next.has(catId)) next.delete(catId)
-      else next.add(catId)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
       return next
     })
 
-  const renderCategory = (c: Category) => {
-    const catResult = catById.get(c.id)
+  const renderCategory = (c: Category, kind: BudgetKind) => {
+    const key = slotKey(kind, c.id)
+    const catResult = catBySlot.get(key)
     const actual = catResult?.actual ?? 0
     const limit = catResult?.budgeted ?? 0
     const catLines = catResult?.lines ?? []
-    const isOpen = expanded.has(c.id)
-    const state = ratioState(actual, limit, budgetColors[c.kind].threshold)
-    const isBad = c.kind === 'income' ? limit > 0 && state === 'under' : state === 'atOrOver'
+    const isOpen = expanded.has(key)
+    const state = ratioState(actual, limit, budgetColors[kind].threshold)
+    const isBad = kind === 'income' ? limit > 0 && state === 'under' : state === 'atOrOver'
     const barPct = limit > 0 ? Math.min(100, (actual / limit) * 100) : actual > 0 ? 100 : 0
-    const catPlanned = plannedFor(c)
+    const catPlanned = plannedFor(c, kind)
     const combined = actual + catPlanned
     const combinedPct = limit > 0 ? Math.min(100, (combined / limit) * 100) : combined > 0 ? 100 : 0
-    const combinedState = ratioState(combined, limit, budgetColors[c.kind].threshold)
+    const combinedState = ratioState(combined, limit, budgetColors[kind].threshold)
     return (
-      <div key={c.id}>
+      <div key={key}>
         <div
-          onClick={() => toggle(c.id)}
+          onClick={() => toggle(key)}
           style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, cursor: 'pointer' }}
         >
           <Icon name={isOpen ? 'chevronDown' : 'chevronRight'} size={14} />
           <CatSwatch color={c.color} icon={c.icon} size={28} />
           <span style={{ flex: 1, fontSize: 14, fontWeight: 500, color: 'var(--ink)' }}>{c.name}</span>
-          {isBad && <Chip tone="expense">{c.kind === 'income' ? 'Behind target' : 'Over'}</Chip>}
+          {isBad && <Chip tone="expense">{kind === 'income' ? 'Behind target' : 'Over'}</Chip>}
           <span style={{ fontSize: 13, color: 'var(--ink-soft)', fontFamily: 'var(--mono-fern)' }}>
             {fmt(limit)} / {fmt(actual)}
           </span>
         </div>
         <div className="fern-budget-bar" style={{ display: 'flex' }}>
-          <div className="fern-budget-fill" style={{ width: `${barPct}%`, background: colorFor(c.kind, state) }} />
+          <div className="fern-budget-fill" style={{ width: `${barPct}%`, background: colorFor(kind, state) }} />
           {catPlanned > 0 && (
             <div
               className="fern-budget-fill"
-              style={{ width: `${Math.max(0, combinedPct - barPct)}%`, background: colorFor(c.kind, combinedState, 'bg') }}
+              style={{ width: `${Math.max(0, combinedPct - barPct)}%`, background: colorFor(kind, combinedState, 'bg') }}
             />
           )}
         </div>
@@ -270,7 +281,7 @@ export function BudgetsClient({
                 >
                   <button
                     type="button"
-                    onClick={() => setEditingLine({ line: l as BudgetLine, category: c })}
+                    onClick={() => setEditingLine({ line: l as BudgetLine, category: c, kind })}
                     style={{ flex: 1, textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink)', padding: 0 }}
                   >
                     {label}
@@ -282,7 +293,7 @@ export function BudgetsClient({
                   {typeof lineActual === 'number' && (
                     <button
                       type="button"
-                      onClick={() => setMovementsFor({ category: c, line: l })}
+                      onClick={() => setMovementsFor({ category: c, kind, line: l })}
                       style={{
                         fontFamily: 'var(--mono-fern)', fontSize: 11, minWidth: 72, textAlign: 'right',
                         color: lineActual > Number(l.amount ?? 0) ? 'var(--rose-ink)' : 'var(--ink-faint)',
@@ -306,7 +317,7 @@ export function BudgetsClient({
             })}
             <button
               type="button"
-              onClick={() => setEditingLine({ line: null, category: c })}
+              onClick={() => setEditingLine({ line: null, category: c, kind })}
               style={{ alignSelf: 'flex-start', fontSize: 12, color: 'var(--teal-ink)', background: 'none', border: 'none', cursor: 'pointer', padding: '4px 0' }}
             >
               <Icon name="plus" size={12} /> Add line
@@ -323,14 +334,12 @@ export function BudgetsClient({
     tab,
     total,
     planned = 0,
-    showPicker = false,
   }: {
     kind: 'expense' | 'income'
     label: string
     tab: 'monthly' | 'yearly'
     total: { budgeted: number; actual: number }
     planned?: number
-    showPicker?: boolean
   }) => {
     const threshold = budgetColors[kind].threshold
     const state = ratioState(total.actual, total.budgeted, threshold)
@@ -379,15 +388,62 @@ export function BudgetsClient({
               ? `${fmt(total.actual - total.budgeted)} over budget`
               : `${fmt(total.budgeted - total.actual)} under budget`}
           </div>
-          {showPicker && (
-            <div style={{ minWidth: 160 }} onClick={(e) => e.stopPropagation()}>
-              <SearchableSelect value={startMonth} onChange={(v) => v && setStartMonth(v)} options={monthOptions} placeholder="Starting month" />
-            </div>
-          )}
         </div>
       </div>
     )
   }
+
+  const renderBalanceCard = ({
+    label,
+    row,
+    amount,
+    income,
+    expense,
+  }: {
+    label: string
+    row: number
+    amount: number
+    income: number
+    expense: number
+  }) => {
+    const state = ratioState(expense, income, budgetColors.expense.threshold)
+    return (
+      <div className="fern-card" style={{ gridColumn: 3, gridRow: row, background: colorFor('expense', state, 'bg') }}>
+        <div style={{ fontSize: 12, fontFamily: 'var(--mono-fern)', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--ink-faint)', marginBottom: 8 }}>
+          {label}
+        </div>
+        <Money amount={amount} />
+        <div style={{ marginTop: 12, fontSize: 13, fontFamily: 'var(--mono-fern)', color: 'var(--ink-soft)' }}>
+          +{fmt(income)} · −{fmt(expense)}
+        </div>
+      </div>
+    )
+  }
+
+  const renderSection = (kind: BudgetKind, title: string, section: { shown: Category[]; hidden: number }) => (
+    <div className="fern-card" style={{ marginBottom: 24 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: 'var(--ink)' }}>{title}</h3>
+        {(showAll[kind] || section.hidden > 0) && (
+          <FernButton tone="outline" onClick={() => setShowAll((prev) => ({ ...prev, [kind]: !prev[kind] }))}>
+            {showAll[kind] ? 'Hide empty' : `Display all (${section.hidden})`}
+          </FernButton>
+        )}
+      </div>
+      {section.shown.length === 0 ? (
+        <EmptyState
+          illu="∅"
+          title={`No ${title.toLowerCase()} to show`}
+          description="Nothing budgeted or recorded for this period. Use Display all to budget a category."
+          style={{ padding: '40px 20px' }}
+        />
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {section.shown.map((c) => renderCategory(c, kind))}
+        </div>
+      )}
+    </div>
+  )
 
   return (
     <div>
@@ -398,7 +454,10 @@ export function BudgetsClient({
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             {budget && (
               <>
-                <FernButton tone="outline" onClick={() => setExpanded(new Set(allCatIds))}>Expand all</FernButton>
+                <div style={{ minWidth: 170 }}>
+                  <SearchableSelect value={startMonth} onChange={(v) => v && changeStartMonth(v)} options={monthOptions} placeholder="Starting month" />
+                </div>
+                <FernButton tone="outline" onClick={() => setExpanded(new Set(allSlotKeys))}>Expand all</FernButton>
                 <FernButton tone="outline" onClick={() => setExpanded(new Set())}>Collapse all</FernButton>
                 <FernButton tone="outline" onClick={() => setEditingBudget('edit')}>
                   <Icon name="edit" size={14} /> Edit
@@ -430,7 +489,21 @@ export function BudgetsClient({
         />
       ) : (
         <>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr minmax(200px, 0.7fr)', gap: 16, marginBottom: 24 }}>
+            {renderBalanceCard({
+              label: 'Balance to date',
+              row: 1,
+              amount: balance.balance,
+              income: balance.income,
+              expense: balance.expense,
+            })}
+            {renderBalanceCard({
+              label: 'Balance at month end',
+              row: 2,
+              amount: balance.balance + plannedMonthEnd.income - plannedMonthEnd.expense,
+              income: balance.income + plannedMonthEnd.income,
+              expense: balance.expense + plannedMonthEnd.expense,
+            })}
             {renderTotalCard({
               kind: 'expense',
               label: 'Expenses · Monthly',
@@ -444,7 +517,6 @@ export function BudgetsClient({
               tab: 'yearly',
               total: waterfall.yearly.expense,
               planned: plannedExpense.yearly,
-              showPicker: true,
             })}
             {renderTotalCard({
               kind: 'income',
@@ -462,39 +534,8 @@ export function BudgetsClient({
             })}
           </div>
 
-          <div className="fern-card" style={{ marginBottom: 24 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
-              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: 'var(--ink)' }}>Expenses</h3>
-              <span style={{ fontSize: 12, color: 'var(--ink-faint)' }}>Category totals are the sum of their lines</span>
-            </div>
-            {expenseCats.length === 0 ? (
-              <EmptyState illu="∅" title="No expense categories" description="Add expense categories first." style={{ padding: '40px 20px' }} />
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                {expenseCats.map((c) => renderCategory(c))}
-              </div>
-            )}
-          </div>
-
-          {incomeCatsAll.length > 0 && (
-            <div className="fern-card">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: 'var(--ink)' }}>Revenues</h3>
-                {(showAllIncome || hiddenIncomeCount > 0) && (
-                  <FernButton tone="outline" onClick={() => setShowAllIncome((v) => !v)}>
-                    {showAllIncome ? 'Hide empty' : `Display all (${hiddenIncomeCount})`}
-                  </FernButton>
-                )}
-              </div>
-              {incomeCats.length === 0 ? (
-                <EmptyState illu="∅" title="No revenue to show" description="All revenue categories are empty for this period." style={{ padding: '40px 20px' }} />
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                  {incomeCats.map((c) => renderCategory(c))}
-                </div>
-              )}
-            </div>
-          )}
+          {renderSection('expense', 'Expenses', expenseSection)}
+          {renderSection('income', 'Revenues', incomeSection)}
         </>
       )}
 
@@ -509,6 +550,7 @@ export function BudgetsClient({
         open={editingLine !== null}
         onClose={() => setEditingLine(null)}
         category={editingLine?.category ?? null}
+        kind={editingLine?.kind ?? 'expense'}
         merchants={merchants}
         recurringItems={recurringItems}
         recurringEnabled={recurringEnabled}
@@ -516,7 +558,7 @@ export function BudgetsClient({
         initialFrequency={activeTab}
         onSave={(data) => {
           if (!budget || !editingLine) return
-          const { category, line } = editingLine
+          const { category, kind, line } = editingLine
           run(async () => {
             if (line) {
               await updateBudgetLine(line.id, {
@@ -530,7 +572,7 @@ export function BudgetsClient({
             } else {
               await addBudgetLine(budget.id, {
                 name: data.name,
-                kind: category.kind,
+                kind,
                 categoryId: category.id,
                 merchantId: data.merchantId,
                 amount: data.amount,

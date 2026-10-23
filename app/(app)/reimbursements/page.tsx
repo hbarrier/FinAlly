@@ -55,7 +55,7 @@ export default async function ReimbursementsPage({
 
   // Fetch all cleared Remboursements income transactions (for the picker)
   const reimbCatIds = cats
-    .filter((c) => c.kind === 'income' && c.name === REIMBURSEMENT_CATEGORY_NAME)
+    .filter((c) => c.name === REIMBURSEMENT_CATEGORY_NAME)
     .map((c) => c.id)
   const eligibleIncomes = reimbCatIds.length > 0
     ? await db.select().from(transactions).where(

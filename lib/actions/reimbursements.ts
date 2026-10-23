@@ -89,7 +89,6 @@ export async function mapReimbursementIncomeToExpenses(
         kind: transactions.kind,
         categoryId: transactions.categoryId,
         categoryName: categories.name,
-        categoryKind: categories.kind,
       })
       .from(transactions)
       .leftJoin(categories, eq(transactions.categoryId, categories.id))
@@ -99,8 +98,7 @@ export async function mapReimbursementIncomeToExpenses(
     if (
       !income ||
       income.kind !== 'income' ||
-      income.categoryName !== REIMBURSEMENT_CATEGORY_NAME ||
-      income.categoryKind !== 'income'
+      income.categoryName !== REIMBURSEMENT_CATEGORY_NAME
     ) {
       throw new Error('Only reimbursement income transactions can be mapped.')
     }

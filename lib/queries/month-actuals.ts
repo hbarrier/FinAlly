@@ -1,8 +1,23 @@
 import { cache } from 'react'
-import { and, gte, inArray, isNull, lte, not } from 'drizzle-orm'
+import { and, gt, gte, inArray, isNull, lte, not } from 'drizzle-orm'
 import { db } from '@/lib/db'
 import { transactions } from '@/lib/schema'
-import { addMonths, currentMonth, firstDayOfMonth, todayISO } from '@/lib/dates'
+import { addMonths, currentMonth, firstDayOfMonth, lastDayOfMonth, todayISO } from '@/lib/dates'
+
+export type PlannedBudgetTxn = { amount: number; kind: 'expense' | 'income' }
+
+/** Expense/income transactions dated after today through the end of the current month. */
+export const getPlannedTransactionsToMonthEnd = cache(async (ref: Date = new Date()): Promise<PlannedBudgetTxn[]> => {
+  const rows = await db
+    .select({ amount: transactions.amount, kind: transactions.kind })
+    .from(transactions)
+    .where(and(
+      inArray(transactions.kind, ['expense', 'income']),
+      gt(transactions.date, todayISO(ref)),
+      lte(transactions.date, lastDayOfMonth(currentMonth(ref))),
+    ))
+  return rows.map((r) => ({ amount: Number(r.amount ?? 0), kind: r.kind as 'expense' | 'income' }))
+})
 
 export type RecentBudgetTxn = {
   id: string

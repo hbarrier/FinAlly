@@ -41,7 +41,7 @@ describe('mergeMerchants', () => {
     })
     await db.insert(budgets).values({ id: 'b1', name: 'B', isActive: 1 })
     // a category is required for a budget line
-    await db.run('INSERT INTO categories (id, name, kind) VALUES (\'c1\', \'Cat\', \'expense\')')
+    await db.run('INSERT INTO categories (id, name) VALUES (\'c1\', \'Cat\')')
     await db.insert(budgetLines).values({
       id: 'bl1', budgetId: 'b1', kind: 'expense', categoryId: 'c1', amount: 5,
       frequency: 'monthly', merchantId: 'dupe',

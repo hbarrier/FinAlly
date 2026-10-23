@@ -396,6 +396,7 @@ export function SimulationDetailClient({
               title="Yearly budget"
               frequency="yearly"
               lines={yearlyLines}
+              allLines={simulation.lines}
               categories={categories}
               categoryById={categoryById}
               merchantById={merchantById}
@@ -471,6 +472,7 @@ function SimulationFrequencySection({
   title,
   frequency,
   lines,
+  allLines,
   categories,
   categoryById,
   merchantById,
@@ -487,6 +489,8 @@ function SimulationFrequencySection({
   title: string
   frequency: 'monthly' | 'yearly'
   lines: SimulationLine[]
+  /** All simulation lines; when given (yearly), the Net card covers the full year: 12 months + yearly lines. */
+  allLines?: SimulationLine[]
   categories: Category[]
   categoryById: Map<string, Category>
   merchantById: Map<string, Merchant>
@@ -514,12 +518,15 @@ function SimulationFrequencySection({
     [lines, categories, frequency],
   )
 
-  const netMin = totals.income - totals.expense
-  const netMax = totals.income - (expenseByPriority.must + expenseByPriority.should)
+  const netLines = allLines ?? lines
+  const netTotals = useMemo(() => simulationTotals(netLines, frequency), [netLines, frequency])
+  const netByPriority = useMemo(() => simulationExpenseByPriority(netLines, frequency), [netLines, frequency])
+  const netMin = netTotals.income - netTotals.expense
+  const netMax = netTotals.income - (netByPriority.must + netByPriority.should)
+  const netTone = !allLines ? undefined : netMin >= 0 ? 'sage' : netMax >= 0 ? 'butter' : 'rose'
 
-  const sectionNet = totals.income - totals.expense
   const baseline = frequency === 'yearly' ? currentRecurringNet * 12 : currentRecurringNet
-  const delta = sectionNet - baseline
+  const delta = netMin - baseline
 
   const comparison = useMemo(
     () => simulationVsActualsMonthly(lines, transactions, recurringOptions, frequency),
@@ -566,8 +573,8 @@ function SimulationFrequencySection({
             ))}
           </div>
         </div>
-        <div className="fern-card">
-          <div className="fern-page-kicker">Net</div>
+        <div className="fern-card" style={netTone ? { background: `var(--${netTone}-bg)` } : undefined}>
+          <div className="fern-page-kicker">{allLines ? 'Yearly net · 12 months + yearly' : 'Net'}</div>
           {netMin === netMax ? (
             <div className="fern-display" style={{ fontSize: 32, color: netMin >= 0 ? 'var(--sage-ink)' : 'var(--rose-ink)', marginTop: 4 }}>
               {signedFmt(netMin)}

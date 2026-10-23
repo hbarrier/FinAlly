@@ -111,11 +111,10 @@ export function BulkRecurringLinkSheet({
 
   const categoryOptions = useMemo(
     () =>
-      categories
-        .filter((c) => c.kind === dominantKind)
+      [...categories]
         .sort((a, b) => a.name.localeCompare(b.name))
         .map((c) => ({ value: c.id, label: c.name })),
-    [categories, dominantKind],
+    [categories],
   )
 
   const recurringOptions = useMemo(

@@ -594,12 +594,10 @@ export function TransactionsClient({
       const willBeReimbursableExpense = data.kind === 'expense' && data.reimbursable === 1
       const wasReimbursementIncome =
         editingTxn.kind === 'income' &&
-        currentCategory?.kind === 'income' &&
-        currentCategory.name === REIMBURSEMENT_CATEGORY_NAME
+        currentCategory?.name === REIMBURSEMENT_CATEGORY_NAME
       const willBeReimbursementIncome =
         data.kind === 'income' &&
-        nextCategory?.kind === 'income' &&
-        nextCategory.name === REIMBURSEMENT_CATEGORY_NAME
+        nextCategory?.name === REIMBURSEMENT_CATEGORY_NAME
 
       if (mappingCount > 0 && wasReimbursableExpense && !willBeReimbursableExpense) {
         const confirmed = await confirmDialog({

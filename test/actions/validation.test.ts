@@ -35,7 +35,7 @@ describe('server-action input validation', () => {
 
   it('addSimulationLine allows amount 0 but rejects negative', async () => {
     const db = h.db!
-    await db.insert(categories).values({ id: 'c1', name: 'C', kind: 'expense' })
+    await db.insert(categories).values({ id: 'c1', name: 'C' })
     const { addSimulation, addSimulationLine } = await import('@/lib/actions/simulations')
     const { id } = await addSimulation({ name: 'S', description: null })
     await expect(addSimulationLine(id, {
@@ -79,8 +79,8 @@ describe('simulation seeding is idempotent', () => {
   it('seedZeroCategoryLines does not duplicate on a second call', async () => {
     const db = h.db!
     await db.insert(categories).values([
-      { id: 'c1', name: 'Food', kind: 'expense' },
-      { id: 'c2', name: 'Pay', kind: 'income' },
+      { id: 'c1', name: 'Food' },
+      { id: 'c2', name: 'Pay' },
     ])
     const { addSimulation, seedZeroCategoryLines } = await import('@/lib/actions/simulations')
     const { id } = await addSimulation({ name: 'S', description: null })
@@ -94,7 +94,7 @@ describe('simulation seeding is idempotent', () => {
 
   it('populateSimulationFromInputs never double-seeds', async () => {
     const db = h.db!
-    await db.insert(categories).values({ id: 'c1', name: 'Food', kind: 'expense' })
+    await db.insert(categories).values({ id: 'c1', name: 'Food' })
     await db.insert(recurring).values({
       id: 'r1', name: 'Rent', amount: 900, kind: 'expense', cadence: 'monthly', startDate: '2020-01-01',
     })

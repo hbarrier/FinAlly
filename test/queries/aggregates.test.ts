@@ -21,8 +21,8 @@ describe('getCategoryStats', () => {
   it('counts transactions per category and sums this-month non-planned expenses', async () => {
     const db = h.db!
     await db.insert(categories).values([
-      { id: 'food', name: 'Food', kind: 'expense' },
-      { id: 'pay', name: 'Pay', kind: 'income' },
+      { id: 'food', name: 'Food' },
+      { id: 'pay', name: 'Pay' },
     ])
     await db.insert(transactions).values([
       { id: '1', date: '2026-03-02', amount: 10, kind: 'expense', categoryId: 'food' },
@@ -57,7 +57,7 @@ describe('getMerchantUsage', () => {
 describe('getRecentTransactionsForBudget', () => {
   it('returns raw recurringId per transaction, for tier-1 budget waterfall matching', async () => {
     const db = h.db!
-    await db.insert(categories).values([{ id: 'food', name: 'Food', kind: 'expense' }])
+    await db.insert(categories).values([{ id: 'food', name: 'Food' }])
     await db.insert(recurring).values([
       { id: 'rec1', name: 'Groceries', amount: 40, kind: 'expense', categoryId: 'food', cadence: 'monthly', startDate: '2026-01-01' },
     ])

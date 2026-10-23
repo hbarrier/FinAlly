@@ -90,11 +90,10 @@ export function RecurringLinkSheet({
   const watchedCadence = watch('cadence')
 
   const categoryOptions = useMemo(
-    () => categories
-      .filter((c) => c.kind === transaction.kind)
+    () => [...categories]
       .sort((a, b) => a.name.localeCompare(b.name))
       .map((c) => ({ value: c.id, label: c.name })),
-    [categories, transaction.kind],
+    [categories],
   )
 
   const recurringOptions = useMemo(

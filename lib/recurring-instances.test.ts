@@ -18,7 +18,7 @@ describe('ensureInstancesForRecurring / pruneExpiredInstances', () => {
   it('does not create an instance for a month whose occurrence day falls after endDate', async () => {
     const db = h.db!
     const { ensureInstancesForRecurring } = await import('./recurring-instances')
-    await db.insert(categories).values({ id: 'c1', name: 'C', kind: 'income' })
+    await db.insert(categories).values({ id: 'c1', name: 'C' })
     await db.insert(recurring).values({
       id: 'r1', name: 'Pension Alimentaire', amount: 2025, kind: 'income', method: 'transfer',
       categoryId: 'c1', cadence: 'monthly', dayOfMonth: 20,
@@ -34,7 +34,7 @@ describe('ensureInstancesForRecurring / pruneExpiredInstances', () => {
   it('deletes a stale expected instance once endDate is moved before its occurrence day', async () => {
     const db = h.db!
     const { ensureInstancesForRecurring, pruneExpiredInstances } = await import('./recurring-instances')
-    await db.insert(categories).values({ id: 'c1', name: 'C', kind: 'income' })
+    await db.insert(categories).values({ id: 'c1', name: 'C' })
     await db.insert(recurring).values({
       id: 'r1', name: 'Pension Alimentaire', amount: 2025, kind: 'income', method: 'transfer',
       categoryId: 'c1', cadence: 'monthly', dayOfMonth: 20,
@@ -60,7 +60,7 @@ describe('ensureInstancesForRecurring / pruneExpiredInstances', () => {
   it('keeps a linked instance even if it is now past endDate', async () => {
     const db = h.db!
     const { pruneExpiredInstances } = await import('./recurring-instances')
-    await db.insert(categories).values({ id: 'c1', name: 'C', kind: 'income' })
+    await db.insert(categories).values({ id: 'c1', name: 'C' })
     await db.insert(recurring).values({
       id: 'r1', name: 'Pension Alimentaire', amount: 2025, kind: 'income', method: 'transfer',
       categoryId: 'c1', cadence: 'monthly', dayOfMonth: 20,

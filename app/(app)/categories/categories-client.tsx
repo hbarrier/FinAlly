@@ -3,7 +3,6 @@
 import { useState } from 'react'
 import { Icon } from '@/components/fern/icon'
 import { CatSwatch } from '@/components/fern/cat-swatch'
-import { SegmentedControl } from '@/components/fern/segmented-control'
 import { CategorySheet } from '@/components/fern/sheets/category-sheet'
 import { PageHeader } from '@/components/fern/page-header'
 import { FernButton } from '@/components/fern/button'
@@ -21,18 +20,13 @@ interface CategoriesClientProps {
 }
 
 export function CategoriesClient({ categories, stats }: CategoriesClientProps) {
-  const [kindTab, setKindTab] = useState('all')
   const [editing, setEditing] = useState<string | 'new' | null>(null)
   const { run, pending } = useServerAction()
 
   const spending = stats.monthSpend
   const usageById = stats.usage
 
-  const filtered = categories
-    .filter((c) => kindTab === 'all' || c.kind === kindTab)
-    .sort((a, b) => b.isActive - a.isActive)
-  const expenseCount = categories.filter((c) => c.kind === 'expense').length
-  const incomeCount = categories.filter((c) => c.kind === 'income').length
+  const sorted = [...categories].sort((a, b) => b.isActive - a.isActive)
 
   const usage = (id: string) => usageById[id] ?? 0
 
@@ -72,7 +66,7 @@ export function CategoriesClient({ categories, stats }: CategoriesClientProps) {
   return (
     <div>
       <PageHeader
-        kicker={`${categories.length} total · ${expenseCount} expense · ${incomeCount} income`}
+        kicker={`${categories.length} total`}
         title={<>Your <em>categories</em></>}
         actions={
           <FernButton onClick={() => setEditing('new')}>
@@ -80,18 +74,6 @@ export function CategoriesClient({ categories, stats }: CategoriesClientProps) {
           </FernButton>
         }
       />
-
-      <div style={{ marginBottom: 20 }}>
-        <SegmentedControl
-          value={kindTab}
-          onChange={setKindTab}
-          options={[
-            { value: 'all', label: `All (${categories.length})` },
-            { value: 'expense', label: `Expenses (${expenseCount})` },
-            { value: 'income', label: `Income (${incomeCount})` },
-          ]}
-        />
-      </div>
 
       {categories.length === 0 ? (
         <EmptyState
@@ -110,7 +92,7 @@ export function CategoriesClient({ categories, stats }: CategoriesClientProps) {
         />
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
-          {filtered.map((c) => {
+          {sorted.map((c) => {
             const used = usage(c.id)
             const spent = spending[c.id] ?? 0
             const inactive = c.isActive === 0
@@ -122,9 +104,11 @@ export function CategoriesClient({ categories, stats }: CategoriesClientProps) {
                   <CatSwatch color={c.color} icon={c.icon} size={44} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 600, fontSize: 15, color: 'var(--ink)' }}>{c.name}</div>
-                    <div style={{ fontSize: 11, color: 'var(--ink-faint)', fontFamily: 'var(--mono-fern)', textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: 2 }}>
-                      {c.kind}{inactive && ' · Inactive'}
-                    </div>
+                    {inactive && (
+                      <div style={{ fontSize: 11, color: 'var(--ink-faint)', fontFamily: 'var(--mono-fern)', textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: 2 }}>
+                        Inactive
+                      </div>
+                    )}
                   </div>
                   <div style={{ display: 'flex', gap: 2 }}>
                     <button onClick={() => setEditing(c.id)} style={iconBtn}>
@@ -147,7 +131,7 @@ export function CategoriesClient({ categories, stats }: CategoriesClientProps) {
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 14, fontSize: 12, color: 'var(--ink-soft)', borderTop: '1px solid var(--line-soft)', paddingTop: 12 }}>
                   <span>{used} transaction{used === 1 ? '' : 's'}</span>
-                  {c.kind === 'expense' && <span style={{ fontFamily: 'var(--mono-fern)' }}>{fmt(spent)} this month</span>}
+                  {spent > 0 && <span style={{ fontFamily: 'var(--mono-fern)' }}>{fmt(spent)} this month</span>}
                 </div>
               </div>
             )

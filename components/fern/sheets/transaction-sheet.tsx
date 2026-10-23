@@ -155,10 +155,10 @@ export function TransactionSheet({
   const filteredCatsSorted = useMemo(() => {
     if (isSaving || isInterest) return []
     return categories
-      .filter((c) => c.kind === watchedKind && c.isSavings !== 1 && (c.isActive === 1 || c.id === item?.categoryId))
+      .filter((c) => c.isSavings !== 1 && (c.isActive === 1 || c.id === item?.categoryId))
       .slice()
       .sort((a, b) => a.name.localeCompare(b.name))
-  }, [categories, watchedKind, item?.categoryId, isSaving, isInterest])
+  }, [categories, item?.categoryId, isSaving, isInterest])
 
   const merchantOptions = useMemo(
     () => [...merchants]
@@ -200,9 +200,6 @@ export function TransactionSheet({
     if (currentMethod === defaultPaymentMethodForKind(next === 'expense' ? 'income' : 'expense')) {
       setValue('method', defaultPaymentMethodForKind(next), { shouldValidate: true, shouldDirty: true })
     }
-    const current = getValues('categoryId')
-    const stillValid = categories.find((c) => c.kind === next && c.id === current)
-    if (!stillValid) setValue('categoryId', '', { shouldValidate: true, shouldDirty: true })
   }
 
   return (
@@ -377,12 +374,7 @@ export function TransactionSheet({
                       if (mId) {
                         const m = merchants.find((x) => x.id === mId)
                         if (m?.categoryId) {
-                          const catBelongsToKind = categories.some(
-                            (c) => c.id === m.categoryId && c.kind === watchedKind
-                          )
-                          if (catBelongsToKind) {
-                            setValue('categoryId', m.categoryId, { shouldValidate: true, shouldDirty: true })
-                          }
+                          setValue('categoryId', m.categoryId, { shouldValidate: true, shouldDirty: true })
                         }
                       }
                     }}
@@ -406,7 +398,7 @@ export function TransactionSheet({
                   <label className="fern-field-label wide">Category</label>
                   {filteredCatsSorted.length === 0 ? (
                     <p style={{ fontSize: 13, color: 'var(--ink-faint)', padding: '12px', background: 'var(--bg-sunken)', borderRadius: 10 }}>
-                      No {watchedKind} categories — add one in Categories.
+                      No categories — add one in Categories.
                     </p>
                   ) : (
                     <div className="fern-cat-grid">

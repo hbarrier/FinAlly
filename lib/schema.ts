@@ -7,7 +7,6 @@ export const categories = sqliteTable('categories', {
   name: text('name').notNull(),
   icon: text('icon').notNull().default('tag'),
   color: text('color').notNull().default('teal'),
-  kind: text('kind', { enum: ['expense', 'income'] }).notNull(),
   isPensionAlimentaire: int('is_pension_alimentaire').notNull().default(0),
   isSavings: int('is_savings').notNull().default(0),
   isActive: int('is_active').notNull().default(1),

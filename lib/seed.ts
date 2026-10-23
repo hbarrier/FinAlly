@@ -6,21 +6,21 @@ import { flatten, type Messages } from '@/i18n/catalog'
 import frMessages from '@/messages/fr'
 
 const DEFAULT_CATEGORIES = [
-  { icon: 'cat-cart', name: 'Groceries', color: 'sage', kind: 'expense' as const, isPensionAlimentaire: 0 },
-  { icon: 'cat-house', name: 'Rent & utilities', color: 'terracotta', kind: 'expense' as const, isPensionAlimentaire: 0 },
-  { icon: 'cat-bus', name: 'Transport', color: 'teal', kind: 'expense' as const, isPensionAlimentaire: 0 },
-  { icon: 'cat-fork', name: 'Dining out', color: 'rose', kind: 'expense' as const, isPensionAlimentaire: 0 },
-  { icon: 'cat-film', name: 'Entertainment', color: 'lilac', kind: 'expense' as const, isPensionAlimentaire: 0 },
-  { icon: 'cat-heart', name: 'Health', color: 'butter', kind: 'expense' as const, isPensionAlimentaire: 0 },
-  { icon: 'cat-briefcase', name: 'Salary', color: 'sage', kind: 'income' as const, isPensionAlimentaire: 0 },
-  { icon: 'cat-pen', name: 'Freelance', color: 'teal', kind: 'income' as const, isPensionAlimentaire: 0 },
+  { icon: 'cat-cart', name: 'Groceries', color: 'sage', isPensionAlimentaire: 0 },
+  { icon: 'cat-house', name: 'Rent & utilities', color: 'terracotta', isPensionAlimentaire: 0 },
+  { icon: 'cat-bus', name: 'Transport', color: 'teal', isPensionAlimentaire: 0 },
+  { icon: 'cat-fork', name: 'Dining out', color: 'rose', isPensionAlimentaire: 0 },
+  { icon: 'cat-film', name: 'Entertainment', color: 'lilac', isPensionAlimentaire: 0 },
+  { icon: 'cat-heart', name: 'Health', color: 'butter', isPensionAlimentaire: 0 },
+  { icon: 'cat-briefcase', name: 'Salary', color: 'sage', isPensionAlimentaire: 0 },
+  { icon: 'cat-pen', name: 'Freelance', color: 'teal', isPensionAlimentaire: 0 },
 ]
 
 // Special categories that must always exist (seeded by name, not in the initial batch)
 const SPECIAL_CATEGORIES = [
-  { icon: 'receipt', name: REIMBURSEMENT_CATEGORY_NAME, color: 'teal', kind: 'income' as const, isPensionAlimentaire: 0, isSavings: 0 },
-  { icon: 'cat-gift', name: 'Child support', color: 'lilac', kind: 'income' as const, isPensionAlimentaire: 1, isSavings: 0 },
-  { icon: 'cat-seed', name: SAVINGS_CATEGORY_NAME, color: 'sage', kind: 'expense' as const, isPensionAlimentaire: 0, isSavings: 1 },
+  { icon: 'receipt', name: REIMBURSEMENT_CATEGORY_NAME, color: 'teal', isPensionAlimentaire: 0, isSavings: 0 },
+  { icon: 'cat-gift', name: 'Child support', color: 'lilac', isPensionAlimentaire: 1, isSavings: 0 },
+  { icon: 'cat-seed', name: SAVINGS_CATEGORY_NAME, color: 'sage', isPensionAlimentaire: 0, isSavings: 1 },
 ]
 
 // Singleton: only seed once per process regardless of how many pages call it

@@ -55,6 +55,7 @@ interface BudgetLineSheetProps {
   open: boolean
   onClose: () => void
   category: Category | null
+  kind: 'expense' | 'income'
   merchants: Merchant[]
   recurringItems: Recurring[]
   recurringEnabled?: boolean
@@ -74,6 +75,7 @@ export function BudgetLineSheet({
   open,
   onClose,
   category,
+  kind,
   merchants,
   recurringItems,
   recurringEnabled = false,
@@ -104,10 +106,10 @@ export function BudgetLineSheet({
 
   const recurringSelectOptions = useMemo(
     () => recurringItems
-      .filter((r) => r.kind === category?.kind && r.categoryId === category?.id)
+      .filter((r) => r.kind === kind && r.categoryId === category?.id)
       .sort((a, b) => a.name.localeCompare(b.name))
       .map((r) => ({ value: r.id, label: r.name })),
-    [recurringItems, category],
+    [recurringItems, category, kind],
   )
 
   // Only reseed the other fields from the picked template when creating a brand-new line —

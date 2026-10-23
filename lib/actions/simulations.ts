@@ -37,28 +37,37 @@ const simLineUpdateSchema = z.object({
 
 /**
  * Adds an amount-0 line for every active category not yet represented in the
- * simulation (matching the kind), so new and duplicated simulations list all
- * active categories the way the budget does. Idempotent.
+ * simulation, once per kind its transactions use (expense when it has none yet),
+ * so new and duplicated simulations list all active categories. Idempotent.
  */
 export async function seedZeroCategoryLines(simulationId: string): Promise<void> {
   parse(zId, simulationId)
   // One transaction so a double-submit (or concurrent populateSimulationFromInputs)
   // can't both read "no lines yet" and both insert the placeholder set.
   await db.transaction(async (tx) => {
-    const [existing, activeCats] = await Promise.all([
+    const [existing, activeCats, usedKinds] = await Promise.all([
       tx.select({ kind: simulationLines.kind, categoryId: simulationLines.categoryId })
         .from(simulationLines)
         .where(eq(simulationLines.simulationId, simulationId)),
       tx.select().from(categories).where(eq(categories.isActive, 1)),
+      tx.selectDistinct({ categoryId: transactions.categoryId, kind: transactions.kind })
+        .from(transactions)
+        .where(inArray(transactions.kind, ['expense', 'income'])),
     ])
     const present = new Set(existing.map((l) => `${l.kind}:${l.categoryId ?? ''}`))
+    const kindsByCat = new Map<string, ('expense' | 'income')[]>()
+    for (const u of usedKinds) {
+      if (u.categoryId) kindsByCat.set(u.categoryId, [...(kindsByCat.get(u.categoryId) ?? []), u.kind as 'expense' | 'income'])
+    }
     const rows = activeCats
-      .filter((c) => c.isSavings !== 1 && !present.has(`${c.kind}:${c.id}`))
-      .map((c) => ({
+      .filter((c) => c.isSavings !== 1)
+      .flatMap((c) => (kindsByCat.get(c.id) ?? ['expense' as const]).map((kind) => ({ c, kind })))
+      .filter(({ c, kind }) => !present.has(`${kind}:${c.id}`))
+      .map(({ c, kind }) => ({
         id: nanoid(),
         simulationId,
         name: null,
-        kind: c.kind,
+        kind,
         categoryId: c.id,
         merchantId: null,
         amount: 0,

@@ -361,7 +361,7 @@ export function budgetCategoryMonthly(
 export type RatioState = 'under' | 'near' | 'atOrOver'
 
 export function ratioState(actual: number, budgeted: number, threshold: number): RatioState {
-  if (budgeted > 0 && actual > budgeted) return 'atOrOver'
+  if (actual > budgeted) return 'atOrOver'
   if (budgeted > 0 && actual > budgeted * threshold) return 'near'
   return 'under'
 }
@@ -407,8 +407,7 @@ export function monthBudgetComparison(
   const sumTxns = (kind: 'expense' | 'income') =>
     monthTxns.reduce((s, t) => (t.kind === kind ? s + Number(t.amount ?? 0) : s), 0)
 
-  const expenseCats = categories.filter((c) => c.kind === 'expense')
-  const cats: MonthBudgetCategory[] = expenseCats
+  const cats: MonthBudgetCategory[] = categories
     .map((category) => {
       const catLines = lines.filter((l) => l.categoryId === category.id && l.kind === 'expense')
       const catTxns = monthTxns.filter((t) => t.categoryId === category.id && t.kind === 'expense')
@@ -486,6 +485,11 @@ export type BudgetActualTxn = {
 
 export type BudgetLineTier = 'recurring' | 'merchant' | 'category'
 
+const BUDGET_KINDS = ['expense', 'income'] as const
+
+/** Budgets track each category separately for expenses and for income. */
+const budgetSlotKey = (kind: 'expense' | 'income', categoryId: string) => `${kind}:${categoryId}`
+
 export interface BudgetLineActual {
   line: BudgetLineLite
   tier: BudgetLineTier
@@ -498,6 +502,7 @@ export interface BudgetLineActual {
 
 export interface BudgetWaterfallCategory {
   category: Category
+  kind: 'expense' | 'income'
   budgeted: number
   actual: number
   status: RatioState
@@ -564,9 +569,9 @@ function budgetWaterfallForFrequency(
   let deferredIncome = 0
 
   const cats: BudgetWaterfallCategory[] = categories
-    .map((category) => {
-      const catLines = lines.filter((l) => l.categoryId === category.id)
-      const catPool = pool.filter((t) => t.categoryId === category.id && t.kind === category.kind)
+    .flatMap((category) => BUDGET_KINDS.map((kind) => {
+      const catLines = lines.filter((l) => l.categoryId === category.id && l.kind === kind)
+      const catPool = pool.filter((t) => t.categoryId === category.id && t.kind === kind)
 
       const lineResults: BudgetLineActual[] = []
       const movements: BudgetActualTxn[] = []
@@ -599,14 +604,14 @@ function budgetWaterfallForFrequency(
 
       // Tier 3 — category/generic, whatever's left; ambiguous when 0 or 2+ such lines.
       const genericLines = catLines.filter((l) => !l.sourceRecurringId && !l.merchantId)
-      const deferToYearly = deferGenericCategories.has(category.id) && remaining.length > 0
+      const deferToYearly = deferGenericCategories.has(budgetSlotKey(kind, category.id)) && remaining.length > 0
       const needsOtherLine = !deferToYearly && genericLines.length === 0 && remaining.length > 0
       let deferredAmount = 0
       if (deferToYearly) {
         // A single unambiguous yearly generic line exists for this category — leave `remaining`
         // unclaimed so it flows through to the yearly pool instead of this (monthly) frequency.
         deferredAmount = remaining.reduce((s, t) => s + Number(t.amount ?? 0), 0)
-        if (category.kind === 'expense') deferredExpense += deferredAmount
+        if (kind === 'expense') deferredExpense += deferredAmount
         else deferredIncome += deferredAmount
         for (const line of genericLines) {
           lineResults.push({ line, tier: 'category', budgeted: Number(line.amount ?? 0), actual: genericLines.length === 1 ? 0 : null, movements: [] })
@@ -630,14 +635,15 @@ function budgetWaterfallForFrequency(
       const actual = tier1Total + catPool.reduce((s, t) => s + Number(t.amount ?? 0), 0) - deferredAmount
       return {
         category,
+        kind,
         budgeted,
         actual,
-        status: ratioState(actual, budgeted, category.kind === 'income' ? thresholds.income : thresholds.expense),
+        status: ratioState(actual, budgeted, thresholds[kind]),
         lines: lineResults,
         needsOtherLine,
         movements: movements.sort((a, b) => b.date.localeCompare(a.date)),
       }
-    })
+    }))
     .filter((c) => c.budgeted > 0 || c.actual > 0)
     .sort((a, b) => b.budgeted - a.budgeted)
 
@@ -675,9 +681,9 @@ function claimPastMonthsForMonthlyLines(
   deferGenericCategories: Set<string>,
 ): Set<string> {
   const claimedTxnIds = new Set<string>()
-  for (const category of categories) {
-    const catLines = monthlyLines.filter((l) => l.categoryId === category.id)
-    let remaining = pastMonthsPool.filter((t) => t.categoryId === category.id && t.kind === category.kind)
+  for (const category of categories) for (const kind of BUDGET_KINDS) {
+    const catLines = monthlyLines.filter((l) => l.categoryId === category.id && l.kind === kind)
+    let remaining = pastMonthsPool.filter((t) => t.categoryId === category.id && t.kind === kind)
 
     for (const line of catLines.filter((l) => !l.sourceRecurringId && l.merchantId)) {
       const matches = remaining.filter((t) => t.merchantId === line.merchantId)
@@ -686,7 +692,7 @@ function claimPastMonthsForMonthlyLines(
     }
 
     const genericLines = catLines.filter((l) => !l.sourceRecurringId && !l.merchantId)
-    if (genericLines.length > 0 && !deferGenericCategories.has(category.id)) {
+    if (genericLines.length > 0 && !deferGenericCategories.has(budgetSlotKey(kind, category.id))) {
       remaining.forEach((t) => claimedTxnIds.add(t.id))
     }
   }
@@ -728,10 +734,11 @@ export function budgetWaterfall(
   const yearlyGenericCounts = new Map<string, number>()
   for (const l of yearlyLines) {
     if (l.sourceRecurringId || l.merchantId) continue
-    yearlyGenericCounts.set(l.categoryId, (yearlyGenericCounts.get(l.categoryId) ?? 0) + 1)
+    const key = budgetSlotKey(l.kind, l.categoryId)
+    yearlyGenericCounts.set(key, (yearlyGenericCounts.get(key) ?? 0) + 1)
   }
   const deferGenericCategories = new Set(
-    [...yearlyGenericCounts].filter(([, count]) => count === 1).map(([categoryId]) => categoryId),
+    [...yearlyGenericCounts].filter(([, count]) => count === 1).map(([key]) => key),
   )
 
   const { byLineId: tier1ByLineId, claimedIds: tier1ClaimedIds } = claimByRecurringIdentity(lines, txns)
@@ -763,6 +770,47 @@ export function budgetWaterfall(
     budgetWaterfallForFrequency(yearlyLines, yearlyPool, categories, tier1ByLineId, startMonth, currentMonth, new Set(), thresholds)
 
   return { monthly, yearly }
+}
+
+/** Actual income minus actual expenses from `startMonth` through `currentMonth` (inclusive). */
+export function balanceToDate(
+  txns: BudgetActualTxn[],
+  startMonth: string,
+  currentMonth: string,
+): { income: number; expense: number; balance: number } {
+  let income = 0
+  let expense = 0
+  for (const t of txns) {
+    const m = t.date.slice(0, 7)
+    if (m < startMonth || m > currentMonth) continue
+    if (t.kind === 'income') income += t.amount
+    else expense += t.amount
+  }
+  return { income, expense, balance: income - expense }
+}
+
+/** Planned income and expenses from tomorrow to the end of `currentMonth`: future-dated
+ *  transactions plus this month's recurring instances still 'expected' (no transaction yet). */
+export function plannedToMonthEnd(
+  plannedTxns: { amount: number; kind: 'expense' | 'income' }[],
+  recurring: Recurring[],
+  instances: RecurringInstance[],
+  currentMonth: string,
+): { income: number; expense: number } {
+  const recurringById = new Map(recurring.map((r) => [r.id, r]))
+  const items = [...plannedTxns]
+  for (const i of instances) {
+    if (i.month !== currentMonth || i.status !== 'expected') continue
+    const r = recurringById.get(i.recurringId)
+    if (r && (r.kind === 'expense' || r.kind === 'income')) items.push({ amount: Number(r.amount), kind: r.kind })
+  }
+  let income = 0
+  let expense = 0
+  for (const t of items) {
+    if (t.kind === 'income') income += t.amount
+    else expense += t.amount
+  }
+  return { income, expense }
 }
 
 /** Sum of budget-linked recurring amounts (lines with `sourceRecurringId` set, of the given
@@ -1209,20 +1257,11 @@ export function simulationVsActualsMonthly(
 
 // ---- select helpers ----
 
-export function buildCategorySelectOptions(
-  cats: Category[],
-): { value: string; label: string; group: string }[] {
-  const active = cats.filter((c) => c.isActive === 1 && c.isSavings !== 1)
-  return [
-    ...active
-      .filter((c) => c.kind === 'expense')
-      .sort((a, b) => a.name.localeCompare(b.name))
-      .map((c) => ({ value: c.id, label: c.name, group: 'Expenses' })),
-    ...active
-      .filter((c) => c.kind === 'income')
-      .sort((a, b) => a.name.localeCompare(b.name))
-      .map((c) => ({ value: c.id, label: c.name, group: 'Income' })),
-  ]
+export function buildCategorySelectOptions(cats: Category[]): { value: string; label: string }[] {
+  return cats
+    .filter((c) => c.isActive === 1 && c.isSavings !== 1)
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((c) => ({ value: c.id, label: c.name }))
 }
 
 // ---- formatting ----

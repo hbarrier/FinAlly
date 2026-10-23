@@ -276,7 +276,6 @@ export async function updateTransactionWithRecurringAmountOption(
         recurringId: transactions.recurringId,
         categoryId: transactions.categoryId,
         categoryName: categories.name,
-        categoryKind: categories.kind,
         reimbursable: transactions.reimbursable,
       })
       .from(transactions)
@@ -315,7 +314,7 @@ export async function updateTransactionWithRecurringAmountOption(
 
     const nextCategory = nextCategoryId
       ? await tx
-          .select({ name: categories.name, kind: categories.kind })
+          .select({ name: categories.name })
           .from(categories)
           .where(eq(categories.id, nextCategoryId))
           .limit(1)
@@ -323,11 +322,9 @@ export async function updateTransactionWithRecurringAmountOption(
 
     const wasReimbursementIncome =
       existing.kind === 'income' &&
-      existing.categoryKind === 'income' &&
       existing.categoryName === REIMBURSEMENT_CATEGORY_NAME
     const willBeReimbursementIncome =
       nextKind === 'income' &&
-      nextCategory[0]?.kind === 'income' &&
       nextCategory[0]?.name === REIMBURSEMENT_CATEGORY_NAME
 
     const wasReimbursableExpense = existing.kind === 'expense' && existing.reimbursable === 1

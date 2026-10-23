@@ -24,3 +24,6 @@ export const DEFAULT_BUDGET_COLORS: BudgetColorSettings = {
   expense: { threshold: 0.8, colors: { under: 'sage', near: 'butter', atOrOver: 'rose' } },
   income: { threshold: 0.8, colors: { under: 'rose', near: 'butter', atOrOver: 'sage' } },
 }
+
+/** Cookie holding the budget page's chosen starting month (`YYYY-MM`). */
+export const BUDGET_START_MONTH_COOKIE = 'budget-start-month'

@@ -139,10 +139,10 @@ export function RecurringSheet({ open, onClose, categories, merchants, savingAcc
 
   const categoryOptions = useMemo(
     () => categories
-      .filter((c) => c.kind === watchedKind && c.isSavings !== 1)
+      .filter((c) => c.isSavings !== 1)
       .sort((a, b) => a.name.localeCompare(b.name))
       .map((c) => ({ value: c.id, label: c.name })),
-    [categories, watchedKind],
+    [categories],
   )
 
   const merchantOptions = useMemo(
@@ -207,9 +207,6 @@ export function RecurringSheet({ open, onClose, categories, merchants, savingAcc
                 if (currentMethod === defaultPaymentMethodForKind('income')) {
                   setValue('method', defaultPaymentMethodForKind('expense'))
                 }
-                const current = watch('categoryId')
-                const stillValid = categories.find((c) => c.kind === 'expense' && c.id === current)
-                if (!stillValid) setValue('categoryId', '')
               }}
             >
               <Icon name="arrowDown" size={14} /> Expense
@@ -224,9 +221,6 @@ export function RecurringSheet({ open, onClose, categories, merchants, savingAcc
                 if (currentMethod === defaultPaymentMethodForKind('expense')) {
                   setValue('method', defaultPaymentMethodForKind('income'))
                 }
-                const current = watch('categoryId')
-                const stillValid = categories.find((c) => c.kind === 'income' && c.id === current)
-                if (!stillValid) setValue('categoryId', '')
               }}
             >
               <Icon name="arrowUp" size={14} /> Income

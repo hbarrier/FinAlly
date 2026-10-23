@@ -164,7 +164,7 @@ export default async function TransactionsPage({
 
   const reimbursementCategoryIds = new Set(
     cats
-      .filter((c) => c.kind === 'income' && c.name === REIMBURSEMENT_CATEGORY_NAME)
+      .filter((c) => c.name === REIMBURSEMENT_CATEGORY_NAME)
       .map((c) => c.id),
   )
   const { allocationsByReimbursementTxId, allocationsByExpenseTxId } =
