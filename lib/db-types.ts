@@ -19,6 +19,9 @@ import type {
   reimbursementClaims,
   reimbursementClaimAllocations,
   taxAllocations,
+  divorceSplitEntries,
+  divorceSplitSettings,
+  divorceSplitRentMonths,
   simulations,
   simulationLines,
   groups,
@@ -75,6 +78,10 @@ export type RecurringCadence = Recurring['cadence']
 
 export type TaxAllocation = InferSelectModel<typeof taxAllocations>
 export type TaxAllocationValue = TaxAllocation['allocation']
+
+export type DivorceSplitEntry = InferSelectModel<typeof divorceSplitEntries>
+export type DivorceSplitSettings = InferSelectModel<typeof divorceSplitSettings>
+export type DivorceSplitRentMonth = InferSelectModel<typeof divorceSplitRentMonths>
 
 export type Simulation = InferSelectModel<typeof simulations>
 export type SimulationLine = InferSelectModel<typeof simulationLines>

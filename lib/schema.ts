@@ -402,6 +402,44 @@ export const taxAllocations = sqliteTable('tax_allocations', {
     .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
 })
 
+// --- divorce cost-split entries (manual ledger: me / Audrey / Vincent) ---
+export const divorceSplitEntries = sqliteTable(
+  'divorce_split_entries',
+  {
+    id: text('id').primaryKey(),
+    date: text('date').notNull(),
+    type: text('type', { enum: ['expense', 'income', 'payment'] }).notNull(),
+    person: text('person', { enum: ['me', 'audrey', 'vincent'] }).notNull(),
+    amount: real('amount').notNull(),
+    myPercent: real('my_percent'), // null for payments
+    description: text('description'),
+    vincentPaid: int('vincent_paid').notNull().default(0), // 1 = Vincent paid Audrey his share
+    mePaid: int('me_paid').notNull().default(0), // 1 = I paid Audrey my share
+    createdAt: text('created_at')
+      .notNull()
+      .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
+  },
+  (t) => [index('divorce_split_entries_date_idx').on(t.date)],
+)
+
+// --- divorce cost-split settings (single row, id = 1) ---
+export const divorceSplitSettings = sqliteTable('divorce_split_settings', {
+  id: int('id').primaryKey(),
+  rent: real('rent').notNull(),
+  apl: real('apl').notNull(),
+  myPercent: real('my_percent').notNull(),
+  startMonth: text('start_month').notNull(), // YYYY-MM, first month with rent
+})
+
+// --- divorce cost-split rent months (override + settled flags; absent = defaults, unpaid) ---
+export const divorceSplitRentMonths = sqliteTable('divorce_split_rent_months', {
+  month: text('month').primaryKey(), // YYYY-MM
+  rent: real('rent'),
+  apl: real('apl'),
+  vincentPaid: int('vincent_paid').notNull().default(0),
+  audreyPaid: int('audrey_paid').notNull().default(0),
+})
+
 // --- reimbursement claims (one per month, tracks claim date + settlement) ---
 export const reimbursementClaims = sqliteTable(
   'reimbursement_claims',

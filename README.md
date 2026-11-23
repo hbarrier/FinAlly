@@ -50,7 +50,7 @@ file. Leave `DATABASE_URL` unset to use `finance.db` in the project root.
 npm run dev
 ```
 
-Open <http://localhost:3000>. On first boot the app:
+Open <http://localhost:3737>. On first boot the app:
 
 - seeds `user_settings` and a set of default categories, then
 - redirects to a short onboarding form — your name, currency, starting balance,

@@ -36,6 +36,7 @@ const NAV: NavSection[] = [
     items: [
       { href: '/reimbursements', labelKey: 'reimbursements', icon: 'receipt', module: 'divorce' },
       { href: '/tax-status', labelKey: 'taxStatus', icon: 'fileText', module: 'divorce' },
+      { href: '/cost-split', labelKey: 'costSplit', icon: 'users', module: 'divorce' },
     ],
   },
   {
