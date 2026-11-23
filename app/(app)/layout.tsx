@@ -8,6 +8,8 @@ import { listSavingAccounts } from '@/lib/queries/saving-accounts'
 import { ensureInstancesUpTo, currentMonth } from '@/lib/recurring-instances'
 import styles from './layout.module.css'
 
+export const dynamic = 'force-dynamic'
+
 export default async function AppLayout({
   children,
 }: {

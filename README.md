@@ -64,6 +64,70 @@ npm run build
 npm run start
 ```
 
+### Run as a Mac app (optional)
+
+The app is a PWA, so it can be installed as a standalone app with its own window
+and Dock icon. The app only works while the server runs, so first set up the
+background server, then install the app.
+
+**1. Keep the server running.** A launchd job runs the production server on
+port 3737 from login onwards and restarts it if it stops:
+
+```bash
+npm run build
+sed "s|__REPO__|$PWD|g" launchd/com.finances.app.plist \
+  > ~/Library/LaunchAgents/com.finances.app.plist
+launchctl load -w ~/Library/LaunchAgents/com.finances.app.plist
+```
+
+Logs go to `.next/app.log`.
+
+To update to a new version, pull the code, install dependencies, apply any new
+migrations (a backup of `finance.db` is taken first), then rebuild and restart:
+
+```bash
+git pull
+npm install
+npm run db:migrate
+npm run build && launchctl kickstart -k gui/$(id -u)/com.finances.app
+```
+
+After editing the code locally, only the last line is needed. The installed app
+picks up the new version on its next reload (Cmd+R); there is nothing to
+reinstall.
+
+`npm run dev` needs port 3737 too, so stop the job before developing. To stop
+the server and turn auto-start off (run the `load` command above to turn it back
+on):
+
+```bash
+launchctl unload -w ~/Library/LaunchAgents/com.finances.app.plist
+```
+
+**2. Install the app.** Open <http://localhost:3737>, then either:
+
+- Chrome: click the install icon at the right of the address bar (or menu >
+  Cast, save and share > Install page as app).
+- Safari: File > Add to Dock.
+
+**3. Add it to the Dock.** Safari adds it to the Dock for you. For Chrome, open
+the app, right-click its Dock icon, and choose Options > Keep in Dock. It is also
+in Launchpad and Spotlight under "FinAlly".
+
+**4. Uninstall.**
+
+- Chrome: in the app window, open the menu (top right) > Uninstall FinAlly.
+- Safari: drag FinAlly from `~/Applications` to the Bin.
+- Remove the Dock icon by dragging it off the Dock.
+- Remove the background server as well:
+
+  ```bash
+  launchctl unload -w ~/Library/LaunchAgents/com.finances.app.plist
+  rm ~/Library/LaunchAgents/com.finances.app.plist
+  ```
+
+Uninstalling the app never touches your data, which stays in `finance.db`.
+
 ## Database workflow
 
 Migrations live in `drizzle/` as SQL files plus snapshots. `drizzle/0000_*.sql` is
